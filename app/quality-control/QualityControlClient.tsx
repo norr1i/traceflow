@@ -118,7 +118,7 @@ export default function QualityControlClient() {
     setShowForm(true)
   }
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
     setSaving(true)
     setFormError(null)

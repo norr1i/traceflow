@@ -58,7 +58,7 @@ export default function ProductsClient() {
     setFormError(null)
   }
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
     setSaving(true)
     setFormError(null)

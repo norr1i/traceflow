@@ -58,7 +58,7 @@ export default function RawMaterialsClient() {
     setShowForm(false); setFormError(null)
   }
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault(); setSaving(true); setFormError(null)
     const payload = {
       name: form.name,

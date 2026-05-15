@@ -15,7 +15,7 @@ export default function SignupPage() {
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState<string | null>(null)
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
     if (password !== confirm) { setError('Passwords do not match.'); return }
     if (password.length < 6)  { setError('Password must be at least 6 characters.'); return }

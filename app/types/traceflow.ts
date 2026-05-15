@@ -46,6 +46,17 @@ export type BomUsage = {
   created_at: string
 }
 
+export type BomEntry = {
+  id: string
+  user_id: string
+  production_order_id: string
+  material_name: string
+  lot_number?: string | null
+  quantity: number
+  unit: string
+  created_at: string
+}
+
 export type QcResult = {
   id: string
   production_order_id: string

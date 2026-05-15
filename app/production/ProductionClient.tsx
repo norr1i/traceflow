@@ -3,33 +3,48 @@
 import { useState, useEffect, useRef } from 'react'
 import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react'
 import { supabase } from '../lib/supabase'
-import type { ProductionOrder } from '../types/traceflow'
+import type { ProductionOrder, BomEntry } from '../types/traceflow'
 import StatusBadge from '../components/StatusBadge'
 import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
-import { Plus, Pencil, Trash2, X, Check, AlertTriangle, ClipboardList, QrCode, Copy, Download, ExternalLink } from 'lucide-react'
+import {
+  Plus, Pencil, Trash2, X, Check, AlertTriangle, ClipboardList,
+  QrCode, Copy, Download, ExternalLink, Layers,
+} from 'lucide-react'
 
 type OrderWithProduct = ProductionOrder & { products?: { name: string } | null }
 type SimpleProduct = { id: string; name: string }
 
-const empty = { product_id: '', quantity: 1, status: 'pending' as ProductionOrder['status'] }
+const emptyOrder = { product_id: '', quantity: 1, status: 'pending' as ProductionOrder['status'] }
 const statuses: ProductionOrder['status'][] = ['pending', 'in_progress', 'completed', 'cancelled']
+const emptyBom = { material_name: '', lot_number: '', quantity: '', unit: '' }
 
 export default function ProductionClient() {
   const toast   = useToast()
   const confirm = useConfirm()
 
+  // ── Order list state ────────────────────────────────────────────────────
   const [orders, setOrders]       = useState<OrderWithProduct[]>([])
   const [products, setProducts]   = useState<SimpleProduct[]>([])
   const [loading, setLoading]     = useState(true)
   const [showForm, setShowForm]   = useState(false)
   const [editing, setEditing]     = useState<OrderWithProduct | null>(null)
-  const [form, setForm]           = useState(empty)
+  const [form, setForm]           = useState(emptyOrder)
   const [saving, setSaving]       = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
-  const [qrOrder, setQrOrder]     = useState<OrderWithProduct | null>(null)
-  const qrDlRef                   = useRef<HTMLDivElement>(null)
 
+  // ── QR state ────────────────────────────────────────────────────────────
+  const [qrOrder, setQrOrder] = useState<OrderWithProduct | null>(null)
+  const qrDlRef               = useRef<HTMLDivElement>(null)
+
+  // ── BOM state ───────────────────────────────────────────────────────────
+  const [materialsOrder, setMaterialsOrder] = useState<OrderWithProduct | null>(null)
+  const [bomEntries, setBomEntries]         = useState<BomEntry[]>([])
+  const [bomLoading, setBomLoading]         = useState(false)
+  const [bomSaving, setBomSaving]           = useState(false)
+  const [bomForm, setBomForm]               = useState(emptyBom)
+
+  // ── Fetch orders + products ─────────────────────────────────────────────
   useEffect(() => {
     Promise.all([
       supabase.from('production_orders').select('*, products(name)').order('created_at', { ascending: false }),
@@ -41,6 +56,19 @@ export default function ProductionClient() {
     })
   }, [])
 
+  // ── Fetch BOM entries when a materials modal is opened ──────────────────
+  // setBomLoading(true) is called in the click handler so the effect body
+  // contains only the async .then() callback — satisfies react-hooks/set-state-in-effect
+  useEffect(() => {
+    if (!materialsOrder) return
+    supabase
+      .from('bill_of_materials')
+      .select('*')
+      .eq('production_order_id', materialsOrder.id)
+      .order('created_at', { ascending: true })
+      .then(({ data }) => { setBomEntries(data ?? []); setBomLoading(false) })
+  }, [materialsOrder])
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -51,9 +79,11 @@ export default function ProductionClient() {
     )
   }
 
+  // ── Order CRUD ──────────────────────────────────────────────────────────
+
   function openCreate() {
     setEditing(null)
-    setForm({ ...empty, product_id: products[0]?.id ?? '' })
+    setForm({ ...emptyOrder, product_id: products[0]?.id ?? '' })
     setFormError(null); setShowForm(true)
   }
 
@@ -63,63 +93,31 @@ export default function ProductionClient() {
     setFormError(null); setShowForm(true)
   }
 
-  function closeForm() {
-    setShowForm(false); setFormError(null)
-  }
+  function closeForm() { setShowForm(false); setFormError(null) }
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault(); setSaving(true); setFormError(null)
     const payload = {
       product_id: form.product_id,
       quantity: Number(form.quantity),
       status: form.status,
     }
-
     if (editing) {
       const { data, error: err } = await supabase
         .from('production_orders').update(payload).eq('id', editing.id)
         .select('*, products(name)').single()
-      if (err) {
-        setFormError(err.message)
-        toast.error('Failed to update order')
-        setSaving(false)
-        return
-      }
+      if (err) { setFormError(err.message); toast.error('Failed to update order'); setSaving(false); return }
       setOrders((prev) => prev.map((o) => (o.id === editing.id ? data : o)))
       toast.success('Order updated')
     } else {
       const { data, error: err } = await supabase
         .from('production_orders').insert([payload])
         .select('*, products(name)').single()
-      if (err) {
-        setFormError(err.message)
-        toast.error('Failed to create order')
-        setSaving(false)
-        return
-      }
+      if (err) { setFormError(err.message); toast.error('Failed to create order'); setSaving(false); return }
       setOrders((prev) => [data, ...prev])
       toast.success('Order created')
     }
-
     setSaving(false); setShowForm(false)
-  }
-
-  function handleDownloadQR() {
-    const canvas = qrDlRef.current?.querySelector('canvas')
-    if (!canvas || !qrOrder) return
-    const url = canvas.toDataURL('image/png')
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `trace-${qrOrder.id.slice(0, 8)}.png`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-  }
-
-  function handleCopyLink() {
-    if (!qrOrder) return
-    navigator.clipboard?.writeText(`${window.location.origin}/trace/${qrOrder.id}`)
-    toast.success('Link copied to clipboard')
   }
 
   async function handleDelete(id: string) {
@@ -129,15 +127,61 @@ export default function ProductionClient() {
       confirmLabel: 'Delete',
     })
     if (!ok) return
-
     const { error: err } = await supabase.from('production_orders').delete().eq('id', id)
-    if (err) {
-      toast.error(err.message)
-      return
-    }
+    if (err) { toast.error(err.message); return }
     setOrders((prev) => prev.filter((o) => o.id !== id))
     toast.success('Order deleted')
   }
+
+  // ── QR ──────────────────────────────────────────────────────────────────
+
+  function handleDownloadQR() {
+    const canvas = qrDlRef.current?.querySelector('canvas')
+    if (!canvas || !qrOrder) return
+    const url = canvas.toDataURL('image/png')
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `trace-${qrOrder.id.slice(0, 8)}.png`
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
+  }
+
+  function handleCopyLink() {
+    if (!qrOrder) return
+    navigator.clipboard?.writeText(`${window.location.origin}/trace/${qrOrder.id}`)
+    toast.success('Link copied to clipboard')
+  }
+
+  // ── BOM ─────────────────────────────────────────────────────────────────
+
+  async function addMaterial(e: React.SyntheticEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (!materialsOrder) return
+    setBomSaving(true)
+    const { data, error: err } = await supabase
+      .from('bill_of_materials')
+      .insert([{
+        production_order_id: materialsOrder.id,
+        material_name: bomForm.material_name.trim(),
+        lot_number: bomForm.lot_number.trim() || null,
+        quantity: Number(bomForm.quantity),
+        unit: bomForm.unit.trim(),
+      }])
+      .select('*')
+      .single()
+    setBomSaving(false)
+    if (err) { toast.error(err.message); return }
+    setBomEntries((prev) => [...prev, data as BomEntry])
+    setBomForm(emptyBom)
+    toast.success('Material added')
+  }
+
+  async function deleteMaterial(id: string) {
+    const { error: err } = await supabase.from('bill_of_materials').delete().eq('id', id)
+    if (err) { toast.error(err.message); return }
+    setBomEntries((prev) => prev.filter((e) => e.id !== id))
+  }
+
+  // ── Render ──────────────────────────────────────────────────────────────
 
   return (
     <>
@@ -153,7 +197,7 @@ export default function ProductionClient() {
         </button>
       </div>
 
-      {/* Modal */}
+      {/* Order create / edit modal */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="w-full max-w-md rounded-2xl bg-white dark:bg-gray-800 p-6 shadow-xl">
@@ -165,7 +209,6 @@ export default function ProductionClient() {
                 <X size={20} />
               </button>
             </div>
-
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Product</label>
@@ -184,9 +227,7 @@ export default function ProductionClient() {
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Quantity</label>
                 <input
-                  required
-                  type="number"
-                  min={1}
+                  required type="number" min={1}
                   value={form.quantity}
                   onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })}
                   className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -199,32 +240,21 @@ export default function ProductionClient() {
                   onChange={(e) => setForm({ ...form, status: e.target.value as ProductionOrder['status'] })}
                   className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  {statuses.map((s) => (
-                    <option key={s} value={s}>{s.replace('_', ' ')}</option>
-                  ))}
+                  {statuses.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
                 </select>
               </div>
-
               {formError && (
                 <div className="flex items-center gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-3 py-2 text-sm text-red-700 dark:text-red-400">
-                  <AlertTriangle size={14} className="shrink-0" />
-                  {formError}
+                  <AlertTriangle size={14} className="shrink-0" />{formError}
                 </div>
               )}
-
               <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={closeForm}
-                  className="rounded-lg border border-gray-200 dark:border-gray-600 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                >
+                <button type="button" onClick={closeForm}
+                  className="rounded-lg border border-gray-200 dark:border-gray-600 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
-                >
+                <button type="submit" disabled={saving}
+                  className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60">
                   <Check size={15} /> {saving ? 'Saving…' : editing ? 'Update' : 'Create'}
                 </button>
               </div>
@@ -233,7 +263,7 @@ export default function ProductionClient() {
         </div>
       )}
 
-      {/* QR Modal */}
+      {/* QR modal */}
       {qrOrder && (() => {
         const traceUrl = `${window.location.origin}/trace/${qrOrder.id}`
         return (
@@ -245,42 +275,29 @@ export default function ProductionClient() {
                   <X size={20} />
                 </button>
               </div>
-
               <div className="flex flex-col items-center gap-4">
                 <div className="rounded-xl bg-white p-4 shadow-inner ring-1 ring-gray-100">
                   <QRCodeSVG value={traceUrl} size={192} level="H" marginSize={1} />
                 </div>
-
                 <div className="w-full text-center">
                   <p className="text-sm font-semibold text-gray-900 dark:text-white">{qrOrder.products?.name ?? '—'}</p>
                   <p className="mt-0.5 font-mono text-xs text-gray-400">{qrOrder.id}</p>
                 </div>
-
                 <div className="flex w-full gap-2">
-                  <button
-                    onClick={handleCopyLink}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                  >
+                  <button onClick={handleCopyLink}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                     <Copy size={13} /> Copy link
                   </button>
-                  <button
-                    onClick={handleDownloadQR}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                  >
+                  <button onClick={handleDownloadQR}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                     <Download size={13} /> Download
                   </button>
-                  <a
-                    href={`/trace/${qrOrder.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 transition-colors"
-                  >
+                  <a href={`/trace/${qrOrder.id}`} target="_blank" rel="noopener noreferrer"
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 transition-colors">
                     <ExternalLink size={13} /> Open
                   </a>
                 </div>
               </div>
-
-              {/* Hidden high-res canvas used only for PNG download */}
               <div ref={qrDlRef} className="hidden">
                 <QRCodeCanvas value={traceUrl} size={512} level="H" marginSize={4} />
               </div>
@@ -288,6 +305,126 @@ export default function ProductionClient() {
           </div>
         )
       })()}
+
+      {/* Materials (BOM) modal */}
+      {materialsOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="flex w-full max-w-lg flex-col rounded-2xl bg-white dark:bg-gray-800 shadow-xl" style={{ maxHeight: '90vh' }}>
+
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-gray-100 dark:border-gray-700 px-6 py-4">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white">Bill of Materials</h2>
+                <p className="mt-0.5 text-xs text-gray-400">{materialsOrder.products?.name} · {materialsOrder.id.slice(0, 8)}</p>
+              </div>
+              <button onClick={() => { setMaterialsOrder(null); setBomEntries([]) }} className="ml-4 mt-0.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Material list */}
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {bomLoading ? (
+                <div className="space-y-2">
+                  {[0, 1, 2].map((i) => <div key={i} className="h-9 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-700" />)}
+                </div>
+              ) : bomEntries.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10 text-gray-400 dark:text-gray-500">
+                  <Layers size={28} className="mb-2 opacity-40" />
+                  <p className="text-sm">No materials linked yet</p>
+                  <p className="mt-0.5 text-xs">Use the form below to add raw materials to this batch.</p>
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500">
+                      <th className="pb-2 text-left font-medium">Material</th>
+                      <th className="pb-2 text-left font-medium">Lot #</th>
+                      <th className="pb-2 text-right font-medium">Qty</th>
+                      <th className="pb-2 text-right font-medium">Unit</th>
+                      <th className="pb-2 text-right font-medium"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
+                    {bomEntries.map((entry) => (
+                      <tr key={entry.id} className="group">
+                        <td className="py-2.5 font-medium text-gray-900 dark:text-white">{entry.material_name}</td>
+                        <td className="py-2.5 font-mono text-xs text-gray-500 dark:text-gray-400">
+                          {entry.lot_number || <span className="text-gray-300 dark:text-gray-600">—</span>}
+                        </td>
+                        <td className="py-2.5 text-right text-gray-700 dark:text-gray-300">{entry.quantity}</td>
+                        <td className="py-2.5 text-right text-gray-500 dark:text-gray-400">{entry.unit}</td>
+                        <td className="py-2.5 text-right">
+                          <button
+                            onClick={() => deleteMaterial(entry.id)}
+                            className="rounded p-1 text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Add form */}
+            <div className="border-t border-gray-100 dark:border-gray-700 px-6 py-4">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-400">Add material</p>
+              <form onSubmit={addMaterial} className="space-y-2">
+                <input
+                  required
+                  placeholder="Material name"
+                  value={bomForm.material_name}
+                  onChange={(e) => setBomForm({ ...bomForm, material_name: e.target.value })}
+                  className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <div className="flex gap-2">
+                  <input
+                    placeholder="Lot # (optional)"
+                    value={bomForm.lot_number}
+                    onChange={(e) => setBomForm({ ...bomForm, lot_number: e.target.value })}
+                    className="flex-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <input
+                    required
+                    type="number"
+                    min="0.001"
+                    step="any"
+                    placeholder="Qty"
+                    value={bomForm.quantity}
+                    onChange={(e) => setBomForm({ ...bomForm, quantity: e.target.value })}
+                    className="w-24 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <input
+                    required
+                    list="bom-units"
+                    placeholder="Unit"
+                    value={bomForm.unit}
+                    onChange={(e) => setBomForm({ ...bomForm, unit: e.target.value })}
+                    className="w-24 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <datalist id="bom-units">
+                    {['kg', 'g', 'mg', 'L', 'mL', 'pcs', 'units', 'm', 'cm', 'mm'].map((u) => (
+                      <option key={u} value={u} />
+                    ))}
+                  </datalist>
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={bomSaving}
+                    className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60 transition-colors"
+                  >
+                    <Plus size={14} /> {bomSaving ? 'Adding…' : 'Add Material'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Table */}
       <div className="overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
@@ -319,6 +456,13 @@ export default function ProductionClient() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => { setBomLoading(true); setMaterialsOrder(o) }}
+                        className="rounded-lg p-1.5 text-gray-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+                        title="Manage materials"
+                      >
+                        <Layers size={15} />
+                      </button>
                       <button
                         onClick={() => setQrOrder(o)}
                         className="rounded-lg p-1.5 text-gray-400 hover:bg-purple-50 dark:hover:bg-purple-900/30 hover:text-purple-600 dark:hover:text-purple-400 transition-colors"

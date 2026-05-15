@@ -42,8 +42,10 @@ type QualityInspection = {
 
 type BomRow = {
   id: string
-  quantity_used: number
-  raw_materials: { name: string; unit: string } | null
+  material_name: string
+  lot_number?: string | null
+  quantity: number
+  unit: string
 }
 
 type SaleRow = {
@@ -121,7 +123,7 @@ export default function TracePage() {
       ] = await Promise.all([
         supabase.from('qc_results').select('*').eq('production_order_id', id),
         supabase.from('quality_inspections').select('*').eq('batch_id', id),
-        supabase.from('bom_usage').select('*, raw_materials(name, unit)').eq('production_order_id', id),
+        supabase.from('bill_of_materials').select('*').eq('production_order_id', id).order('created_at'),
         supabase.from('sales').select('*').eq('product_id', orderData.product_id).order('sold_at', { ascending: false }).limit(10),
       ])
 
@@ -242,22 +244,26 @@ export default function TracePage() {
 
         {/* Raw materials */}
         <SectionCard icon={<Layers size={15} />} title="Raw Materials Used">
-          {!hasBOM && <Empty text="No bill-of-materials entries for this batch." />}
+          {!hasBOM && <Empty text="No materials linked to this batch." />}
           {hasBOM && (
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-xs text-gray-400 dark:text-gray-500">
+                <tr className="border-b border-gray-100 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500">
                   <th className="pb-2 text-left font-medium">Material</th>
-                  <th className="pb-2 text-right font-medium">Quantity used</th>
+                  <th className="pb-2 text-left font-medium">Lot #</th>
+                  <th className="pb-2 text-right font-medium">Qty</th>
+                  <th className="pb-2 text-right font-medium">Unit</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
                 {materials.map((m) => (
                   <tr key={m.id}>
-                    <td className="py-1.5 text-gray-700 dark:text-gray-300">{m.raw_materials?.name ?? '—'}</td>
-                    <td className="py-1.5 text-right font-medium text-gray-900 dark:text-white">
-                      {m.quantity_used.toLocaleString()} {m.raw_materials?.unit ?? ''}
+                    <td className="py-2 font-medium text-gray-900 dark:text-white">{m.material_name}</td>
+                    <td className="py-2 font-mono text-xs text-gray-500 dark:text-gray-400">
+                      {m.lot_number || <span className="text-gray-300 dark:text-gray-600">—</span>}
                     </td>
+                    <td className="py-2 text-right text-gray-700 dark:text-gray-300">{m.quantity.toLocaleString()}</td>
+                    <td className="py-2 text-right text-gray-500 dark:text-gray-400">{m.unit}</td>
                   </tr>
                 ))}
               </tbody>
