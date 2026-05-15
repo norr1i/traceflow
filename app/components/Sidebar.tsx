@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Package,
   ClipboardList, ShieldCheck, ShoppingCart,
-  Menu, X, Boxes, Sun, Moon, LogOut,
+  Menu, X, Boxes, Sun, Moon, LogOut, AlertTriangle,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '../lib/auth-context'
@@ -18,6 +18,7 @@ const nav = [
   { label: 'Production Orders', href: '/production',      icon: ClipboardList },
   { label: 'Quality Control',   href: '/quality-control', icon: ShieldCheck },
   { label: 'Sales',             href: '/sales',           icon: ShoppingCart },
+  { label: 'Recall',            href: '/recall',          icon: AlertTriangle },
 ]
 
 export default function Sidebar() {
