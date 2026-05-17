@@ -34,7 +34,9 @@ export default function Sidebar() {
   const pathname = usePathname()
   const router   = useRouter()
   const { user, role } = useAuth()
-  const visibleNav = nav.filter(item => !role || item.roles.includes(role))
+  // Show nothing while role is unknown — avoids flashing the full nav
+  // before the role fetch completes.
+  const visibleNav = role ? nav.filter(item => item.roles.includes(role)) : []
 
   const [open, setOpen] = useState(false)
   const [dark, setDark] = useState(() =>
