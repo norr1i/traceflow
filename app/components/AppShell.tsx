@@ -28,7 +28,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const isAuthOnlyPage = pathname === '/login' || pathname === '/signup'
   // /trace/* is publicly accessible — no auth required, no redirect either way
   const isTracePage = pathname.startsWith('/trace/')
-  const isPublic = isAuthOnlyPage || isTracePage
+  // /verify-email is public — unauthenticated users need it after signup
+  const isVerifyPage = pathname === '/verify-email'
+  const isPublic = isAuthOnlyPage || isTracePage || isVerifyPage
 
   useEffect(() => {
     if (loading) return

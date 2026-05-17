@@ -6,6 +6,20 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import { Eye, EyeOff, AlertCircle, Loader2 } from 'lucide-react'
 
+function friendlyAuthError(raw: string): string {
+  if (raw.includes('Invalid login credentials'))
+    return 'Wrong email or password. Please check and try again.'
+  if (raw.includes('Email not confirmed'))
+    return 'Your email address has not been verified yet.'
+  if (raw.includes('User not found') || raw.includes('No user found'))
+    return 'No account found with this email address. Try creating one.'
+  if (raw.includes('rate limit') || raw.includes('over_email_send_rate_limit'))
+    return 'Too many attempts. Please wait a few minutes before trying again.'
+  if (raw.includes('Token has expired') || raw.includes('token is expired'))
+    return 'Your confirmation link has expired. Request a new one below.'
+  return raw
+}
+
 export default function LoginPage() {
   const router = useRouter()
   const [email, setEmail]       = useState('')
@@ -13,17 +27,23 @@ export default function LoginPage() {
   const [showPw, setShowPw]     = useState(false)
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState<string | null>(null)
+  const [rawError, setRawError] = useState('')
+
+  const needsVerification = rawError.includes('Email not confirmed')
 
   async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (loading) return
     setLoading(true)
     setError(null)
+    setRawError('')
 
     const { error: err } = await supabase.auth.signInWithPassword({ email, password })
     setLoading(false)
 
     if (err) {
-      setError(err.message)
+      setRawError(err.message)
+      setError(friendlyAuthError(err.message))
       return
     }
 
@@ -53,9 +73,19 @@ export default function LoginPage() {
 
             {/* Error banner */}
             {error && (
-              <div className="flex items-start gap-2.5 rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-400">
-                <AlertCircle size={16} className="mt-0.5 shrink-0" />
-                {error}
+              <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+                <div className="flex items-start gap-2.5">
+                  <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                  <span>{error}</span>
+                </div>
+                {needsVerification && (
+                  <Link
+                    href={`/verify-email?email=${encodeURIComponent(email)}`}
+                    className="mt-2 block font-medium underline underline-offset-2"
+                  >
+                    Resend confirmation email →
+                  </Link>
+                )}
               </div>
             )}
 
@@ -77,11 +107,9 @@ export default function LoginPage() {
 
             {/* Password */}
             <div>
-              <div className="mb-1.5 flex items-center justify-between">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Password
-                </label>
-              </div>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Password
+              </label>
               <div className="relative">
                 <input
                   type={showPw ? 'text' : 'password'}
@@ -114,7 +142,6 @@ export default function LoginPage() {
           </form>
         </div>
 
-        {/* Footer link */}
         <p className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
           Don&apos;t have an account?{' '}
           <Link
