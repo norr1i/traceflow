@@ -11,6 +11,7 @@ import { useState } from 'react'
 import { useAuth } from '../lib/auth-context'
 import type { Role } from '../lib/roles'
 import { ROLE_META } from '../lib/roles'
+import { LogoIcon, LogoLockup } from './Logo'
 
 type NavItem = {
   label: string
@@ -68,19 +69,8 @@ export default function Sidebar() {
       `}
     >
       {/* Logo */}
-      <div className="flex items-center gap-3 px-5 py-5 border-b border-[#B3B7BA]/[0.07]">
-        <div className="
-          flex h-8 w-8 shrink-0 items-center justify-center rounded-lg
-          bg-gradient-to-br from-[#3a6f8f]/75 to-[#2d5a74]/85
-          shadow-[0_0_18px_rgba(74,127,165,0.22)]
-          text-white font-bold text-xs tracking-tight
-        ">
-          TF
-        </div>
-        <div>
-          <p className="text-sm font-bold tracking-tight leading-none text-[#D3D1CE]">TraceFlow</p>
-          <p className="text-[10px] text-[#6C6D74] mt-0.5 tracking-wide">Manufacturing OS</p>
-        </div>
+      <div className="px-5 py-5 border-b border-[#B3B7BA]/[0.07]">
+        <LogoLockup size="sm" />
       </div>
 
       {/* Nav */}
@@ -157,9 +147,7 @@ export default function Sidebar() {
       {/* Mobile top bar */}
       <div className="flex items-center justify-between border-b border-[#B3B7BA]/[0.08] bg-[#090F15] px-4 py-3 lg:hidden">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-[#3a6f8f]/75 to-[#2d5a74]/85 text-white text-xs font-bold">
-            TF
-          </div>
+          <LogoIcon size="sm" />
           <span className="text-sm font-bold text-[#D3D1CE]">TraceFlow</span>
         </div>
         <div className="flex items-center gap-1.5">

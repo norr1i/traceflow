@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import { Eye, EyeOff, AlertCircle, Loader2 } from 'lucide-react'
+import { LogoIcon } from '../components/Logo'
 
 function friendlyAuthError(raw: string): string {
   if (raw.includes('Invalid login credentials'))
@@ -60,14 +61,8 @@ export default function LoginPage() {
       <div className="relative w-full max-w-sm">
         {/* Logo */}
         <div className="mb-8 flex flex-col items-center">
-          <div className="
-            flex h-14 w-14 items-center justify-center rounded-2xl
-            bg-gradient-to-br from-[#3a6f8f]/75 to-[#2d5a74]/85
-            text-[#D3D1CE] text-lg font-bold
-            shadow-[0_0_28px_rgba(74,127,165,0.25)]
-            mb-5
-          ">
-            TF
+          <div className="mb-5">
+            <LogoIcon size="lg" />
           </div>
           <h1 className="text-2xl font-bold text-[#D3D1CE] tracking-tight">Welcome back</h1>
           <p className="mt-1.5 text-sm text-[#6C6D74]">Sign in to your TraceFlow account</p>

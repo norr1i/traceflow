@@ -27,11 +27,11 @@ export default function SalesChart({ data }: Props) {
       <AreaChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
         <defs>
           <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.25} />
-            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+            <stop offset="5%"  stopColor="#4a8fb9" stopOpacity={0.22} />
+            <stop offset="95%" stopColor="#4a8fb9" stopOpacity={0} />
           </linearGradient>
         </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" className="dark:[stroke:#334155]" />
+        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" className="dark:[stroke:#262E36]" />
         <XAxis
           dataKey="date"
           tick={{ fontSize: 11, fill: '#9ca3af' }}
@@ -42,30 +42,30 @@ export default function SalesChart({ data }: Props) {
           tick={{ fontSize: 11, fill: '#9ca3af' }}
           axisLine={false}
           tickLine={false}
-          tickFormatter={(v: number) => `${v.toLocaleString()} ر.س`}
+          tickFormatter={(v: number) => `SAR ${v.toLocaleString()}`}
         />
         <Tooltip
           contentStyle={{
-            backgroundColor: '#111827',
-            border: '1px solid #374151',
-            borderRadius: '10px',
+            backgroundColor: '#141e28',
+            border: '1px solid rgba(179,183,186,0.12)',
+            borderRadius: '12px',
             fontSize: '12px',
-            color: '#f9fafb',
+            color: '#D3D1CE',
             padding: '8px 12px',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
           }}
-          labelStyle={{ color: '#9ca3af', marginBottom: 4, fontSize: 11 }}
-          itemStyle={{ color: '#f9fafb', fontSize: 12 }}
-          formatter={(v: unknown) => [`${Number(v ?? 0).toLocaleString()} ر.س`, 'Revenue']}
+          labelStyle={{ color: '#6C6D74', marginBottom: 4, fontSize: 11 }}
+          itemStyle={{ color: '#D3D1CE', fontSize: 12 }}
+          formatter={(v: unknown) => [`SAR ${Number(v ?? 0).toLocaleString()}`, 'Revenue']}
         />
         <Area
           type="monotone"
           dataKey="revenue"
-          stroke="#3b82f6"
+          stroke="#4a8fb9"
           strokeWidth={2.5}
           fill="url(#revenueGrad)"
           dot={false}
-          activeDot={{ r: 4, fill: '#3b82f6' }}
+          activeDot={{ r: 4, fill: '#4a8fb9' }}
         />
       </AreaChart>
     </ResponsiveContainer>

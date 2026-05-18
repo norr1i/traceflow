@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import { Mail, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
+import { LogoIcon } from '../components/Logo'
 
 function VerifyEmailContent() {
   const searchParams = useSearchParams()
@@ -59,14 +60,7 @@ function VerifyEmailContent() {
       <div className="relative w-full max-w-sm">
         {/* Logo */}
         <div className="mb-8 flex justify-center">
-          <div className="
-            flex h-14 w-14 items-center justify-center rounded-2xl
-            bg-gradient-to-br from-[#3a6f8f]/75 to-[#2d5a74]/85
-            text-[#D3D1CE] text-lg font-bold
-            shadow-[0_0_28px_rgba(74,127,165,0.25)]
-          ">
-            TF
-          </div>
+          <LogoIcon size="lg" />
         </div>
 
         {/* Card */}

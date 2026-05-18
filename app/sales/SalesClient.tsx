@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 
 function fmt(n: number) {
-  return `${n.toLocaleString('en-US', { maximumFractionDigits: 0 })} ر.س`
+  return `SAR ${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
 }
 
 function fmtDate(iso: string) {
@@ -242,7 +242,7 @@ export default function SalesClient() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-gray-300">Unit Price (ر.س)</label>
+                  <label className="mb-1.5 block text-sm font-medium text-gray-300">Unit Price (SAR)</label>
                   <input
                     required
                     type="number"
@@ -257,7 +257,7 @@ export default function SalesClient() {
 
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-gray-300">
-                  Total Price (ر.س)
+                  Total Price (SAR)
                   <span className="ml-1 text-xs font-normal text-gray-500">(auto-calculated)</span>
                 </label>
                 <input
