@@ -42,16 +42,21 @@ export default function SalesChart({ data }: Props) {
           tick={{ fontSize: 11, fill: '#9ca3af' }}
           axisLine={false}
           tickLine={false}
-          tickFormatter={(v: number) => `$${v}`}
+          tickFormatter={(v: number) => `${v.toLocaleString()} ر.س`}
         />
         <Tooltip
           contentStyle={{
+            backgroundColor: '#111827',
+            border: '1px solid #374151',
             borderRadius: '10px',
-            fontSize: '13px',
-            border: '1px solid #e5e7eb',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+            fontSize: '12px',
+            color: '#f9fafb',
+            padding: '8px 12px',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
           }}
-          formatter={(v: unknown) => [`$${Number(v ?? 0).toLocaleString()}`, 'Revenue']}
+          labelStyle={{ color: '#9ca3af', marginBottom: 4, fontSize: 11 }}
+          itemStyle={{ color: '#f9fafb', fontSize: 12 }}
+          formatter={(v: unknown) => [`${Number(v ?? 0).toLocaleString()} ر.س`, 'Revenue']}
         />
         <Area
           type="monotone"

@@ -72,7 +72,7 @@ function QcBar({ pass, fail, hold }: { pass: number; fail: number; hold: number 
   const pct = (n: number) => `${Math.round((n / total) * 100)}%`
   return (
     <div className="space-y-4">
-      <div className="flex h-3 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
+      <div className="flex h-3 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-white/[0.06]">
         {pass > 0 && (
           <div
             style={{ width: pct(pass) }}
@@ -120,7 +120,7 @@ function QcBar({ pass, fail, hold }: { pass: number; fail: number; hold: number 
 // ── Skeleton ───────────────────────────────────────────────────────────────
 
 function SkeletonBlock({ h, className = '' }: { h: string; className?: string }) {
-  return <div className={`${h} animate-pulse rounded-2xl bg-gray-200 dark:bg-gray-700/60 ${className}`} />
+  return <div className={`${h} animate-pulse rounded-2xl bg-gray-200 dark:bg-white/[0.06] ${className}`} />
 }
 
 function Skeleton() {
@@ -161,7 +161,7 @@ function Skeleton() {
 function EmptyState({ icon: Icon, message }: { icon: React.ElementType; message: string }) {
   return (
     <div className="flex h-44 flex-col items-center justify-center gap-2.5 text-gray-400 dark:text-gray-500">
-      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-100 dark:bg-gray-700/60">
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-100 dark:bg-white/[0.05] border border-gray-200 dark:border-white/[0.06]">
         <Icon size={22} className="opacity-60" />
       </div>
       <p className="text-sm">{message}</p>
@@ -225,7 +225,7 @@ export default function DashboardPage() {
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Operations Dashboard</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Operations Dashboard</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             {lastUpdated
               ? `Updated ${timeAgo(lastUpdated.toISOString())}`
@@ -234,18 +234,18 @@ export default function DashboardPage() {
         </div>
         <div className="flex items-center gap-3 shrink-0">
           {/* Live pulsing indicator */}
-          <div className="hidden sm:flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 px-2.5 py-1">
+          <div className="hidden sm:flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1">
             <span className="relative flex h-1.5 w-1.5">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
             </span>
-            <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">Live</span>
+            <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Live</span>
           </div>
           {/* Manual refresh */}
           <button
             onClick={() => load(true)}
             disabled={refreshing}
-            className="flex items-center gap-1.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
+            className="flex items-center gap-1.5 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/[0.07] disabled:opacity-50 transition-colors"
           >
             <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
             Refresh
@@ -287,7 +287,7 @@ export default function DashboardPage() {
 
       {/* ── Recall risk banner ─────────────────────────────────────────────── */}
       {hasRisk && (
-        <div className="flex items-start gap-4 rounded-2xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-5">
+        <div className="flex items-start gap-4 rounded-2xl border border-red-500/25 bg-red-500/10 dark:bg-red-500/[0.08] p-5">
           <AlertTriangle size={20} className="mt-0.5 shrink-0 text-red-600 dark:text-red-400" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-red-700 dark:text-red-400">Recall Risk Detected</p>
@@ -347,7 +347,7 @@ export default function DashboardPage() {
           {recentQc.length === 0 ? (
             <EmptyState icon={FlaskConical} message="No inspections recorded yet." />
           ) : (
-            <ul className="divide-y divide-gray-50 dark:divide-gray-700/50">
+            <ul className="divide-y divide-gray-100 dark:divide-white/[0.05]">
               {recentQc.map((q, i) => (
                 <li key={i} className="py-3 flex items-start gap-3">
                   <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${qcCfg[q.status].dot}`} />
@@ -386,7 +386,7 @@ export default function DashboardPage() {
                       {b.scan_count}
                     </span>
                   </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-white/[0.06]">
                     <div
                       className="h-full rounded-full bg-blue-500 dark:bg-blue-400 transition-all duration-700"
                       style={{ width: `${(b.scan_count / maxScanCount) * 100}%` }}
@@ -407,7 +407,7 @@ export default function DashboardPage() {
           {failedBatches.length === 0 ? (
             <EmptyState icon={CheckCircle2} message="No failed batches — all clear." />
           ) : (
-            <ul className="divide-y divide-gray-50 dark:divide-gray-700/50">
+            <ul className="divide-y divide-gray-100 dark:divide-white/[0.05]">
               {failedBatches.map(b => (
                 <li key={b.id} className="py-3 flex items-start gap-3">
                   <span className="mt-1.5 flex h-2 w-2 shrink-0 rounded-full bg-red-500 ring-4 ring-red-100 dark:ring-red-900/30" />
@@ -438,10 +438,10 @@ export default function DashboardPage() {
           {recentScans.length === 0 ? (
             <EmptyState icon={QrCode} message="No scan events recorded yet." />
           ) : (
-            <ul className="divide-y divide-gray-50 dark:divide-gray-700/50">
+            <ul className="divide-y divide-gray-100 dark:divide-white/[0.05]">
               {recentScans.map((s, i) => (
                 <li key={i} className="py-2.5 flex items-center gap-3">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gray-100 dark:bg-white/[0.06] border border-gray-200 dark:border-white/[0.06] text-gray-500 dark:text-gray-400">
                     {s.device_type === 'mobile'
                       ? <Smartphone size={14} />
                       : <Monitor size={14} />}

@@ -8,12 +8,19 @@ import Sidebar from './Sidebar'
 
 function LoadingScreen() {
   return (
-    <div className="flex h-screen items-center justify-center bg-[var(--bg)]">
-      <div className="flex flex-col items-center gap-4">
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white text-lg font-bold shadow-lg">
+    <div className="flex h-screen items-center justify-center bg-[#070d1b]" style={{
+      background: 'radial-gradient(ellipse 1200px 800px at 20% 20%, rgba(59,130,246,0.08) 0%, transparent 65%), radial-gradient(ellipse 800px 700px at 80% 80%, rgba(139,92,246,0.07) 0%, transparent 60%), #070d1b',
+    }}>
+      <div className="flex flex-col items-center gap-5">
+        <div className="
+          flex h-14 w-14 items-center justify-center rounded-2xl
+          bg-gradient-to-br from-blue-500 to-violet-600
+          text-white text-lg font-bold
+          shadow-[0_0_32px_rgba(139,92,246,0.5)]
+        ">
           TF
         </div>
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 dark:border-gray-600 border-t-blue-600" />
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/10 border-t-blue-500" />
       </div>
     </div>
   )
@@ -24,44 +31,34 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
 
-  // /login and /signup redirect logged-in users away
   const isAuthOnlyPage = pathname === '/login' || pathname === '/signup'
-  // /trace/* is publicly accessible — no auth required, no redirect either way
   const isTracePage = pathname.startsWith('/trace/')
-  // /verify-email is public — unauthenticated users need it after signup
   const isVerifyPage = pathname === '/verify-email'
   const isPublic = isAuthOnlyPage || isTracePage || isVerifyPage
 
   useEffect(() => {
     if (loading) return
 
-    // Redirect authenticated users away from auth pages
     if (isAuthOnlyPage && session) {
       router.replace(role ? homeFor(role) : '/')
       return
     }
 
-    // Redirect unauthenticated users away from protected pages
     if (!isPublic && !session) {
       router.replace('/login')
       return
     }
 
-    // Redirect users who lack permission for the current route
     if (!isPublic && session && role && !canVisit(role, pathname)) {
       router.replace(homeFor(role))
     }
   }, [session, loading, role, isAuthOnlyPage, isPublic, pathname, router])
 
-  // Public pages: render immediately, no sidebar
   if (isPublic) {
     return <>{children}</>
   }
 
-  // Protected pages: wait for auth check to finish
   if (loading) return <LoadingScreen />
-
-  // Not authenticated: show nothing while redirect is in flight
   if (!session) return <LoadingScreen />
 
   return (

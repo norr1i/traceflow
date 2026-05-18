@@ -34,17 +34,22 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
       {children}
 
       {state && (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-gray-900 p-6 shadow-2xl">
-            <div className="flex items-start gap-4 mb-5">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
-                <AlertTriangle size={20} className="text-red-600" />
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
+          <div className="
+            w-full max-w-sm rounded-2xl p-6
+            border border-white/[0.08]
+            bg-[#0d1829] backdrop-blur-xl
+            shadow-[0_24px_64px_rgba(0,0,0,0.6)]
+          ">
+            <div className="flex items-start gap-4 mb-6">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-500/10 border border-red-500/20">
+                <AlertTriangle size={18} className="text-red-400" />
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+                <h3 className="font-semibold text-white">
                   {state.opts.title ?? 'Confirm action'}
                 </h3>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                <p className="mt-1 text-sm text-gray-400">
                   {state.opts.message}
                 </p>
               </div>
@@ -53,16 +58,16 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => handle(false)}
-                className="rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-2 text-sm font-medium text-gray-300 hover:bg-white/[0.08] transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handle(true)}
-                className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors ${
+                className={`rounded-xl px-4 py-2 text-sm font-medium text-white transition-colors ${
                   state.opts.danger !== false
-                    ? 'bg-red-600 hover:bg-red-700'
-                    : 'bg-blue-600 hover:bg-blue-700'
+                    ? 'bg-red-600 hover:bg-red-700 shadow-[0_0_16px_rgba(239,68,68,0.3)]'
+                    : 'bg-blue-600 hover:bg-blue-700 shadow-[0_0_16px_rgba(59,130,246,0.3)]'
                 }`}
               >
                 {state.opts.confirmLabel ?? 'Delete'}

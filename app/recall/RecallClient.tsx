@@ -68,7 +68,7 @@ const qcColors: Record<QcStatus, string> = {
 const statusColors: Record<string, string> = {
   completed:   'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
   in_progress: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  pending:     'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
+  pending:     'bg-gray-100 text-gray-600 dark:bg-white/[0.06] dark:text-gray-400',
   cancelled:   'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
 }
 
@@ -176,8 +176,8 @@ function LineageGraph({ batches, edges }: { batches: RecallBatch[]; edges: Linea
   )
 
   return (
-    <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-gray-100 dark:border-gray-700 px-5 py-3">
+    <div className="rounded-2xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.04] shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-gray-100 dark:border-white/[0.08] px-5 py-3">
         <Network size={15} className="text-gray-400" />
         <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Batch Lineage Graph</span>
         {batches.length > 30 && (
@@ -519,7 +519,7 @@ export default function RecallClient() {
     <div className="space-y-5">
 
       {/* ── Search panel ──────────────────────────────────────────────────── */}
-      <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm p-5">
+      <div className="rounded-2xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.04] shadow-sm p-5">
         <div className="flex flex-wrap gap-2 mb-4">
           {(['lot', 'batch_id', 'sku'] as const).map(t => (
             <button
@@ -528,7 +528,7 @@ export default function RecallClient() {
               className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
                 searchType === t
                   ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  : 'bg-gray-100 dark:bg-white/[0.06] text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               {t === 'lot' ? 'Lot Number' : t === 'batch_id' ? 'Batch ID' : 'SKU'}
@@ -549,7 +549,7 @@ export default function RecallClient() {
                 searchType === 'batch_id' ? 'Enter batch UUID…' :
                                            'Enter product SKU…'
               }
-              className="w-full rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 pl-9 pr-9 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full rounded-xl border border-gray-200 dark:border-white/[0.08] bg-gray-50 dark:bg-white/[0.06] pl-9 pr-9 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
             {query && (
               <button
@@ -610,7 +610,7 @@ export default function RecallClient() {
               icon: <XCircle size={16} />,
               color: summary.failedQc > 0
                 ? 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400'
-                : 'bg-gray-50 dark:bg-gray-700 text-gray-400 dark:text-gray-500',
+                : 'bg-gray-50 dark:bg-white/[0.06] text-gray-400 dark:text-gray-500',
             },
             {
               label: 'Sale Records',
@@ -621,7 +621,7 @@ export default function RecallClient() {
           ].map(({ label, value, icon, color }) => (
             <div
               key={label}
-              className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm p-4"
+              className="rounded-2xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.04] shadow-sm p-4"
             >
               <div className={`inline-flex items-center justify-center rounded-lg p-2 ${color}`}>
                 {icon}
@@ -635,7 +635,7 @@ export default function RecallClient() {
 
       {/* ── No results ────────────────────────────────────────────────────── */}
       {searched && batches?.length === 0 && (
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 py-16 text-center shadow-sm">
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.04] py-16 text-center shadow-sm">
           <AlertCircle size={36} className="mb-3 text-gray-300 dark:text-gray-600" />
           <p className="text-sm font-medium text-gray-700 dark:text-gray-300">No batches found</p>
           <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
@@ -651,25 +651,25 @@ export default function RecallClient() {
 
       {/* ── Affected batches list ─────────────────────────────────────────── */}
       {batches && batches.length > 0 && (
-        <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-700 px-5 py-3.5">
+        <div className="rounded-2xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.04] shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between border-b border-gray-100 dark:border-white/[0.08] px-5 py-3.5">
             <div className="flex items-center gap-2">
               <ClipboardList size={15} className="text-gray-400" />
               <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Affected Batches</h2>
-              <span className="rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-xs text-gray-500 dark:text-gray-400">
+              <span className="rounded-full bg-gray-100 dark:bg-white/[0.06] px-2 py-0.5 text-xs text-gray-500 dark:text-gray-400">
                 {batches.length}
               </span>
             </div>
             <button
               onClick={() => exportToCSV(batches)}
-              className="flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              className="flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/[0.08] px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.08] transition-colors"
             >
               <Download size={13} />
               Export CSV
             </button>
           </div>
 
-          <div className="divide-y divide-gray-50 dark:divide-gray-700/50">
+          <div className="divide-y divide-gray-50 dark:divide-white/[0.05]">
             {batches.map(batch => {
               const latestQc  = batch.qc_results[0]
               const isExpanded = expandedId === batch.id
@@ -680,7 +680,7 @@ export default function RecallClient() {
                   {/* ── Row ──────────────────────────────────────────── */}
                   <button
                     onClick={() => setExpandedId(isExpanded ? null : batch.id)}
-                    className={`w-full flex items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/30 ${
+                    className={`w-full flex items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-gray-50 dark:hover:bg-white/[0.04] ${
                       hasRisk ? 'border-l-2 border-red-500' : ''
                     }`}
                   >
@@ -715,7 +715,7 @@ export default function RecallClient() {
 
                   {/* ── Expanded detail ───────────────────────────────── */}
                   {isExpanded && (
-                    <div className="bg-gray-50/60 dark:bg-gray-700/10 px-5 pb-5 pt-3 space-y-5">
+                    <div className="bg-gray-50/60 dark:bg-white/[0.06]/10 px-5 pb-5 pt-3 space-y-5">
 
                       {/* Materials */}
                       <div>
@@ -727,13 +727,13 @@ export default function RecallClient() {
                           : (
                             <table className="w-full text-xs">
                               <thead>
-                                <tr className="border-b border-gray-100 dark:border-gray-700 text-gray-400">
+                                <tr className="border-b border-gray-100 dark:border-white/[0.08] text-gray-400">
                                   <th className="pb-1.5 text-left font-medium">Material</th>
                                   <th className="pb-1.5 text-left font-medium">Lot #</th>
                                   <th className="pb-1.5 text-right font-medium">Qty</th>
                                 </tr>
                               </thead>
-                              <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                              <tbody className="divide-y divide-gray-100 dark:divide-white/[0.05]">
                                 {batch.materials.map((m, i) => (
                                   <tr key={i}>
                                     <td className="py-1.5 font-medium text-gray-900 dark:text-white">{m.material_name}</td>
@@ -759,7 +759,7 @@ export default function RecallClient() {
                               {batch.qc_results.map((q, i) => (
                                 <div
                                   key={i}
-                                  className="flex items-start gap-2.5 rounded-lg border border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2"
+                                  className="flex items-start gap-2.5 rounded-lg border border-gray-100 dark:border-white/[0.08] bg-white dark:bg-white/[0.04] px-3 py-2"
                                 >
                                   <Badge label={q.status} className={`mt-0.5 shrink-0 ${qcColors[q.status]}`} />
                                   <div className="min-w-0 flex-1">

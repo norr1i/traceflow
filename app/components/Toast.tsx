@@ -18,10 +18,23 @@ const icons = {
   error:   XCircle,
   info:    Info,
 }
-const colours = {
-  success: 'bg-emerald-600',
-  error:   'bg-red-600',
-  info:    'bg-gray-800 dark:bg-gray-700',
+
+const styles = {
+  success: {
+    wrap: 'border-emerald-500/30 bg-emerald-500/10',
+    icon: 'text-emerald-400',
+    text: 'text-emerald-100',
+  },
+  error: {
+    wrap: 'border-red-500/30 bg-red-500/10',
+    icon: 'text-red-400',
+    text: 'text-red-100',
+  },
+  info: {
+    wrap: 'border-blue-500/30 bg-blue-500/10',
+    icon: 'text-blue-400',
+    text: 'text-blue-100',
+  },
 }
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
@@ -45,24 +58,25 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <Ctx.Provider value={api}>
       {children}
 
-      {/* Toast stack — bottom-right */}
       <div className="fixed bottom-6 right-6 z-[200] flex flex-col gap-2 pointer-events-none">
         {items.map((item) => {
           const Icon = icons[item.type]
+          const s = styles[item.type]
           return (
             <div
               key={item.id}
               className={`
-                pointer-events-auto flex items-center gap-3 rounded-xl px-4 py-3
-                text-sm font-medium text-white shadow-xl max-w-sm
-                ${colours[item.type]} toast-slide-in
+                pointer-events-auto flex items-center gap-3
+                rounded-xl border px-4 py-3
+                backdrop-blur-xl shadow-2xl max-w-sm
+                ${s.wrap} toast-slide-in
               `}
             >
-              <Icon size={16} className="shrink-0" />
-              <span className="flex-1">{item.message}</span>
+              <Icon size={16} className={`shrink-0 ${s.icon}`} />
+              <span className={`flex-1 text-sm font-medium ${s.text}`}>{item.message}</span>
               <button
                 onClick={() => dismiss(item.id)}
-                className="ml-1 rounded p-0.5 opacity-70 hover:opacity-100 transition-opacity"
+                className="ml-1 rounded p-0.5 text-white/40 hover:text-white/80 transition-colors"
               >
                 <X size={13} />
               </button>

@@ -51,37 +51,43 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-950 px-4">
-      <div className="w-full max-w-sm">
+    <div className="relative flex min-h-screen items-center justify-center px-4 overflow-hidden">
+      {/* Gradient background orbs */}
+      <div className="pointer-events-none absolute inset-0" style={{
+        background: 'radial-gradient(ellipse 1200px 800px at 15% 15%, rgba(59,130,246,0.09) 0%, transparent 65%), radial-gradient(ellipse 900px 700px at 85% 85%, rgba(139,92,246,0.08) 0%, transparent 60%), #070d1b',
+      }} />
 
+      <div className="relative w-full max-w-sm">
         {/* Logo */}
         <div className="mb-8 flex flex-col items-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white text-lg font-bold shadow-lg">
+          <div className="
+            flex h-14 w-14 items-center justify-center rounded-2xl
+            bg-gradient-to-br from-blue-500 to-violet-600
+            text-white text-lg font-bold
+            shadow-[0_0_32px_rgba(139,92,246,0.5)]
+            mb-5
+          ">
             TF
           </div>
-          <h1 className="mt-4 text-2xl font-bold text-gray-900 dark:text-white">
-            Welcome back
-          </h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Sign in to your TraceFlow account
-          </p>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Welcome back</h1>
+          <p className="mt-1.5 text-sm text-gray-400">Sign in to your TraceFlow account</p>
         </div>
 
         {/* Card */}
-        <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-8 shadow-sm">
+        <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl p-8 shadow-[0_24px_64px_rgba(0,0,0,0.5)]">
           <form onSubmit={handleSubmit} className="space-y-5">
 
             {/* Error banner */}
             {error && (
-              <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+              <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                 <div className="flex items-start gap-2.5">
-                  <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                  <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-400" />
                   <span>{error}</span>
                 </div>
                 {needsVerification && (
                   <Link
                     href={`/verify-email?email=${encodeURIComponent(email)}`}
-                    className="mt-2 block font-medium underline underline-offset-2"
+                    className="mt-2 block font-medium text-red-300 underline underline-offset-2 hover:text-red-200"
                   >
                     Resend confirmation email →
                   </Link>
@@ -91,7 +97,7 @@ export default function LoginPage() {
 
             {/* Email */}
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="mb-1.5 block text-sm font-medium text-gray-300">
                 Email
               </label>
               <input
@@ -101,13 +107,18 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@company.com"
-                className="w-full rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
+                className="
+                  w-full rounded-xl border border-white/[0.08] bg-white/[0.05]
+                  px-4 py-2.5 text-sm text-white placeholder-gray-500
+                  focus:border-blue-500/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20
+                  transition-colors
+                "
               />
             </div>
 
             {/* Password */}
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="mb-1.5 block text-sm font-medium text-gray-300">
                 Password
               </label>
               <div className="relative">
@@ -118,12 +129,17 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-2.5 pr-10 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
+                  className="
+                    w-full rounded-xl border border-white/[0.08] bg-white/[0.05]
+                    px-4 py-2.5 pr-10 text-sm text-white placeholder-gray-500
+                    focus:border-blue-500/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20
+                    transition-colors
+                  "
                 />
                 <button
                   type="button"
                   onClick={() => setShowPw(!showPw)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
                 >
                   {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -134,7 +150,17 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              className="
+                flex w-full items-center justify-center gap-2
+                rounded-xl bg-gradient-to-r from-blue-600 to-blue-700
+                px-4 py-2.5 text-sm font-semibold text-white
+                shadow-[0_0_20px_rgba(59,130,246,0.35)]
+                hover:shadow-[0_0_28px_rgba(59,130,246,0.5)]
+                hover:from-blue-500 hover:to-blue-600
+                focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-transparent
+                disabled:opacity-50 disabled:cursor-not-allowed
+                transition-all duration-200
+              "
             >
               {loading && <Loader2 size={15} className="animate-spin" />}
               {loading ? 'Signing in…' : 'Sign in'}
@@ -142,11 +168,11 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <p className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
+        <p className="mt-6 text-center text-sm text-gray-500">
           Don&apos;t have an account?{' '}
           <Link
             href="/signup"
-            className="font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+            className="font-semibold text-blue-400 hover:text-blue-300 transition-colors"
           >
             Create one
           </Link>

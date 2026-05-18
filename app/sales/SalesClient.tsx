@@ -6,7 +6,6 @@ import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
 import {
   ShoppingCart,
-  DollarSign,
   TrendingUp,
   Package,
   AlertTriangle,
@@ -18,14 +17,11 @@ import {
   ArrowDownRight,
   Trash2,
   X,
+  Banknote,
 } from 'lucide-react'
 
 function fmt(n: number) {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(n)
+  return `${n.toLocaleString('en-US', { maximumFractionDigits: 0 })} ر.س`
 }
 
 function fmtDate(iso: string) {
@@ -40,33 +36,42 @@ function StatCard({
   label,
   value,
   icon: Icon,
-  color,
+  gradient,
+  glow,
   sub,
   trend,
 }: {
   label: string
   value: string | number
   icon: React.ElementType
-  color: string
+  gradient: string
+  glow: string
   sub?: string
   trend?: 'up' | 'down'
 }) {
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5 shadow-sm">
+    <div className="
+      group relative rounded-2xl p-5
+      border border-gray-200 dark:border-white/[0.07]
+      bg-white dark:bg-white/[0.04]
+      dark:backdrop-blur-xl shadow-sm dark:shadow-none
+      transition-all duration-300 hover:-translate-y-0.5
+      dark:hover:border-white/[0.12] dark:hover:bg-white/[0.06]
+    ">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{label}</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{label}</p>
+          <p className="mt-2 text-2xl font-bold tracking-tight text-gray-900 dark:text-white">{value}</p>
           {sub && (
-            <p className="mt-0.5 flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500">
+            <p className="mt-1 flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500">
               {trend === 'up' && <ArrowUpRight size={12} className="text-emerald-500" />}
               {trend === 'down' && <ArrowDownRight size={12} className="text-red-400" />}
               {sub}
             </p>
           )}
         </div>
-        <span className={`flex h-10 w-10 items-center justify-center rounded-lg ${color}`}>
-          <Icon size={20} className="text-white" />
+        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${gradient} ${glow} transition-all duration-300 group-hover:scale-110`}>
+          <Icon size={18} className="text-white" />
         </span>
       </div>
     </div>
@@ -75,18 +80,14 @@ function StatCard({
 
 function SaleStatusBadge({ status }: { status?: string }) {
   const map: Record<string, string> = {
-    completed: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 ring-emerald-200 dark:ring-emerald-800',
-    pending:   'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 ring-yellow-200 dark:ring-yellow-800',
-    cancelled: 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 ring-red-200 dark:ring-red-800',
-    refunded:  'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 ring-gray-200 dark:ring-gray-600',
+    completed: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
+    pending:   'bg-amber-500/10 text-amber-400 border border-amber-500/20',
+    cancelled: 'bg-red-500/10 text-red-400 border border-red-500/20',
+    refunded:  'bg-gray-500/10 text-gray-400 border border-gray-500/20',
   }
   const key = (status ?? 'completed').toLowerCase()
   return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold capitalize ring-1 ${
-        map[key] ?? map['completed']
-      }`}
-    >
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${map[key] ?? map['completed']}`}>
       {status ?? 'Completed'}
     </span>
   )
@@ -101,14 +102,30 @@ const emptyForm: SaleFormData = {
   status: 'completed',
 }
 
+const inputClass = `
+  w-full rounded-xl border border-white/[0.08] bg-white/[0.05]
+  px-3 py-2 text-sm text-white placeholder-gray-500
+  focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/40
+  transition-colors
+`
+
+const lightInputClass = `
+  w-full rounded-lg border border-gray-200 dark:border-white/[0.08]
+  bg-white dark:bg-white/[0.05]
+  px-3 py-2 text-sm text-gray-900 dark:text-white
+  placeholder-gray-400 dark:placeholder-gray-500
+  focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:focus:ring-blue-500/30
+  transition-colors
+`
+
 export default function SalesClient() {
   const toast   = useToast()
   const confirm = useConfirm()
   const { sales, metrics, loading, error, refetch, createSale, deleteSale } = useSales()
 
-  const [search, setSearch]           = useState('')
+  const [search, setSearch]             = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
-  const [sortBy, setSortBy]           = useState<'sold_at' | 'total_price'>('sold_at')
+  const [sortBy, setSortBy]             = useState<'sold_at' | 'total_price'>('sold_at')
 
   const [showForm, setShowForm]   = useState(false)
   const [form, setForm]           = useState<SaleFormData>(emptyForm)
@@ -174,54 +191,58 @@ export default function SalesClient() {
     })
 
   return (
-    <div className="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-900 p-6">
+    <div className="flex-1 overflow-y-auto bg-[var(--bg)] p-6">
       {/* New Sale modal */}
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-gray-800 p-6 shadow-xl">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">New Sale</h2>
-              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="
+            w-full max-w-md rounded-2xl p-6
+            border border-white/[0.08] bg-[#0d1829]
+            backdrop-blur-xl shadow-[0_24px_64px_rgba(0,0,0,0.6)]
+          ">
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-white">New Sale</h2>
+              <button onClick={() => setShowForm(false)} className="text-gray-500 hover:text-gray-300 transition-colors">
                 <X size={20} />
               </button>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Product Name</label>
+                <label className="mb-1.5 block text-sm font-medium text-gray-300">Product Name</label>
                 <input
                   required
                   value={form.product_name}
                   onChange={(e) => setForm({ ...form, product_name: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={inputClass}
                   placeholder="e.g. Steel Bolt M8"
                 />
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Customer Name</label>
+                <label className="mb-1.5 block text-sm font-medium text-gray-300">Customer Name</label>
                 <input
                   value={form.customer_name}
                   onChange={(e) => setForm({ ...form, customer_name: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={inputClass}
                   placeholder="e.g. Acme Corp (optional)"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Quantity</label>
+                  <label className="mb-1.5 block text-sm font-medium text-gray-300">Quantity</label>
                   <input
                     required
                     type="number"
                     min={1}
                     value={form.quantity}
                     onChange={(e) => handleQtyOrPrice({ quantity: Number(e.target.value) })}
-                    className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className={inputClass}
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Unit Price ($)</label>
+                  <label className="mb-1.5 block text-sm font-medium text-gray-300">Unit Price (ر.س)</label>
                   <input
                     required
                     type="number"
@@ -229,15 +250,15 @@ export default function SalesClient() {
                     step="0.01"
                     value={form.unit_price}
                     onChange={(e) => handleQtyOrPrice({ unit_price: Number(e.target.value) })}
-                    className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className={inputClass}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Total Price ($)
-                  <span className="ml-1 text-xs font-normal text-gray-400">(auto-calculated)</span>
+                <label className="mb-1.5 block text-sm font-medium text-gray-300">
+                  Total Price (ر.س)
+                  <span className="ml-1 text-xs font-normal text-gray-500">(auto-calculated)</span>
                 </label>
                 <input
                   type="number"
@@ -245,16 +266,16 @@ export default function SalesClient() {
                   step="0.01"
                   value={form.total_price}
                   onChange={(e) => setForm({ ...form, total_price: Number(e.target.value) })}
-                  className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={inputClass}
                 />
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
+                <label className="mb-1.5 block text-sm font-medium text-gray-300">Status</label>
                 <select
                   value={form.status}
                   onChange={(e) => setForm({ ...form, status: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={inputClass}
                 >
                   <option value="completed">Completed</option>
                   <option value="pending">Pending</option>
@@ -264,7 +285,7 @@ export default function SalesClient() {
               </div>
 
               {formError && (
-                <div className="flex items-center gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-3 py-2 text-sm text-red-700 dark:text-red-400">
+                <div className="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-sm text-red-300">
                   <AlertTriangle size={14} className="shrink-0" />
                   {formError}
                 </div>
@@ -274,14 +295,14 @@ export default function SalesClient() {
                 <button
                   type="button"
                   onClick={() => setShowForm(false)}
-                  className="rounded-lg border border-gray-200 dark:border-gray-600 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                  className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-2 text-sm font-medium text-gray-300 hover:bg-white/[0.08] transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+                  className="rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-60 transition-colors shadow-[0_0_16px_rgba(59,130,246,0.3)]"
                 >
                   {saving ? 'Saving…' : 'Create Sale'}
                 </button>
@@ -294,7 +315,7 @@ export default function SalesClient() {
       {/* Page header */}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Sales</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Sales</h1>
           <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
             Track orders, revenue, and customer transactions.
           </p>
@@ -302,14 +323,14 @@ export default function SalesClient() {
         <div className="flex gap-2">
           <button
             onClick={refetch}
-            className="flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+            className="flex items-center gap-1.5 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.04] px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.07] transition-colors"
           >
             <RefreshCw size={15} />
             Refresh
           </button>
           <button
             onClick={openNew}
-            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 transition"
+            className="flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2 text-sm font-medium text-white shadow-[0_0_16px_rgba(59,130,246,0.3)] transition-colors"
           >
             <Plus size={15} />
             New Sale
@@ -319,7 +340,7 @@ export default function SalesClient() {
 
       {/* Error banner */}
       {error && (
-        <div className="mb-5 flex items-center gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+        <div className="mb-5 flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
           <AlertTriangle size={16} />
           {error}
         </div>
@@ -327,16 +348,16 @@ export default function SalesClient() {
 
       {/* Stat cards */}
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total Revenue"    value={loading ? '—' : fmt(metrics?.total_revenue ?? 0)} icon={DollarSign}  color="bg-blue-500"    sub="All time"          trend="up" />
-        <StatCard label="Total Orders"     value={loading ? '—' : metrics?.total_orders ?? 0}        icon={ShoppingCart} color="bg-violet-500"  sub="All records" />
-        <StatCard label="Avg Order Value"  value={loading ? '—' : fmt(metrics?.avg_order_value ?? 0)} icon={TrendingUp}  color="bg-emerald-500" sub="Per transaction"   trend="up" />
-        <StatCard label="Top Product"      value={loading ? '—' : metrics?.top_product ?? '—'}        icon={Package}     color="bg-orange-400"  sub="By revenue" />
+        <StatCard label="Total Revenue"   value={loading ? '—' : fmt(metrics?.total_revenue ?? 0)}   icon={Banknote}     gradient="from-blue-500 to-blue-700"    glow="shadow-[0_0_16px_rgba(59,130,246,0.5)]"    sub="All time"        trend="up" />
+        <StatCard label="Total Orders"    value={loading ? '—' : metrics?.total_orders ?? 0}           icon={ShoppingCart} gradient="from-violet-500 to-violet-700" glow="shadow-[0_0_16px_rgba(139,92,246,0.5)]"   sub="All records" />
+        <StatCard label="Avg Order Value" value={loading ? '—' : fmt(metrics?.avg_order_value ?? 0)}  icon={TrendingUp}   gradient="from-emerald-500 to-emerald-700" glow="shadow-[0_0_16px_rgba(16,185,129,0.5)]"  sub="Per transaction" trend="up" />
+        <StatCard label="Top Product"     value={loading ? '—' : metrics?.top_product ?? '—'}          icon={Package}      gradient="from-orange-400 to-orange-600" glow="shadow-[0_0_16px_rgba(249,115,22,0.5)]"   sub="By revenue" />
       </div>
 
       {/* Table card */}
-      <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+      <div className="rounded-2xl border border-gray-200 dark:border-white/[0.07] bg-white dark:bg-white/[0.04] dark:backdrop-blur-xl shadow-sm dark:shadow-none overflow-hidden">
         {/* Toolbar */}
-        <div className="flex flex-col gap-3 border-b border-gray-100 dark:border-gray-700 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 border-b border-gray-100 dark:border-white/[0.06] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full sm:w-64">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
@@ -344,7 +365,7 @@ export default function SalesClient() {
               placeholder="Search customer, product…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 py-2 pl-9 pr-3 text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-200"
+              className={`${lightInputClass} pl-9`}
             />
           </div>
           <div className="flex gap-2">
@@ -352,7 +373,7 @@ export default function SalesClient() {
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="appearance-none rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 py-2 pl-3 pr-8 text-sm text-gray-700 dark:text-gray-300 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-200"
+                className="appearance-none rounded-xl border border-gray-200 dark:border-white/[0.08] bg-gray-50 dark:bg-white/[0.05] py-2 pl-3 pr-8 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500/30 transition-colors"
               >
                 <option value="all">All Status</option>
                 <option value="completed">Completed</option>
@@ -366,7 +387,7 @@ export default function SalesClient() {
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-                className="appearance-none rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 py-2 pl-3 pr-8 text-sm text-gray-700 dark:text-gray-300 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-200"
+                className="appearance-none rounded-xl border border-gray-200 dark:border-white/[0.08] bg-gray-50 dark:bg-white/[0.05] py-2 pl-3 pr-8 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500/30 transition-colors"
               >
                 <option value="sold_at">Sort: Newest</option>
                 <option value="total_price">Sort: Highest Value</option>
@@ -380,7 +401,7 @@ export default function SalesClient() {
         {loading ? (
           <div className="space-y-3 p-5">
             {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="h-10 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-700" />
+              <div key={i} className="h-10 animate-pulse rounded-xl bg-gray-100 dark:bg-white/[0.04]" />
             ))}
           </div>
         ) : filtered.length === 0 ? (
@@ -393,7 +414,7 @@ export default function SalesClient() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                <tr className="border-b border-gray-100 dark:border-white/[0.05] bg-gray-50 dark:bg-white/[0.02] text-left text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
                   <th className="px-5 py-3">Order ID</th>
                   <th className="px-5 py-3">Customer</th>
                   <th className="px-5 py-3">Product</th>
@@ -404,14 +425,14 @@ export default function SalesClient() {
                   <th className="px-5 py-3"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
+              <tbody className="divide-y divide-gray-50 dark:divide-white/[0.03]">
                 {filtered.map((sale) => (
-                  <tr key={sale.id} className="hover:bg-blue-50/40 dark:hover:bg-blue-900/10 transition-colors">
-                    <td className="px-5 py-3.5 font-mono text-xs text-gray-500 dark:text-gray-400">
+                  <tr key={sale.id} className="hover:bg-blue-50/40 dark:hover:bg-blue-500/[0.05] transition-colors">
+                    <td className="px-5 py-3.5 font-mono text-xs text-gray-400 dark:text-gray-500">
                       #{sale.id.slice(0, 8)}
                     </td>
                     <td className="px-5 py-3.5 font-medium text-gray-800 dark:text-gray-200">
-                      {sale.customer_name || <span className="text-gray-400 italic">Guest</span>}
+                      {sale.customer_name || <span className="italic text-gray-400">Guest</span>}
                     </td>
                     <td className="px-5 py-3.5 text-gray-700 dark:text-gray-300">{sale.product_name || '—'}</td>
                     <td className="px-5 py-3.5 text-gray-700 dark:text-gray-300">{sale.quantity}</td>
@@ -425,10 +446,10 @@ export default function SalesClient() {
                     <td className="px-5 py-3.5 text-right">
                       <button
                         onClick={() => handleDelete(sale.id)}
-                        className="rounded p-1 text-gray-300 dark:text-gray-600 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                        className="rounded-lg p-1.5 text-gray-300 dark:text-gray-600 hover:bg-red-500/10 hover:text-red-400 transition-colors"
                         title="Delete"
                       >
-                        <Trash2 size={15} />
+                        <Trash2 size={14} />
                       </button>
                     </td>
                   </tr>
@@ -440,7 +461,7 @@ export default function SalesClient() {
 
         {/* Footer */}
         {!loading && (
-          <div className="border-t border-gray-100 dark:border-gray-700 px-5 py-3 text-xs text-gray-400 dark:text-gray-500">
+          <div className="border-t border-gray-100 dark:border-white/[0.05] px-5 py-3 text-xs text-gray-400 dark:text-gray-500">
             {filtered.length} of {sales.length} sale{sales.length !== 1 ? 's' : ''}
             {metrics && (
               <span className="ml-3 font-medium text-gray-600 dark:text-gray-300">

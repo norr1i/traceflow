@@ -109,7 +109,7 @@ export default function ProductionClient() {
     return (
       <div className="space-y-3">
         {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="h-12 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-700" />
+          <div key={i} className="h-12 animate-pulse rounded-xl bg-gray-200 dark:bg-white/[0.06]" />
         ))}
       </div>
     )
@@ -261,45 +261,45 @@ export default function ProductionClient() {
       {/* ── Order create / edit modal ── */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-gray-800 p-6 shadow-xl">
+          <div className="w-full max-w-md rounded-2xl border border-white/[0.08] bg-white dark:bg-[#0d1829] dark:backdrop-blur-xl p-6 shadow-2xl">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                 {editing ? 'Edit Order' : 'New Production Order'}
               </h2>
-              <button onClick={closeForm} className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"><X size={20} /></button>
+              <button onClick={closeForm} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"><X size={20} /></button>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Product</label>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Product</label>
                 <select required value={form.product_id} onChange={(e) => setForm({ ...form, product_id: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  className="w-full rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.06] px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-colors">
                   <option value="">Select product…</option>
                   {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Quantity</label>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Quantity</label>
                 <input required type="number" min={1} value={form.quantity}
                   onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })}
-                  className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="w-full rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.06] px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-colors" />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
                 <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as ProductionOrder['status'] })}
-                  className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  className="w-full rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.06] px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-colors">
                   {statuses.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
                 </select>
               </div>
               {formError && (
-                <div className="flex items-center gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-3 py-2 text-sm text-red-700 dark:text-red-400">
+                <div className="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
                   <AlertTriangle size={14} className="shrink-0" />{formError}
                 </div>
               )}
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={closeForm}
-                  className="rounded-lg border border-gray-200 dark:border-gray-600 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
+                  className="rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.04] px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.08] transition-colors">Cancel</button>
                 <button type="submit" disabled={saving}
-                  className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60">
+                  className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-60 transition-colors shadow-[0_0_14px_rgba(59,130,246,0.3)]">
                   <Check size={15} /> {saving ? 'Saving…' : editing ? 'Update' : 'Create'}
                 </button>
               </div>
@@ -313,7 +313,7 @@ export default function ProductionClient() {
         const traceUrl = `${window.location.origin}/trace/${qrOrder.id}`
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-gray-800 p-6 shadow-xl">
+            <div className="w-full max-w-sm rounded-2xl border border-white/[0.08] bg-white dark:bg-[#0d1829] dark:backdrop-blur-xl p-6 shadow-2xl">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Batch QR Code</h2>
                 <button onClick={() => setQrOrder(null)} className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"><X size={20} /></button>
@@ -328,11 +328,11 @@ export default function ProductionClient() {
                 </div>
                 <div className="flex w-full gap-2">
                   <button onClick={handleCopyLink}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/[0.08] px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.08] transition-colors">
                     <Copy size={13} /> Copy link
                   </button>
                   <button onClick={handleDownloadQR}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/[0.08] px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.08] transition-colors">
                     <Download size={13} /> Download
                   </button>
                   <a href={`/trace/${qrOrder.id}`} target="_blank" rel="noopener noreferrer"
@@ -352,8 +352,8 @@ export default function ProductionClient() {
       {/* ── BOM modal ── */}
       {materialsOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="flex w-full max-w-lg flex-col rounded-2xl bg-white dark:bg-gray-800 shadow-xl" style={{ maxHeight: '90vh' }}>
-            <div className="flex items-start justify-between border-b border-gray-100 dark:border-gray-700 px-6 py-4">
+          <div className="flex w-full max-w-lg flex-col rounded-2xl border border-white/[0.08] bg-white dark:bg-[#0d1829] dark:backdrop-blur-xl shadow-2xl" style={{ maxHeight: '90vh' }}>
+            <div className="flex items-start justify-between border-b border-gray-100 dark:border-white/[0.08] px-6 py-4">
               <div>
                 <h2 className="text-base font-semibold text-gray-900 dark:text-white">Bill of Materials</h2>
                 <p className="mt-0.5 text-xs text-gray-400">{materialsOrder.products?.name} · {materialsOrder.id.slice(0, 8)}</p>
@@ -364,7 +364,7 @@ export default function ProductionClient() {
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-4">
               {bomLoading ? (
-                <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-9 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-700" />)}</div>
+                <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-9 animate-pulse rounded-lg bg-gray-100 dark:bg-white/[0.06]" />)}</div>
               ) : bomEntries.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-10 text-gray-400 dark:text-gray-500">
                   <Layers size={28} className="mb-2 opacity-40" />
@@ -374,7 +374,7 @@ export default function ProductionClient() {
               ) : (
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-100 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500">
+                    <tr className="border-b border-gray-100 dark:border-white/[0.08] text-xs text-gray-400 dark:text-gray-500">
                       <th className="pb-2 text-left font-medium">Material</th>
                       <th className="pb-2 text-left font-medium">Lot #</th>
                       <th className="pb-2 text-right font-medium">Qty</th>
@@ -382,7 +382,7 @@ export default function ProductionClient() {
                       <th className="pb-2 text-right font-medium"></th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
+                  <tbody className="divide-y divide-gray-50 dark:divide-white/[0.05]">
                     {bomEntries.map((entry) => (
                       <tr key={entry.id} className="group">
                         <td className="py-2.5 font-medium text-gray-900 dark:text-white">{entry.material_name}</td>
@@ -403,22 +403,22 @@ export default function ProductionClient() {
                 </table>
               )}
             </div>
-            <div className="border-t border-gray-100 dark:border-gray-700 px-6 py-4">
+            <div className="border-t border-gray-100 dark:border-white/[0.08] px-6 py-4">
               <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-400">Add material</p>
               <form onSubmit={addMaterial} className="space-y-2">
                 <input required placeholder="Material name" value={bomForm.material_name}
                   onChange={(e) => setBomForm({ ...bomForm, material_name: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="w-full rounded-lg border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.06] px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 <div className="flex gap-2">
                   <input placeholder="Lot # (optional)" value={bomForm.lot_number}
                     onChange={(e) => setBomForm({ ...bomForm, lot_number: e.target.value })}
-                    className="flex-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="flex-1 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.06] px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   <input required type="number" min="0.001" step="any" placeholder="Qty" value={bomForm.quantity}
                     onChange={(e) => setBomForm({ ...bomForm, quantity: e.target.value })}
-                    className="w-24 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="w-24 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.06] px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   <input required list="bom-units" placeholder="Unit" value={bomForm.unit}
                     onChange={(e) => setBomForm({ ...bomForm, unit: e.target.value })}
-                    className="w-24 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="w-24 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.06] px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   <datalist id="bom-units">
                     {['kg', 'g', 'mg', 'L', 'mL', 'pcs', 'units', 'm', 'cm', 'mm'].map((u) => <option key={u} value={u} />)}
                   </datalist>
@@ -438,10 +438,10 @@ export default function ProductionClient() {
       {/* ── QC Inspection modal ── */}
       {qcOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="flex w-full max-w-lg flex-col rounded-2xl bg-white dark:bg-gray-800 shadow-xl" style={{ maxHeight: '90vh' }}>
+          <div className="flex w-full max-w-lg flex-col rounded-2xl border border-white/[0.08] bg-white dark:bg-[#0d1829] dark:backdrop-blur-xl shadow-2xl" style={{ maxHeight: '90vh' }}>
 
             {/* Header */}
-            <div className="flex items-start justify-between border-b border-gray-100 dark:border-gray-700 px-6 py-4">
+            <div className="flex items-start justify-between border-b border-gray-100 dark:border-white/[0.08] px-6 py-4">
               <div>
                 <h2 className="text-base font-semibold text-gray-900 dark:text-white">QC Inspections</h2>
                 <p className="mt-0.5 text-xs text-gray-400">{qcOrder.products?.name} · {qcOrder.id.slice(0, 8)}</p>
@@ -454,7 +454,7 @@ export default function ProductionClient() {
             {/* History */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
               {qcLoading ? (
-                <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-14 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-700" />)}</div>
+                <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-14 animate-pulse rounded-lg bg-gray-100 dark:bg-white/[0.06]" />)}</div>
               ) : qcEntries.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-10 text-gray-400 dark:text-gray-500">
                   <FlaskConical size={28} className="mb-2 opacity-40" />
@@ -464,7 +464,7 @@ export default function ProductionClient() {
               ) : (
                 <div className="space-y-2">
                   {qcEntries.map((entry) => (
-                    <div key={entry.id} className="group flex items-start gap-3 rounded-xl border border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-700/20 px-4 py-3">
+                    <div key={entry.id} className="group flex items-start gap-3 rounded-xl border border-gray-100 dark:border-white/[0.08] bg-gray-50/50 dark:bg-white/[0.06]/20 px-4 py-3">
                       <QcBadge status={entry.status} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
@@ -486,7 +486,7 @@ export default function ProductionClient() {
             </div>
 
             {/* Add form */}
-            <div className="border-t border-gray-100 dark:border-gray-700 px-6 py-4">
+            <div className="border-t border-gray-100 dark:border-white/[0.08] px-6 py-4">
               <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-400">Record inspection</p>
               <form onSubmit={addQcResult} className="space-y-3">
 
@@ -499,7 +499,7 @@ export default function ProductionClient() {
                           ? s === 'pass' ? 'bg-emerald-600 text-white shadow-sm'
                           : s === 'fail' ? 'bg-red-600 text-white shadow-sm'
                           : 'bg-amber-500 text-white shadow-sm'
-                          : 'border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+                          : 'border border-gray-200 dark:border-white/[0.08] text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
                       }`}>
                       {s}
                     </button>
@@ -510,16 +510,16 @@ export default function ProductionClient() {
                 <div className="flex gap-2">
                   <input required placeholder="Inspector name" value={qcForm.inspector_name}
                     onChange={(e) => setQcForm({ ...qcForm, inspector_name: e.target.value })}
-                    className="flex-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="flex-1 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.06] px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   <input required type="datetime-local" value={qcForm.inspected_at}
                     onChange={(e) => setQcForm({ ...qcForm, inspected_at: e.target.value })}
-                    className="rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="rounded-lg border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.06] px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
 
                 {/* Notes */}
                 <textarea placeholder="Notes (optional)" rows={2} value={qcForm.notes}
                   onChange={(e) => setQcForm({ ...qcForm, notes: e.target.value })}
-                  className="w-full resize-none rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="w-full resize-none rounded-lg border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.06] px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
 
                 <div className="flex justify-end">
                   <button type="submit" disabled={qcSaving}
@@ -534,7 +534,7 @@ export default function ProductionClient() {
       )}
 
       {/* ── Orders table ── */}
-      <div className="overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.04] shadow-sm">
         {orders.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
             <ClipboardList size={40} className="mb-3 opacity-40" />
@@ -543,7 +543,7 @@ export default function ProductionClient() {
           </div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-700/50 text-xs text-gray-500 dark:text-gray-400">
+            <thead className="bg-gray-50 dark:bg-white/[0.06]/50 text-xs text-gray-500 dark:text-gray-400">
               <tr>
                 <th className="px-4 py-3 text-left font-medium">Product</th>
                 <th className="px-4 py-3 text-left font-medium">Quantity</th>
@@ -552,9 +552,9 @@ export default function ProductionClient() {
                 <th className="px-4 py-3 text-right font-medium">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
+            <tbody className="divide-y divide-gray-50 dark:divide-white/[0.05]">
               {orders.map((o) => (
-                <tr key={o.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                <tr key={o.id} className="hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-colors">
                   <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{o.products?.name ?? '—'}</td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{o.quantity}</td>
                   <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
