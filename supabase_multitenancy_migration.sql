@@ -222,7 +222,7 @@ BEGIN
     UPDATE scan_events se
     SET company_id = po.company_id
     FROM production_orders po
-    WHERE po.id::text = se.batch_id
+    WHERE po.id = se.batch_id
       AND se.company_id IS NULL;
   END IF;
 END;
@@ -235,7 +235,7 @@ BEGIN
     UPDATE batch_lineage bl
     SET company_id = po.company_id
     FROM production_orders po
-    WHERE po.id::text = bl.parent_batch_id
+    WHERE po.id = bl.parent_batch_id
       AND bl.company_id IS NULL;
   END IF;
 END;
@@ -319,7 +319,7 @@ BEGIN
         IF NEW.company_id IS NULL THEN
           BEGIN
             NEW.company_id := (
-              SELECT company_id FROM production_orders WHERE id::text = NEW.batch_id LIMIT 1
+              SELECT company_id FROM production_orders WHERE id = NEW.batch_id LIMIT 1
             );
           EXCEPTION WHEN OTHERS THEN
             NULL; -- batch_id may not be a valid UUID in all edge cases
@@ -353,7 +353,7 @@ BEGIN
         IF NEW.company_id IS NULL THEN
           BEGIN
             NEW.company_id := (
-              SELECT company_id FROM production_orders WHERE id::text = NEW.parent_batch_id LIMIT 1
+              SELECT company_id FROM production_orders WHERE id = NEW.parent_batch_id LIMIT 1
             );
           EXCEPTION WHEN OTHERS THEN
             NULL;
