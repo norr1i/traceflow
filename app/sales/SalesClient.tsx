@@ -2,6 +2,7 @@
 
 import { useSales, SaleFormData } from '../hooks/useSales'
 import { useState } from 'react'
+import { supabase } from '../lib/supabase'
 import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
 import {
@@ -18,7 +19,9 @@ import {
   Trash2,
   X,
   Banknote,
+  Upload,
 } from 'lucide-react'
+import CsvImportModal, { type CsvFieldDef, type ImportResult } from '../components/CsvImportModal'
 
 function fmt(n: number) {
   return `${n.toLocaleString('en-US', { maximumFractionDigits: 0 })} SAR`
@@ -118,6 +121,21 @@ const lightInputClass = `
   transition-colors
 `
 
+const SALE_FIELDS: CsvFieldDef[] = [
+  { key: 'product_name',  label: 'Product Name',  required: true,  type: 'string' },
+  { key: 'customer_name', label: 'Customer Name',  required: false, type: 'string' },
+  { key: 'quantity',      label: 'Quantity',       required: true,  type: 'number' },
+  { key: 'unit_price',    label: 'Unit Price',     required: true,  type: 'number' },
+  { key: 'total_price',   label: 'Total Price',    required: false, type: 'number' },
+  { key: 'status',        label: 'Status',         required: false, type: 'string' },
+  { key: 'sold_at',       label: 'Sale Date',      required: false, type: 'string' },
+]
+
+const SALE_SAMPLE_ROWS = [
+  { product_name: 'Steel Bolt M8', customer_name: 'Acme Corp', quantity: '100', unit_price: '5.50', total_price: '550', status: 'completed', sold_at: '2026-01-15' },
+  { product_name: 'Aluminum Bracket', customer_name: '',       quantity: '50',  unit_price: '12',   total_price: '600', status: 'pending',   sold_at: '2026-01-20' },
+]
+
 export default function SalesClient() {
   const toast   = useToast()
   const confirm = useConfirm()
@@ -127,10 +145,11 @@ export default function SalesClient() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [sortBy, setSortBy]             = useState<'sold_at' | 'total_price'>('sold_at')
 
-  const [showForm, setShowForm]   = useState(false)
-  const [form, setForm]           = useState<SaleFormData>(emptyForm)
-  const [saving, setSaving]       = useState(false)
-  const [formError, setFormError] = useState<string | null>(null)
+  const [showForm, setShowForm]     = useState(false)
+  const [showImport, setShowImport] = useState(false)
+  const [form, setForm]             = useState<SaleFormData>(emptyForm)
+  const [saving, setSaving]         = useState(false)
+  const [formError, setFormError]   = useState<string | null>(null)
 
   function openNew() {
     setForm(emptyForm)
@@ -175,6 +194,28 @@ export default function SalesClient() {
     }
   }
 
+  async function handleSaleImport(rows: Record<string, string>[]): Promise<ImportResult> {
+    const payload = rows.map((r) => ({
+      product_name:  r.product_name,
+      customer_name: r.customer_name || null,
+      quantity:      Number(r.quantity),
+      unit_price:    Number(r.unit_price),
+      total_price:   r.total_price ? Number(r.total_price) : Number(r.quantity) * Number(r.unit_price),
+      status:        r.status || 'completed',
+      sold_at:       r.sold_at || new Date().toISOString(),
+    }))
+
+    const { data, error: err } = await supabase.from('sales').insert(payload).select()
+    if (err) return { inserted: 0, skipped: 0, errors: [err.message] }
+
+    const inserted = data?.length ?? 0
+    if (inserted > 0) {
+      toast.success(`Imported ${inserted} sale${inserted !== 1 ? 's' : ''}`)
+      refetch()
+    }
+    return { inserted, skipped: 0, errors: [] }
+  }
+
   const filtered = sales
     .filter((s) => {
       const matchSearch =
@@ -192,6 +233,18 @@ export default function SalesClient() {
 
   return (
     <div className="flex-1 overflow-y-auto bg-[var(--bg)] p-6">
+      {/* Import modal */}
+      {showImport && (
+        <CsvImportModal
+          title="Import Sales"
+          fields={SALE_FIELDS}
+          sampleFilename="sales_template.csv"
+          sampleRows={SALE_SAMPLE_ROWS}
+          onClose={() => setShowImport(false)}
+          onImport={handleSaleImport}
+        />
+      )}
+
       {/* New Sale modal */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
@@ -327,6 +380,13 @@ export default function SalesClient() {
           >
             <RefreshCw size={15} />
             Refresh
+          </button>
+          <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-1.5 rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/40 transition-colors"
+          >
+            <Upload size={15} />
+            Import CSV
           </button>
           <button
             onClick={openNew}

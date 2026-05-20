@@ -5,21 +5,35 @@ import { supabase } from '../lib/supabase'
 import { RawMaterial } from '../types/traceflow'
 import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
-import { Plus, Pencil, Trash2, X, Check, AlertTriangle, FlaskConical } from 'lucide-react'
+import CsvImportModal, { type CsvFieldDef, type ImportResult } from '../components/CsvImportModal'
+import { Plus, Pencil, Trash2, X, Check, AlertTriangle, FlaskConical, Upload } from 'lucide-react'
 
 const empty = { name: '', unit: '', quantity_in_stock: 0, reorder_level: 0 }
+
+const MATERIAL_FIELDS: CsvFieldDef[] = [
+  { key: 'name',       label: 'Name',             required: true,  type: 'string' },
+  { key: 'unit',       label: 'Unit',             required: true,  type: 'string' },
+  { key: 'in_stock',   label: 'Quantity in Stock', required: false, type: 'number' },
+  { key: 'reorder_at', label: 'Reorder Level',    required: false, type: 'number' },
+]
+
+const MATERIAL_SAMPLE_ROWS = [
+  { name: 'Steel Rod',    unit: 'kg',  in_stock: '500', reorder_at: '50' },
+  { name: 'Copper Wire',  unit: 'pcs', in_stock: '200', reorder_at: '20' },
+]
 
 export default function RawMaterialsClient() {
   const toast   = useToast()
   const confirm = useConfirm()
 
-  const [materials, setMaterials] = useState<RawMaterial[]>([])
-  const [loading, setLoading]     = useState(true)
-  const [showForm, setShowForm]   = useState(false)
-  const [editing, setEditing]     = useState<RawMaterial | null>(null)
-  const [form, setForm]           = useState(empty)
-  const [saving, setSaving]       = useState(false)
-  const [formError, setFormError] = useState<string | null>(null)
+  const [materials, setMaterials]   = useState<RawMaterial[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [showForm, setShowForm]     = useState(false)
+  const [showImport, setShowImport] = useState(false)
+  const [editing, setEditing]       = useState<RawMaterial | null>(null)
+  const [form, setForm]             = useState(empty)
+  const [saving, setSaving]         = useState(false)
+  const [formError, setFormError]   = useState<string | null>(null)
 
   useEffect(() => {
     supabase
@@ -114,10 +128,50 @@ export default function RawMaterialsClient() {
     toast.success('Material deleted')
   }
 
+  async function handleMaterialImport(rows: Record<string, string>[]): Promise<ImportResult> {
+    const payload = rows.map((r) => ({
+      name:              r.name,
+      unit:              r.unit,
+      quantity_in_stock: r.in_stock   ? Number(r.in_stock)   : 0,
+      reorder_level:     r.reorder_at ? Number(r.reorder_at) : 0,
+    }))
+
+    const errors: string[] = []
+    const inserted_rows: RawMaterial[] = []
+
+    for (const [i, row] of payload.entries()) {
+      const { data, error: err } = await supabase.from('raw_materials').insert([row]).select().single()
+      if (err) {
+        errors.push(`Row ${i + 2}: ${err.message}`)
+      } else if (data) {
+        inserted_rows.push(data)
+      }
+    }
+
+    const inserted = inserted_rows.length
+    if (inserted > 0) {
+      setMaterials((prev) => [...inserted_rows, ...prev])
+      toast.success(`Imported ${inserted} material${inserted !== 1 ? 's' : ''}`)
+    }
+    return { inserted, skipped: 0, errors }
+  }
+
   const lowStock = materials.filter((m) => m.quantity_in_stock <= m.reorder_level)
 
   return (
     <>
+      {/* Import modal */}
+      {showImport && (
+        <CsvImportModal
+          title="Import Raw Materials"
+          fields={MATERIAL_FIELDS}
+          sampleFilename="raw_materials_template.csv"
+          sampleRows={MATERIAL_SAMPLE_ROWS}
+          onClose={() => setShowImport(false)}
+          onImport={handleMaterialImport}
+        />
+      )}
+
       {/* Low stock banner */}
       {lowStock.length > 0 && (
         <div className="mb-4 flex items-center gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
@@ -132,12 +186,20 @@ export default function RawMaterialsClient() {
         <p className="text-sm text-gray-500 dark:text-gray-400">
           {materials.length} material{materials.length !== 1 ? 's' : ''}
         </p>
-        <button
-          onClick={openCreate}
-          className="flex items-center gap-2 rounded-lg bg-[#3a6f8f] px-4 py-2 text-sm font-medium text-white hover:bg-[#2d5a74] transition-colors"
-        >
-          <Plus size={16} /> Add Material
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-2 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/55 transition-colors"
+          >
+            <Upload size={15} /> Import CSV
+          </button>
+          <button
+            onClick={openCreate}
+            className="flex items-center gap-2 rounded-lg bg-[#3a6f8f] px-4 py-2 text-sm font-medium text-white hover:bg-[#2d5a74] transition-colors"
+          >
+            <Plus size={16} /> Add Material
+          </button>
+        </div>
       </div>
 
       {/* Modal */}

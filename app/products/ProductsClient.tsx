@@ -5,21 +5,34 @@ import { supabase } from '../lib/supabase'
 import type { Product } from '../types/traceflow'
 import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
-import { Plus, Pencil, Trash2, X, Check, AlertTriangle, Package } from 'lucide-react'
+import CsvImportModal, { type CsvFieldDef, type ImportResult } from '../components/CsvImportModal'
+import { Plus, Pencil, Trash2, X, Check, AlertTriangle, Package, Upload } from 'lucide-react'
 
 const empty = { name: '', sku: '', description: '' }
+
+const PRODUCT_FIELDS: CsvFieldDef[] = [
+  { key: 'name',        label: 'Name',        required: true  },
+  { key: 'sku',         label: 'SKU',         required: true  },
+  { key: 'description', label: 'Description', required: false },
+]
+
+const PRODUCT_SAMPLE_ROWS = [
+  { name: 'Steel Bolt M8',    sku: 'BOLT-M8-001',  description: 'High-strength steel bolt' },
+  { name: 'Aluminum Bracket', sku: 'BRKT-AL-002',  description: 'Mounting bracket' },
+]
 
 export default function ProductsClient() {
   const toast   = useToast()
   const confirm = useConfirm()
 
-  const [products, setProducts] = useState<Product[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [showForm, setShowForm] = useState(false)
-  const [editing, setEditing]   = useState<Product | null>(null)
-  const [form, setForm]         = useState(empty)
-  const [saving, setSaving]     = useState(false)
-  const [formError, setFormError] = useState<string | null>(null)
+  const [products, setProducts]     = useState<Product[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [showForm, setShowForm]     = useState(false)
+  const [showImport, setShowImport] = useState(false)
+  const [editing, setEditing]       = useState<Product | null>(null)
+  const [form, setForm]             = useState(empty)
+  const [saving, setSaving]         = useState(false)
+  const [formError, setFormError]   = useState<string | null>(null)
 
   useEffect(() => {
     supabase
@@ -118,19 +131,63 @@ export default function ProductsClient() {
     toast.success('Product deleted')
   }
 
+  async function handleProductImport(rows: Record<string, string>[]): Promise<ImportResult> {
+    const { data: existing } = await supabase.from('products').select('sku')
+    const existingSkus = new Set((existing ?? []).map((r) => r.sku.toLowerCase()))
+
+    const toInsert = rows.filter((r) => !existingSkus.has(r.sku.toLowerCase()))
+    const skipped  = rows.length - toInsert.length
+
+    if (toInsert.length === 0) return { inserted: 0, skipped, errors: [] }
+
+    const payload = toInsert.map((r) => ({
+      name:        r.name,
+      sku:         r.sku,
+      description: r.description || null,
+    }))
+
+    const { data, error: err } = await supabase.from('products').insert(payload).select()
+    if (err) return { inserted: 0, skipped, errors: [err.message] }
+
+    const inserted = data?.length ?? 0
+    setProducts((prev) => [...(data ?? []), ...prev])
+    if (inserted > 0) toast.success(`Imported ${inserted} product${inserted !== 1 ? 's' : ''}`)
+    return { inserted, skipped, errors: [] }
+  }
+
   return (
     <>
+      {/* Import modal */}
+      {showImport && (
+        <CsvImportModal
+          title="Import Products"
+          fields={PRODUCT_FIELDS}
+          sampleFilename="products_template.csv"
+          sampleRows={PRODUCT_SAMPLE_ROWS}
+          onClose={() => setShowImport(false)}
+          onImport={handleProductImport}
+        />
+      )}
+
       {/* Toolbar */}
       <div className="mb-4 flex items-center justify-between">
         <p className="text-sm text-gray-500 dark:text-gray-400">
           {products.length} product{products.length !== 1 ? 's' : ''}
         </p>
-        <button
-          onClick={openCreate}
-          className="flex items-center gap-2 rounded-lg bg-[#3a6f8f] px-4 py-2 text-sm font-medium text-white hover:bg-[#2d5a74] transition-colors"
-        >
-          <Plus size={16} /> Add Product
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-2 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/55 transition-colors"
+          >
+            <Upload size={15} /> Import CSV
+          </button>
+          <button
+            onClick={openCreate}
+            className="flex items-center gap-2 rounded-lg bg-[#3a6f8f] px-4 py-2 text-sm font-medium text-white hover:bg-[#2d5a74] transition-colors"
+          >
+            <Plus size={16} /> Add Product
+          </button>
+        </div>
       </div>
 
       {/* Modal */}
