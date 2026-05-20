@@ -39,7 +39,7 @@ const rolePillColor: Record<string, string> = {
 export default function Sidebar() {
   const pathname = usePathname()
   const router   = useRouter()
-  const { user, role, signOut } = useAuth()
+  const { user, role, companyName, signOut } = useAuth()
   const visibleNav = role ? nav.filter(item => item.roles.includes(role)) : []
 
   const [open, setOpen] = useState(false)
@@ -107,6 +107,9 @@ export default function Sidebar() {
             mb-2 px-3 py-2.5 rounded-xl
             bg-[#262E36]/40 border border-[#B3B7BA]/[0.08]
           ">
+            {companyName && (
+              <p className="text-xs font-semibold text-[#D3D1CE] truncate mb-1">{companyName}</p>
+            )}
             <p className="text-[10px] text-[#6C6D74] uppercase tracking-widest font-medium mb-0.5">
               Signed in as
             </p>

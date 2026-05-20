@@ -6,20 +6,24 @@ import { supabase } from './supabase'
 import type { Role } from './roles'
 
 interface AuthCtx {
-  session: Session | null
-  user:    User | null
-  role:    Role | null
-  loading: boolean
-  signOut: () => Promise<void>
+  session:     Session | null
+  user:        User | null
+  role:        Role | null
+  companyId:   string | null
+  companyName: string | null
+  loading:     boolean
+  signOut:     () => Promise<void>
 }
 
 const AuthContext = createContext<AuthCtx>({
-  session: null, user: null, role: null, loading: true,
-  signOut: async () => {},
+  session: null, user: null, role: null, companyId: null, companyName: null,
+  loading: true, signOut: async () => {},
 })
 
+type UserInfo = { role: Role; companyId: string | null; companyName: string | null }
+
 /**
- * Fetch the role for the given user ID from user_profiles.
+ * Fetch role + company info for the given user ID from user_profiles.
  *
  * Rules:
  *  - Only reads the row where user_id = userId (exact match)
@@ -30,57 +34,58 @@ const AuthContext = createContext<AuthCtx>({
  *    re-fetches the existing row
  *  - Final fallback is 'manager'; inspector is only assigned explicitly by an admin
  */
-async function loadRole(userId: string): Promise<Role> {
-  console.log('[auth] loadRole → querying user_id:', userId)
+async function loadUserInfo(userId: string): Promise<UserInfo> {
+  console.log('[auth] loadUserInfo → querying user_id:', userId)
 
-  const { data, error } = await supabase
-    .from('user_profiles')
-    .select('user_id, role')
-    .eq('user_id', userId)
-    .maybeSingle()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function fetchRow(): Promise<any> {
+    const { data } = await supabase
+      .from('user_profiles')
+      .select('user_id, role, company_id, companies(name)')
+      .eq('user_id', userId)
+      .maybeSingle()
+    return data
+  }
 
-  console.log('[auth] loadRole → query result:', { data, error })
+  let data = await fetchRow()
+  console.log('[auth] loadUserInfo → query result:', data)
 
   if (data?.role) {
-    console.log('[auth] loadRole → matched row:', data, '→ resolved role:', data.role)
-    return data.role as Role
+    return buildInfo(data)
   }
 
   // No row returned — attempt to insert a default profile.
   // ignoreDuplicates: true → ON CONFLICT DO NOTHING, never overwrites existing role.
-  console.log('[auth] loadRole → no row found for', userId, '— inserting default manager profile')
+  console.log('[auth] loadUserInfo → no row found for', userId, '— inserting default manager profile')
 
-  const { data: inserted, error: insertError } = await supabase
+  const { data: inserted } = await supabase
     .from('user_profiles')
     .upsert(
       { user_id: userId, role: 'manager' },
       { onConflict: 'user_id', ignoreDuplicates: true },
     )
-    .select('user_id, role')
+    .select('user_id, role, company_id')
     .maybeSingle()
 
-  console.log('[auth] loadRole → insert result:', { inserted, insertError })
+  console.log('[auth] loadUserInfo → insert result:', inserted)
 
-  if (inserted?.role) {
-    console.log('[auth] loadRole → resolved role (from insert):', inserted.role)
-    return inserted.role as Role
-  }
+  // Re-fetch regardless: the tf_bootstrap_company trigger runs AFTER INSERT and
+  // updates company_id via a separate UPDATE, so the upsert RETURNING won't see it.
+  console.log('[auth] loadUserInfo → re-fetching after upsert')
+  data = await fetchRow()
+  console.log('[auth] loadUserInfo → re-fetch result:', data)
 
-  // ignoreDuplicates means the upsert returns nothing when the conflict fires.
-  // The row already exists — re-fetch it (handles RLS-hidden rows on first attempt).
-  console.log('[auth] loadRole → insert was a no-op (row exists) — re-fetching')
+  return buildInfo(data)
+}
 
-  const { data: refetched, error: refetchError } = await supabase
-    .from('user_profiles')
-    .select('user_id, role')
-    .eq('user_id', userId)
-    .maybeSingle()
-
-  console.log('[auth] loadRole → re-fetch result:', { refetched, refetchError })
-
-  const resolvedRole = (refetched?.role as Role | undefined) ?? 'manager'
-  console.log('[auth] loadRole → final resolved role:', resolvedRole)
-  return resolvedRole
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildInfo(data: any): UserInfo {
+  const role = (data?.role as Role | undefined) ?? 'manager'
+  const companyId = (data?.company_id as string | undefined) ?? null
+  // PostgREST returns the joined row as an object when there's a many-to-one FK
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const companyName = (data?.companies as any)?.name ?? null
+  return { role, companyId, companyName }
 }
 
 /** Clear all Supabase auth tokens from localStorage synchronously. */
@@ -93,9 +98,11 @@ function clearLocalAuthState() {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null)
-  const [role,    setRole]    = useState<Role | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [session,     setSession]     = useState<Session | null>(null)
+  const [role,        setRole]        = useState<Role | null>(null)
+  const [companyId,   setCompanyId]   = useState<string | null>(null)
+  const [companyName, setCompanyName] = useState<string | null>(null)
+  const [loading,     setLoading]     = useState(true)
 
   // Tracks the user we are currently fetching a role for.
   // Prevents a stale async loadRole() response from a previous user
@@ -127,6 +134,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!sess?.user) {
           activeUserIdRef.current = null
           setRole(null)
+          setCompanyId(null)
+          setCompanyName(null)
           setLoading(false)
           return
         }
@@ -136,21 +145,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // If this is a token refresh for the same user and we already have a role,
         // skip re-fetching to avoid a flicker (role briefly becomes null).
         if (activeUserIdRef.current === userId && role !== null) {
-          console.log('[auth] same user token refresh — skipping role re-fetch, current role:', role)
+          console.log('[auth] same user token refresh — skipping user info re-fetch, current role:', role)
           setLoading(false)
           return
         }
 
-        // New user (or role not yet loaded) — reset and re-fetch.
+        // New user (or info not yet loaded) — reset and re-fetch.
         activeUserIdRef.current = userId
         setRole(null)
+        setCompanyId(null)
+        setCompanyName(null)
 
-        const freshRole = await loadRole(userId)
+        const info = await loadUserInfo(userId)
 
         // Guard: discard result if user changed during the async fetch.
         if (activeUserIdRef.current === userId) {
-          console.log('[auth] setting role →', freshRole, 'for user:', userId)
-          setRole(freshRole)
+          console.log('[auth] setting user info →', info, 'for user:', userId)
+          setRole(info.role)
+          setCompanyId(info.companyId)
+          setCompanyName(info.companyName)
           setLoading(false)
         }
       }
@@ -168,13 +181,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     activeUserIdRef.current = null
     setSession(null)
     setRole(null)
+    setCompanyId(null)
+    setCompanyName(null)
     setLoading(false)
     clearLocalAuthState()
     try { await supabase.auth.signOut() } catch {}
   }
 
   return (
-    <AuthContext.Provider value={{ session, user: session?.user ?? null, role, loading, signOut }}>
+    <AuthContext.Provider value={{ session, user: session?.user ?? null, role, companyId, companyName, loading, signOut }}>
       {children}
     </AuthContext.Provider>
   )
