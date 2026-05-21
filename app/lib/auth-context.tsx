@@ -53,15 +53,20 @@ function buildInfo(data: any): UserInfo {
 /**
  * Load role + company for the signed-in user.
  *
- * Each DB call is wrapped in a 6-second per-call timeout so the function
- * can never hang indefinitely (callers add a further outer timeout).
+ * Each DB call is capped at 6 s. Callers wrap the entire function in a
+ * 20-second outer ceiling so loading always resolves.
  *
  * Flow:
  *  1. Fetch existing profile row.
- *  2. If missing → upsert a bare row (trigger creates company for new users).
- *  3. Re-fetch (trigger may have populated company_id).
- *  4. If still no company → try accept_my_invitation() for invited users.
- *  5. Final re-fetch then return.
+ *  2a. Profile complete (role + company_id) → return immediately.
+ *  2b. No profile at all → upsert bare row; trg_bootstrap_company creates
+ *      the company for brand-new users. Re-fetch; if complete → return.
+ *  3. Profile exists but company_id is NULL (invited user whose trigger
+ *     failed, or partial signup) → call accept_my_invitation().
+ *  4. Final re-fetch and return whatever we have.
+ *
+ * Critical: step 2a MUST check both role AND company_id. Returning early
+ * on role alone skips step 3 for invited users with partial profiles.
  */
 async function loadUserInfo(userId: string): Promise<UserInfo> {
   const PER_CALL_MS = 6_000
@@ -74,44 +79,50 @@ async function loadUserInfo(userId: string): Promise<UserInfo> {
   let data = await timedFetch()
   console.log('[auth] initial fetch:', data)
 
-  if (data?.role) return buildInfo(data)
+  // Happy path: profile fully populated — return immediately.
+  if (data?.role && data?.company_id) return buildInfo(data)
 
-  // No row — upsert a bare profile; the trg_bootstrap_company trigger
-  // will set company_id and role = 'admin' for brand-new users.
-  console.log('[auth] no profile row — upserting default')
-  await withTimeout(
-    supabase
-      .from('user_profiles')
-      .upsert(
-        { user_id: userId, role: 'manager' },
-        { onConflict: 'user_id', ignoreDuplicates: true },
-      ),
-    PER_CALL_MS,
-    null,
-  )
+  if (!data?.role) {
+    // No profile row at all. Upsert a bare one; the trg_bootstrap_company
+    // trigger fires BEFORE INSERT and may set company_id + role = 'admin'.
+    console.log('[auth] no profile row — upserting default')
+    await withTimeout(
+      supabase
+        .from('user_profiles')
+        .upsert(
+          { user_id: userId, role: 'manager' },
+          { onConflict: 'user_id', ignoreDuplicates: true },
+        ),
+      PER_CALL_MS,
+      null,
+    )
 
-  data = await timedFetch()
-  console.log('[auth] post-upsert fetch:', data)
+    data = await timedFetch()
+    console.log('[auth] post-upsert fetch:', data)
 
-  if (data?.company_id) return buildInfo(data)
+    if (data?.role && data?.company_id) return buildInfo(data)
+  }
 
-  // No company yet — try accepting a pending invitation (idempotent).
-  console.log('[auth] no company — trying accept_my_invitation')
-  let acceptedCoId: string | null = null
+  // Profile exists (or was just created) but company_id is still NULL.
+  // This happens when:
+  //   • User was invited but the trigger ran before the invitation was created
+  //   • Invitation expired before the user signed up (>7 days)
+  //   • The BEFORE INSERT trigger fired but failed to find the invitation
+  // accept_my_invitation() now also checks 'expired' invitations.
+  console.log('[auth] profile has no company — calling accept_my_invitation')
   try {
     const result = await withTimeout(
       supabase.rpc('accept_my_invitation'),
       PER_CALL_MS,
       null,
     )
-    acceptedCoId = (result as { data?: string | null } | null)?.data ?? null
-  } catch { /* timeout or network error — ignore */ }
-  console.log('[auth] accept_my_invitation →', acceptedCoId)
-
-  if (acceptedCoId) {
-    data = await timedFetch()
-    console.log('[auth] post-invite fetch:', data)
-  }
+    const acceptedCoId = (result as { data?: string | null } | null)?.data ?? null
+    console.log('[auth] accept_my_invitation →', acceptedCoId)
+    if (acceptedCoId) {
+      data = await timedFetch()
+      console.log('[auth] post-invite fetch:', data)
+    }
+  } catch { /* timeout or network error — proceed with what we have */ }
 
   return buildInfo(data)
 }
