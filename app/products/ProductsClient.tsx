@@ -7,6 +7,8 @@ import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
 import CsvImportModal, { type CsvFieldDef, type ImportResult } from '../components/CsvImportModal'
 import { Plus, Pencil, Trash2, X, Check, AlertTriangle, Package, Upload } from 'lucide-react'
+import { useRole } from '../lib/auth-context'
+import { canEdit } from '../lib/permissions'
 
 const empty = { name: '', sku: '', description: '' }
 
@@ -22,8 +24,10 @@ const PRODUCT_SAMPLE_ROWS = [
 ]
 
 export default function ProductsClient() {
-  const toast   = useToast()
-  const confirm = useConfirm()
+  const toast     = useToast()
+  const confirm   = useConfirm()
+  const role      = useRole()
+  const canWrite  = canEdit(role, 'products')
 
   const [products, setProducts]     = useState<Product[]>([])
   const [loading, setLoading]       = useState(true)
@@ -174,20 +178,22 @@ export default function ProductsClient() {
         <p className="text-sm text-gray-500 dark:text-gray-400">
           {products.length} product{products.length !== 1 ? 's' : ''}
         </p>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setShowImport(true)}
-            className="flex items-center gap-2 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/55 transition-colors"
-          >
-            <Upload size={15} /> Import CSV
-          </button>
-          <button
-            onClick={openCreate}
-            className="flex items-center gap-2 rounded-lg bg-[#3a6f8f] px-4 py-2 text-sm font-medium text-white hover:bg-[#2d5a74] transition-colors"
-          >
-            <Plus size={16} /> Add Product
-          </button>
-        </div>
+        {canWrite && (
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowImport(true)}
+              className="flex items-center gap-2 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/55 transition-colors"
+            >
+              <Upload size={15} /> Import CSV
+            </button>
+            <button
+              onClick={openCreate}
+              className="flex items-center gap-2 rounded-lg bg-[#3a6f8f] px-4 py-2 text-sm font-medium text-white hover:bg-[#2d5a74] transition-colors"
+            >
+              <Plus size={16} /> Add Product
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Modal */}
@@ -299,20 +305,22 @@ export default function ProductsClient() {
                     {new Date(p.created_at).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => openEdit(p)}
-                        className="rounded-lg p-1.5 text-gray-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                      >
-                        <Pencil size={15} />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(p.id)}
-                        className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-600 dark:hover:text-red-400 transition-colors"
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
+                    {canWrite && (
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => openEdit(p)}
+                          className="rounded-lg p-1.5 text-gray-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(p.id)}
+                          className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}

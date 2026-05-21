@@ -22,6 +22,8 @@ import {
   Upload,
 } from 'lucide-react'
 import CsvImportModal, { type CsvFieldDef, type ImportResult } from '../components/CsvImportModal'
+import { useRole } from '../lib/auth-context'
+import { canEdit } from '../lib/permissions'
 
 function fmt(n: number) {
   return `${n.toLocaleString('en-US', { maximumFractionDigits: 0 })} SAR`
@@ -137,8 +139,10 @@ const SALE_SAMPLE_ROWS = [
 ]
 
 export default function SalesClient() {
-  const toast   = useToast()
-  const confirm = useConfirm()
+  const toast     = useToast()
+  const confirm   = useConfirm()
+  const role      = useRole()
+  const canWrite  = canEdit(role, 'sales')
   const { sales, metrics, loading, error, refetch, createSale, deleteSale } = useSales()
 
   const [search, setSearch]             = useState('')
@@ -381,20 +385,24 @@ export default function SalesClient() {
             <RefreshCw size={15} />
             Refresh
           </button>
-          <button
-            onClick={() => setShowImport(true)}
-            className="flex items-center gap-1.5 rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/40 transition-colors"
-          >
-            <Upload size={15} />
-            Import CSV
-          </button>
-          <button
-            onClick={openNew}
-            className="flex items-center gap-1.5 rounded-xl bg-[#3a6f8f] hover:bg-[#2d5a74] px-4 py-2 text-sm font-medium text-white shadow-[0_0_16px_rgba(74,127,165,0.22)] transition-colors"
-          >
-            <Plus size={15} />
-            New Sale
-          </button>
+          {canWrite && (
+            <>
+              <button
+                onClick={() => setShowImport(true)}
+                className="flex items-center gap-1.5 rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/40 transition-colors"
+              >
+                <Upload size={15} />
+                Import CSV
+              </button>
+              <button
+                onClick={openNew}
+                className="flex items-center gap-1.5 rounded-xl bg-[#3a6f8f] hover:bg-[#2d5a74] px-4 py-2 text-sm font-medium text-white shadow-[0_0_16px_rgba(74,127,165,0.22)] transition-colors"
+              >
+                <Plus size={15} />
+                New Sale
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -504,13 +512,15 @@ export default function SalesClient() {
                     </td>
                     <td className="px-5 py-3.5 text-gray-500 dark:text-gray-400">{fmtDate(sale.sold_at)}</td>
                     <td className="px-5 py-3.5 text-right">
-                      <button
-                        onClick={() => handleDelete(sale.id)}
-                        className="rounded-lg p-1.5 text-gray-300 dark:text-gray-600 hover:bg-red-500/10 hover:text-red-400 transition-colors"
-                        title="Delete"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      {canWrite && (
+                        <button
+                          onClick={() => handleDelete(sale.id)}
+                          className="rounded-lg p-1.5 text-gray-300 dark:text-gray-600 hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

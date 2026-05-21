@@ -6,6 +6,7 @@ import { useAuth } from '../lib/auth-context'
 import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
 import { ROLE_META, ASSIGNABLE_ROLES, type Role } from '../lib/roles'
+import { hasPermission } from '../lib/permissions'
 import {
   Users, Plus, Trash2, X, Check, AlertTriangle,
   Mail, Clock, Pencil, ShieldAlert, Copy,
@@ -71,9 +72,12 @@ const selectClass = `
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function TeamClient() {
-  const { user } = useAuth()
+  const { user, role } = useAuth()
   const toast    = useToast()
   const confirm  = useConfirm()
+  const assignableRoles = hasPermission(role as Role | null, 'invite:admin')
+    ? ASSIGNABLE_ROLES
+    : ASSIGNABLE_ROLES.filter((r) => r !== 'admin')
 
   const [members,        setMembers]        = useState<TeamMember[]>([])
   const [loading,        setLoading]        = useState(true)
@@ -306,7 +310,7 @@ export default function TeamClient() {
                     onChange={(e) => setInviteRole(e.target.value as Role)}
                     className={selectClass}
                   >
-                    {ASSIGNABLE_ROLES.map(r => (
+                    {assignableRoles.map(r => (
                       <option key={r} value={r}>{ROLE_META[r].label}</option>
                     ))}
                   </select>

@@ -8,6 +8,7 @@ import StatusBadge from '../components/StatusBadge'
 import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
 import { useRole } from '../lib/auth-context'
+import { canEdit } from '../lib/permissions'
 import {
   Plus, Pencil, Trash2, X, Check, AlertTriangle, ClipboardList,
   QrCode, Copy, Download, ExternalLink, Layers, FlaskConical,
@@ -38,8 +39,9 @@ function QcBadge({ status }: { status: QcStatus }) {
 export default function ProductionClient() {
   const toast   = useToast()
   const confirm = useConfirm()
-  const role    = useRole()
-  const canWrite = role !== 'inspector'
+  const role       = useRole()
+  const canWrite   = canEdit(role, 'production')
+  const canWriteQc = canEdit(role, 'quality-control')
 
   // ── Order list ──────────────────────────────────────────────────────────
   const [orders, setOrders]       = useState<OrderWithProduct[]>([])
@@ -475,10 +477,12 @@ export default function ProductionClient() {
                         </div>
                         {entry.notes && <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{entry.notes}</p>}
                       </div>
-                      <button onClick={() => deleteQcResult(entry.id)}
-                        className="mt-0.5 shrink-0 rounded p-1 text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all">
-                        <Trash2 size={13} />
-                      </button>
+                      {canWriteQc && (
+                        <button onClick={() => deleteQcResult(entry.id)}
+                          className="mt-0.5 shrink-0 rounded p-1 text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all">
+                          <Trash2 size={13} />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -486,6 +490,7 @@ export default function ProductionClient() {
             </div>
 
             {/* Add form */}
+            {canWriteQc && (
             <div className="border-t border-gray-100 dark:border-[#B3B7BA]/[0.10] px-6 py-4">
               <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-400">Record inspection</p>
               <form onSubmit={addQcResult} className="space-y-3">
@@ -529,6 +534,7 @@ export default function ProductionClient() {
                 </div>
               </form>
             </div>
+            )}
           </div>
         </div>
       )}

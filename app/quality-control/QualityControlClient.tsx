@@ -5,6 +5,8 @@ import { InspectionFormData } from '../types/quality'
 import { useState } from 'react'
 import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
+import { useRole } from '../lib/auth-context'
+import { canEdit, hasPermission } from '../lib/permissions'
 import {
   ShieldCheck,
   ShieldX,
@@ -19,6 +21,8 @@ import {
   TrendingUp,
   Trash2,
   X,
+  Lock,
+  Unlock,
 } from 'lucide-react'
 
 function StatCard({
@@ -92,6 +96,11 @@ const emptyForm: InspectionFormData = {
 export default function QualityControlClient() {
   const toast   = useToast()
   const confirm = useConfirm()
+  const role    = useRole()
+  const canEditQc      = canEdit(role, 'quality-control')
+  const hasOverride    = hasPermission(role, 'override:qc')
+  const [qcEditEnabled, setQcEditEnabled] = useState(false)
+  const effectiveCanEdit = canEditQc || (hasOverride && qcEditEnabled)
   const {
     inspections,
     defects,
@@ -316,13 +325,29 @@ export default function QualityControlClient() {
             <RefreshCw size={15} />
             Refresh
           </button>
-          <button
-            onClick={openNew}
-            className="flex items-center gap-1.5 rounded-lg bg-[#3a6f8f] px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#2d5a74] transition"
-          >
-            <Plus size={15} />
-            New Inspection
-          </button>
+          {hasOverride && (
+            <button
+              onClick={() => setQcEditEnabled((v) => !v)}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium shadow-sm transition ${
+                qcEditEnabled
+                  ? 'border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
+                  : 'border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 text-gray-600 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/45'
+              }`}
+              title={qcEditEnabled ? 'Disable QC editing' : 'Enable QC editing (admin override)'}
+            >
+              {qcEditEnabled ? <Unlock size={15} /> : <Lock size={15} />}
+              {qcEditEnabled ? 'Editing on' : 'Enable editing'}
+            </button>
+          )}
+          {effectiveCanEdit && (
+            <button
+              onClick={openNew}
+              className="flex items-center gap-1.5 rounded-lg bg-[#3a6f8f] px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#2d5a74] transition"
+            >
+              <Plus size={15} />
+              New Inspection
+            </button>
+          )}
         </div>
       </div>
 
@@ -448,13 +473,15 @@ export default function QualityControlClient() {
                           <span className="line-clamp-1">{item.notes || '—'}</span>
                         </td>
                         <td className="px-5 py-3.5 text-right">
-                          <button
-                            onClick={() => handleDelete(item.id)}
-                            className="rounded p-1 text-gray-300 dark:text-gray-600 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-500 dark:hover:text-red-400 transition-colors"
-                            title="Delete"
-                          >
-                            <Trash2 size={15} />
-                          </button>
+                          {effectiveCanEdit && (
+                            <button
+                              onClick={() => handleDelete(item.id)}
+                              className="rounded p-1 text-gray-300 dark:text-gray-600 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
