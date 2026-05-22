@@ -33,14 +33,17 @@
 
 DO $$
 DECLARE
-  co_id  uuid;          -- resolved from companies table
-  base   timestamptz := now() - INTERVAL '120 days';
+  target_company_id  uuid;          -- resolved from companies table; never overwritten
+  base               timestamptz := now() - INTERVAL '120 days';
 
   -- Deterministic entity ID arrays (same UUIDs every run for same company)
-  p      uuid[];   -- products       [1..20]
-  m      uuid[];   -- raw_materials  [1..15]
+  p      uuid[];   -- products          [1..20]
+  m      uuid[];   -- raw_materials     [1..15]
   o      uuid[];   -- production_orders [1..80]
-  tmp_id uuid;
+
+  -- Separate typed temporaries — never mixed up
+  tmp_uuid   uuid;     -- scratch UUID (product-ID resolution)
+  row_count  bigint;   -- scratch counter (verification summary)
 
   -- Loop vars
   i         int;
@@ -168,41 +171,41 @@ DECLARE
 BEGIN
 
   -- ── 0. Resolve company ───────────────────────────────────────────────────
-  SELECT id INTO co_id FROM companies ORDER BY created_at LIMIT 1;
-  IF co_id IS NULL THEN
+  SELECT id INTO target_company_id FROM companies ORDER BY created_at LIMIT 1;
+  IF target_company_id IS NULL THEN
     RAISE EXCEPTION 'No company found — run the multitenancy migration first.';
   END IF;
-  RAISE NOTICE '▶ Seeding for company_id = %', co_id;
+  RAISE NOTICE '▶ Seeding for company_id = %', target_company_id;
 
   -- ── Idempotency guard ────────────────────────────────────────────────────
   -- Skip inserts if already seeded; still re-link scan_events below.
-  IF (SELECT COUNT(*) FROM products WHERE company_id = co_id) >= 10 THEN
+  IF (SELECT COUNT(*) FROM products WHERE company_id = target_company_id) >= 10 THEN
     RAISE NOTICE '  Products already seeded — skipping insert phase.';
   ELSE
 
     -- ── Build deterministic UUID arrays ────────────────────────────────────
     -- Same UUID on every run for the same (prefix, company_id, index).
     FOR i IN 1..20 LOOP
-      p := array_append(p, (md5('tf-seed-product-' || co_id::text || '-' || i))::uuid);
+      p := array_append(p, (md5('tf-seed-product-' || target_company_id::text || '-' || i))::uuid);
     END LOOP;
     FOR i IN 1..15 LOOP
-      m := array_append(m, (md5('tf-seed-matrl-'   || co_id::text || '-' || i))::uuid);
+      m := array_append(m, (md5('tf-seed-matrl-'   || target_company_id::text || '-' || i))::uuid);
     END LOOP;
     FOR i IN 1..80 LOOP
-      o := array_append(o, (md5('tf-seed-order-'   || co_id::text || '-' || i))::uuid);
+      o := array_append(o, (md5('tf-seed-order-'   || target_company_id::text || '-' || i))::uuid);
     END LOOP;
 
     -- ── 1. Products ─────────────────────────────────────────────────────────
     FOR i IN 1..20 LOOP
       INSERT INTO products (id, company_id, name, sku, created_at)
       VALUES (
-        p[i], co_id, prod_names[i], prod_skus[i],
+        p[i], target_company_id, prod_names[i], prod_skus[i],
         base + ((i * 0.3) || ' days')::interval
       )
       ON CONFLICT (id)  DO NOTHING;
       -- If a different ID holds this SKU, resolve the real ID so foreign keys stay valid
-      SELECT id INTO tmp_id FROM products WHERE sku = prod_skus[i] LIMIT 1;
-      IF tmp_id IS NOT NULL THEN p[i] := tmp_id; END IF;
+      SELECT id INTO tmp_uuid FROM products WHERE sku = prod_skus[i] LIMIT 1;
+      IF tmp_uuid IS NOT NULL THEN p[i] := tmp_uuid; END IF;
     END LOOP;
     RAISE NOTICE '  ✓ products inserted/resolved';
 
@@ -210,7 +213,7 @@ BEGIN
     FOR i IN 1..15 LOOP
       INSERT INTO raw_materials (id, company_id, name, unit, quantity_in_stock, reorder_level, created_at)
       VALUES (
-        m[i], co_id,
+        m[i], target_company_id,
         mat_names[i], mat_units[i],
         ROUND((50  + (i * 73.7))::numeric, 2),   -- deterministic, no random()
         ROUND((15  + (i * 6.5))::numeric,  2),
@@ -234,7 +237,7 @@ BEGIN
 
       INSERT INTO production_orders (id, company_id, product_id, quantity, status, started_at, completed_at, created_at)
       VALUES (
-        o[i], co_id,
+        o[i], target_company_id,
         p[1 + ((i - 1) % 20)],
         50 + (i * 17),          -- deterministic qty 67..1413
         stat, srt, cmp, crt
@@ -259,8 +262,8 @@ BEGIN
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
           ON CONFLICT (id) DO NOTHING'
         USING
-          (md5('tf-seed-bqc-' || co_id::text || '-' || i))::uuid,
-          co_id,
+          (md5('tf-seed-bqc-' || target_company_id::text || '-' || i))::uuid,
+          target_company_id,
           o[1 + ((i - 1) % 80)],
           stat,
           inspectors[1 + ((i - 1) % 8)],
@@ -294,8 +297,8 @@ BEGIN
         customer_name, status, sold_at, created_at
       )
       VALUES (
-        (md5('tf-seed-sale-' || co_id::text || '-' || i))::uuid,
-        co_id,
+        (md5('tf-seed-sale-' || target_company_id::text || '-' || i))::uuid,
+        target_company_id,
         p[1 + ((i - 1) % 20)],
         prod_names[1 + ((i - 1) % 20)],
         qty, unit_p, tot,
@@ -318,13 +321,13 @@ BEGIN
                      WHEN 'failed'      THEN 20 + (i % 40)
                      ELSE                    45 + (i % 30)
                    END;
-      qc_id := (md5('tf-seed-qi-' || co_id::text || '-' || i))::uuid;
+      qc_id := (md5('tf-seed-qi-' || target_company_id::text || '-' || i))::uuid;
 
       INSERT INTO quality_inspections (
         id, company_id, batch_id, inspector_id, inspection_date,
         inspection_type, status, overall_score, notes, created_at, updated_at
       ) VALUES (
-        qc_id, co_id,
+        qc_id, target_company_id,
         'BATCH-SEED-' || lpad(i::text, 3, '0'),
         inspector_ids[1 + ((i - 1) % 8)],
         (base + ((i * 2.1) || ' days')::interval)::date,
@@ -350,7 +353,7 @@ BEGIN
             id, inspection_id, defect_type, severity, quantity,
             description, corrective_action, resolved, created_at
           ) VALUES (
-            (md5('tf-seed-qd-' || co_id::text || '-' || i || '-' || j))::uuid,
+            (md5('tf-seed-qd-' || target_company_id::text || '-' || i || '-' || j))::uuid,
             qc_id,
             defect_types[1 + ((i + j - 1) % array_length(defect_types, 1))],
             defect_sevs[1 + ((i * j - 1)  % array_length(defect_sevs, 1))],
@@ -392,41 +395,41 @@ BEGIN
       company_id = %L
     FROM ordered_scans
     WHERE se.ctid = ordered_scans.ctid
-  $q$, co_id::text, co_id::text);
+  $q$, target_company_id::text, target_company_id::text);
 
   RAISE NOTICE '  ✓ scan_events re-linked to seeded production_orders';
 
   -- ── 9. Verification summary ─────────────────────────────────────────────
   RAISE NOTICE '';
   RAISE NOTICE '═══════════════════════════════════════════════════';
-  RAISE NOTICE 'Reseed complete for company %', co_id;
+  RAISE NOTICE 'Reseed complete for company %', target_company_id;
   RAISE NOTICE '───────────────────────────────────────────────────';
 
-  EXECUTE format('SELECT COUNT(*) FROM products           WHERE company_id = %L', co_id) INTO tmp_id;
-  RAISE NOTICE '  products            : % rows', tmp_id;
+  EXECUTE format('SELECT COUNT(*) FROM products            WHERE company_id = %L', target_company_id) INTO row_count;
+  RAISE NOTICE '  products            : % rows', row_count;
 
-  EXECUTE format('SELECT COUNT(*) FROM raw_materials      WHERE company_id = %L', co_id) INTO tmp_id;
-  RAISE NOTICE '  raw_materials       : % rows', tmp_id;
+  EXECUTE format('SELECT COUNT(*) FROM raw_materials       WHERE company_id = %L', target_company_id) INTO row_count;
+  RAISE NOTICE '  raw_materials       : % rows', row_count;
 
-  EXECUTE format('SELECT COUNT(*) FROM production_orders  WHERE company_id = %L', co_id) INTO tmp_id;
-  RAISE NOTICE '  production_orders   : % rows', tmp_id;
+  EXECUTE format('SELECT COUNT(*) FROM production_orders   WHERE company_id = %L', target_company_id) INTO row_count;
+  RAISE NOTICE '  production_orders   : % rows', row_count;
 
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'batch_qc_results' AND table_schema = 'public') THEN
-    EXECUTE format('SELECT COUNT(*) FROM batch_qc_results  WHERE company_id = %L', co_id) INTO tmp_id;
-    RAISE NOTICE '  batch_qc_results    : % rows', tmp_id;
+    EXECUTE format('SELECT COUNT(*) FROM batch_qc_results   WHERE company_id = %L', target_company_id) INTO row_count;
+    RAISE NOTICE '  batch_qc_results    : % rows', row_count;
   END IF;
 
-  EXECUTE format('SELECT COUNT(*) FROM sales              WHERE company_id = %L', co_id) INTO tmp_id;
-  RAISE NOTICE '  sales               : % rows', tmp_id;
+  EXECUTE format('SELECT COUNT(*) FROM sales               WHERE company_id = %L', target_company_id) INTO row_count;
+  RAISE NOTICE '  sales               : % rows', row_count;
 
-  EXECUTE format('SELECT COUNT(*) FROM quality_inspections WHERE company_id = %L', co_id) INTO tmp_id;
-  RAISE NOTICE '  quality_inspections : % rows', tmp_id;
+  EXECUTE format('SELECT COUNT(*) FROM quality_inspections WHERE company_id = %L', target_company_id) INTO row_count;
+  RAISE NOTICE '  quality_inspections : % rows', row_count;
 
-  EXECUTE format('SELECT COUNT(*) FROM quality_defects    WHERE company_id = %L', co_id) INTO tmp_id;
-  RAISE NOTICE '  quality_defects     : % rows', tmp_id;
+  EXECUTE format('SELECT COUNT(*) FROM quality_defects     WHERE company_id = %L', target_company_id) INTO row_count;
+  RAISE NOTICE '  quality_defects     : % rows', row_count;
 
-  EXECUTE format('SELECT COUNT(*) FROM scan_events        WHERE company_id = %L', co_id) INTO tmp_id;
-  RAISE NOTICE '  scan_events         : % rows (re-linked)', tmp_id;
+  EXECUTE format('SELECT COUNT(*) FROM scan_events         WHERE company_id = %L', target_company_id) INTO row_count;
+  RAISE NOTICE '  scan_events         : % rows (re-linked)', row_count;
 
   RAISE NOTICE '═══════════════════════════════════════════════════';
   RAISE NOTICE 'Dashboard and all module pages should now show data.';
