@@ -19,6 +19,7 @@ export type ActivityActionType =
   | 'sale.imported'
   | 'invitation.created'
   | 'team.role_changed'
+  | 'test.notification' // temporary — remove after pipeline verified
 
 // ── Role-based action type filter ────────────────────────────────────────────
 // Used by the dashboard feed to show only relevant activity per role.

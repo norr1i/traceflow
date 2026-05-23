@@ -42,6 +42,7 @@ const ACTION_META: Record<string, NotificationMeta> = {
   'sale.imported':           { category: 'sales',       severity: 'info',     title: 'Sales Import'      },
   'invitation.created':      { category: 'team',        severity: 'info',     title: 'Team Invitation'   },
   'team.role_changed':       { category: 'team',        severity: 'warning',  title: 'Role Changed'      },
+  'test.notification':       { category: 'team',        severity: 'info',     title: 'Diagnostic Test'   },
 }
 
 // Only these action types generate notifications (high-signal events only)
