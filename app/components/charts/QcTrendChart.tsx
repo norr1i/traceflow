@@ -41,15 +41,15 @@ export default function QcTrendChart({ data }: { data: QcTrendPoint[] }) {
       <AreaChart data={data} margin={{ top: 4, right: 4, left: -22, bottom: 0 }}>
         <defs>
           <linearGradient id="tfQcPass" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%"   stopColor="#10b981" stopOpacity={0.20} />
+            <stop offset="0%"   stopColor="#10b981" stopOpacity={0.10} />
             <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
           </linearGradient>
           <linearGradient id="tfQcFail" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%"   stopColor="#ef4444" stopOpacity={0.20} />
+            <stop offset="0%"   stopColor="#ef4444" stopOpacity={0.10} />
             <stop offset="100%" stopColor="#ef4444" stopOpacity={0} />
           </linearGradient>
           <linearGradient id="tfQcHold" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%"   stopColor="#f59e0b" stopOpacity={0.20} />
+            <stop offset="0%"   stopColor="#f59e0b" stopOpacity={0.10} />
             <stop offset="100%" stopColor="#f59e0b" stopOpacity={0} />
           </linearGradient>
         </defs>
@@ -82,13 +82,13 @@ export default function QcTrendChart({ data }: { data: QcTrendPoint[] }) {
           formatter={(v) => <span style={{ fontSize: 11, color: '#6B7280' }}>{v}</span>}
         />
 
-        <Area type="monotone" dataKey="pass" name="Pass" stroke="#10b981" strokeWidth={1.75}
+        <Area type="monotone" dataKey="pass" name="Pass" stroke="#10b981" strokeWidth={1.5}
           fill="url(#tfQcPass)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: '#10b981' }}
           isAnimationActive animationDuration={600} />
-        <Area type="monotone" dataKey="fail" name="Fail" stroke="#ef4444" strokeWidth={1.75}
+        <Area type="monotone" dataKey="fail" name="Fail" stroke="#ef4444" strokeWidth={1.5}
           fill="url(#tfQcFail)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: '#ef4444' }}
           isAnimationActive animationDuration={600} animationBegin={100} />
-        <Area type="monotone" dataKey="hold" name="Hold" stroke="#f59e0b" strokeWidth={1.75}
+        <Area type="monotone" dataKey="hold" name="Hold" stroke="#f59e0b" strokeWidth={1.5}
           fill="url(#tfQcHold)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: '#f59e0b' }}
           isAnimationActive animationDuration={600} animationBegin={200} />
       </AreaChart>

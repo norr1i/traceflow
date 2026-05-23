@@ -37,7 +37,7 @@ export default function SalesChart({ data }: Props) {
       <AreaChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
         <defs>
           <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%"  stopColor="#4a8fb9" stopOpacity={0.18} />
+            <stop offset="5%"  stopColor="#4a8fb9" stopOpacity={0.10} />
             <stop offset="95%" stopColor="#4a8fb9" stopOpacity={0} />
           </linearGradient>
         </defs>
@@ -65,7 +65,7 @@ export default function SalesChart({ data }: Props) {
           type="monotone"
           dataKey="revenue"
           stroke="#4a8fb9"
-          strokeWidth={2}
+          strokeWidth={1.5}
           fill="url(#revenueGrad)"
           dot={false}
           activeDot={{ r: 4, fill: '#4a8fb9', strokeWidth: 0 }}

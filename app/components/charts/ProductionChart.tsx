@@ -2,7 +2,7 @@
 
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
-const PALETTE = ['#f59e0b', '#4a8fb9', '#10b981', '#6b7280']
+const PALETTE = ['#8C6B2A', '#2E6080', '#2A7A50', '#4A5568']
 
 const TOOLTIP_STYLE = {
   backgroundColor: '#0F1923',

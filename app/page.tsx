@@ -696,7 +696,7 @@ export default function DashboardPage() {
                   labelKey="product_name"
                   formatValue={(v) => fmtRevenue(v)}
                   maxValue={maxProductRevenue}
-                  barColor="bg-violet-500/50"
+                  barColor="bg-[#4a8fb9]/35"
                 />
               )}
             </SectionCard>

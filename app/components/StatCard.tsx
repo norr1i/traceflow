@@ -11,61 +11,48 @@ type Props = {
   trend?: { value: number; label: string }
 }
 
+// Desaturated, low-luminance accent tokens — color communicates meaning, not energy
 const accentTokens: Record<Accent, {
   icon:      string
   trend_pos: string
   trend_neg: string
-  dot:       string
   topBar:    string
-  glow:      string   // radial gradient color stop for dark mode
 }> = {
   blue:   {
-    icon:      'bg-[#4a8fb9]/10 text-[#4a8fb9] dark:bg-[#4a8fb9]/15 dark:text-[#60a5d4]',
-    trend_pos: 'text-emerald-600 dark:text-emerald-400',
+    icon:      'bg-[#1E3A4A] text-[#5A9ABF] dark:bg-[#1A3040] dark:text-[#5A9ABF]',
+    trend_pos: 'text-emerald-600 dark:text-emerald-500',
     trend_neg: 'text-red-500 dark:text-red-400',
-    dot:       'bg-[#4a8fb9]',
-    topBar:    'bg-[#4a8fb9]',
-    glow:      'rgba(74,143,185,0.18)',
+    topBar:    'bg-[#2E5870]',
   },
   green:  {
-    icon:      'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400',
-    trend_pos: 'text-emerald-600 dark:text-emerald-400',
+    icon:      'bg-[#1A3828] text-[#4A9A6A] dark:bg-[#162E20] dark:text-[#4A9A6A]',
+    trend_pos: 'text-emerald-600 dark:text-emerald-500',
     trend_neg: 'text-red-500 dark:text-red-400',
-    dot:       'bg-emerald-500',
-    topBar:    'bg-emerald-500',
-    glow:      'rgba(16,185,129,0.15)',
+    topBar:    'bg-[#26583A]',
   },
   yellow: {
-    icon:      'bg-amber-500/10 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400',
-    trend_pos: 'text-emerald-600 dark:text-emerald-400',
+    icon:      'bg-[#3A3018] text-[#A08020] dark:bg-[#302810] dark:text-[#A08030]',
+    trend_pos: 'text-emerald-600 dark:text-emerald-500',
     trend_neg: 'text-red-500 dark:text-red-400',
-    dot:       'bg-amber-400',
-    topBar:    'bg-amber-400',
-    glow:      'rgba(245,158,11,0.14)',
+    topBar:    'bg-[#6A5420]',
   },
   red:    {
-    icon:      'bg-red-500/10 text-red-600 dark:bg-red-500/15 dark:text-red-400',
-    trend_pos: 'text-emerald-600 dark:text-emerald-400',
+    icon:      'bg-[#3A1E1E] text-[#B04A4A] dark:bg-[#301818] dark:text-[#B05050]',
+    trend_pos: 'text-emerald-600 dark:text-emerald-500',
     trend_neg: 'text-red-500 dark:text-red-400',
-    dot:       'bg-red-500',
-    topBar:    'bg-red-500',
-    glow:      'rgba(239,68,68,0.15)',
+    topBar:    'bg-[#7A3030]',
   },
   purple: {
-    icon:      'bg-violet-500/10 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400',
-    trend_pos: 'text-emerald-600 dark:text-emerald-400',
+    icon:      'bg-[#28203A] text-[#7A60B0] dark:bg-[#201830] dark:text-[#7A60B0]',
+    trend_pos: 'text-emerald-600 dark:text-emerald-500',
     trend_neg: 'text-red-500 dark:text-red-400',
-    dot:       'bg-violet-500',
-    topBar:    'bg-violet-500',
-    glow:      'rgba(139,92,246,0.15)',
+    topBar:    'bg-[#4A3870]',
   },
   orange: {
-    icon:      'bg-orange-500/10 text-orange-600 dark:bg-orange-500/15 dark:text-orange-400',
-    trend_pos: 'text-emerald-600 dark:text-emerald-400',
+    icon:      'bg-[#3A2818] text-[#A0682A] dark:bg-[#302010] dark:text-[#A0682A]',
+    trend_pos: 'text-emerald-600 dark:text-emerald-500',
     trend_neg: 'text-red-500 dark:text-red-400',
-    dot:       'bg-orange-400',
-    topBar:    'bg-orange-400',
-    glow:      'rgba(251,146,60,0.15)',
+    topBar:    'bg-[#784020]',
   },
 }
 
@@ -73,20 +60,12 @@ export default function StatCard({ title, value, subtitle, accent = 'blue', icon
   const tokens = accentTokens[accent]
 
   return (
-    <div className="glass-card rounded-xl overflow-hidden flex flex-col relative group transition-all duration-200 hover:-translate-y-[1px]">
+    <div className="glass-card rounded-xl overflow-hidden flex flex-col transition-all duration-200 hover:-translate-y-[1px]">
 
-      {/* Accent top line */}
-      <div className={`h-[2px] w-full shrink-0 ${tokens.topBar}`} />
+      {/* Muted accent top rule — 1.5px, no animation, no glow */}
+      <div className={`h-[1.5px] w-full shrink-0 ${tokens.topBar} opacity-70`} />
 
-      {/* Dark-mode radial glow — animates slowly in background */}
-      <div
-        className="kpi-glow pointer-events-none absolute inset-0 hidden dark:block rounded-xl"
-        style={{
-          background: `radial-gradient(ellipse 90% 60% at 95% 0%, ${tokens.glow} 0%, transparent 65%)`,
-        }}
-      />
-
-      <div className="relative flex flex-col gap-3 px-5 pb-5 pt-4">
+      <div className="flex flex-col gap-3 px-5 pb-5 pt-4">
 
         {/* Header row */}
         <div className="flex items-center justify-between gap-2">

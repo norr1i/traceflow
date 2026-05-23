@@ -122,14 +122,6 @@ body {
   }
 }
 
-/* ── KPI glow animation ─────────────────────────────────────────────────── */
-@keyframes kpi-glow {
-  0%, 100% { opacity: 0.55; }
-  50%       { opacity: 1;    }
-}
-.kpi-glow { animation: kpi-glow 5s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .kpi-glow { animation: none; opacity: 0.8; } }
-
 /* ── Logo mark animations ───────────────────────────────────────────────── */
 @keyframes tf-halo-pulse {
   0%, 100% { opacity: 1;   }
