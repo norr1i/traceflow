@@ -94,7 +94,10 @@
     "date": "Date",
     "total": "Total",
     "ok": "OK",
-    "refresh": "Refresh"
+    "refresh": "Refresh",
+    "time_ago_m": "{{n}}m ago",
+    "time_ago_h": "{{n}}h ago",
+    "time_ago_d": "{{n}}d ago"
   },
   "login": {
     "title": "Welcome back",
@@ -504,7 +507,17 @@
     "no_sales": "No sales recorded yet.",
     "distributed_label": "Distributed",
     "reorder_at": "Reorder at",
-    "qty_prefix": "Qty:"
+    "qty_prefix": "Qty:",
+    "recall_batches_failed": "{{n}} batch with failed QC",
+    "recall_batches_failed_plural": "{{n}} batches with failed QC",
+    "recall_distributed_to": "{{n}} distributed to customers",
+    "recall_missing_qc": "{{n}} batch missing inspection",
+    "recall_missing_qc_plural": "{{n}} batches missing inspection",
+    "inventory_low_banner": "{{n}} material at or below reorder level",
+    "inventory_low_banner_plural": "{{n}} materials at or below reorder level",
+    "inventory_low_review": "Review inventory and raise purchase orders as needed.",
+    "updated_ago": "Updated {{time}}",
+    "total_inspections_count": "{{n}} total inspections"
   },
   "notifications": {
     "title": "Notifications",

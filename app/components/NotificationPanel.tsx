@@ -21,20 +21,22 @@ import {
   type AppNotification,
   type NotificationCategory,
 } from '../lib/notifications'
-import { useT } from '../lib/i18n'
+import { useT, fmtNum, type Lang } from '../lib/i18n'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function timeAgo(iso: string): string {
+type TFn = (key: string, vars?: Record<string, string | number>) => string
+
+function timeAgo(iso: string, t: TFn, lang: Lang): string {
   const diff = Date.now() - new Date(iso).getTime()
   const mins = Math.floor(diff / 60_000)
-  if (mins < 1)  return 'just now'
-  if (mins < 60) return `${mins}m ago`
+  if (mins < 1)  return t('common.just_now')
+  if (mins < 60) return t('common.time_ago_m', { n: fmtNum(mins, lang) })
   const hrs = Math.floor(mins / 60)
-  if (hrs < 24)  return `${hrs}h ago`
+  if (hrs < 24)  return t('common.time_ago_h', { n: fmtNum(hrs, lang) })
   const days = Math.floor(hrs / 24)
-  if (days === 1) return 'yesterday'
-  return `${days}d ago`
+  if (days === 1) return t('common.yesterday')
+  return t('common.time_ago_d', { n: fmtNum(days, lang) })
 }
 
 // entity_type value → app route
@@ -104,7 +106,7 @@ export default function NotificationPanel() {
   const { companyId } = useAuth()
   const role          = useRole()
   const router        = useRouter()
-  const { t }         = useT()
+  const { t, lang }   = useT()
 
   // Persists across renders; seeded by the initial fetch so realtime
   // reconnect replays for already-loaded rows are silently dropped.
@@ -390,7 +392,7 @@ export default function NotificationPanel() {
                         >
                           {/* Severity left bar — visible only when unread */}
                           <div
-                            className={`absolute left-0 top-2.5 bottom-2.5 w-[2.5px] rounded-r-full transition-opacity ${
+                            className={`absolute start-0 top-2.5 bottom-2.5 w-[2.5px] rounded-e-full transition-opacity ${
                               isUnread ? `${severity.borderColor} opacity-100` : 'opacity-0'
                             }`}
                           />
@@ -425,7 +427,7 @@ export default function NotificationPanel() {
                                   <span className="text-gray-300 dark:text-[#2D3340]">·</span>
                                 </>
                               )}
-                              <span className="shrink-0">{timeAgo(notif.created_at)}</span>
+                              <span className="shrink-0">{timeAgo(notif.created_at, t, lang)}</span>
                               {navigable && (
                                 <>
                                   <span className="text-gray-300 dark:text-[#2D3340]">·</span>

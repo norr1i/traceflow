@@ -54,6 +54,32 @@ body {
 
 html[lang="ar"] body {
   font-family: var(--font-arabic), 'IBM Plex Sans Arabic', sans-serif;
+  line-height: 1.75;
+  letter-spacing: 0;
+  word-spacing: 0.04em;
+}
+
+/* Tighter tracking for Arabic headings / labels */
+html[lang="ar"] p,
+html[lang="ar"] span,
+html[lang="ar"] td,
+html[lang="ar"] th,
+html[lang="ar"] button {
+  letter-spacing: 0;
+}
+
+/* Arabic-Indic numerals align correctly with tabular-nums */
+html[lang="ar"] .tabular-nums {
+  font-feature-settings: "tnum" 1;
+}
+
+/* Flip toast slide-in for RTL */
+html[lang="ar"] .toast-slide-in {
+  animation-name: toast-slide-in-rtl;
+}
+@keyframes toast-slide-in-rtl {
+  from { opacity: 0; transform: translateX(-1.5rem) scale(0.96); }
+  to   { opacity: 1; transform: translateX(0)         scale(1); }
 }
 
 /* Dark: layered atmospheric gradient — cool blue-slate depth */
