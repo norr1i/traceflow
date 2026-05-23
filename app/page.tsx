@@ -11,6 +11,7 @@ import SalesChart from './components/charts/SalesChart'
 import { useRole } from './lib/auth-context'
 import { canView } from './lib/permissions'
 import { ACTION_TYPES_BY_SECTION } from './lib/activity'
+import { useT } from './lib/i18n'
 import {
   ClipboardList, QrCode, AlertTriangle, FlaskConical,
   Smartphone, Monitor, CheckCircle2, Clock, ShieldCheck,
@@ -239,6 +240,7 @@ function RankBar({
 
 export default function DashboardPage() {
   const role = useRole()
+  const { t } = useT()
 
   const showProduction = canView(role, 'dashboard.production')
   const showQuality    = canView(role, 'dashboard.quality')
@@ -301,42 +303,42 @@ export default function DashboardPage() {
   const kpiCards: React.ReactNode[] = (() => {
     if (showProduction && showQuality) {
       return [
-        <StatCard key="batches"  title="Production Batches" value={totalBatches}  subtitle={`${ordersByStatus.in_progress} in progress`} accent="blue"  icon={ClipboardList} />,
-        <StatCard key="passrate" title="QC Pass Rate"        value={passRate !== null ? `${passRate}%` : '—'} subtitle={`${qcCounts.pass + qcCounts.fail + qcCounts.hold} total inspections`} accent={passRateAccent} icon={passRate !== null && passRate >= 80 ? CheckCircle2 : passRate !== null && passRate < 60 ? XCircle : ShieldCheck} />,
-        <StatCard key="scans"    title="QR Scans"            value={totalScans.toLocaleString()} subtitle="all-time trace events" accent="purple" icon={QrCode} />,
-        <StatCard key="weekly"   title="Inspections This Week" value={weeklyInspections} subtitle="QC records last 7 days" accent={weeklyInspections > 0 ? 'orange' : 'yellow'} icon={FlaskConical} />,
+        <StatCard key="batches"  title={t('dashboard.production_batches')} value={totalBatches}  subtitle={`${ordersByStatus.in_progress} ${t('dashboard.in_progress_suffix')}`} accent="blue"  icon={ClipboardList} />,
+        <StatCard key="passrate" title={t('dashboard.qc_pass_rate')}       value={passRate !== null ? `${passRate}%` : '—'} subtitle={`${qcCounts.pass + qcCounts.fail + qcCounts.hold} ${t('dashboard.total_inspections_suffix')}`} accent={passRateAccent} icon={passRate !== null && passRate >= 80 ? CheckCircle2 : passRate !== null && passRate < 60 ? XCircle : ShieldCheck} />,
+        <StatCard key="scans"    title={t('dashboard.qr_scans')}           value={totalScans.toLocaleString()} subtitle={t('dashboard.alltime_trace')} accent="purple" icon={QrCode} />,
+        <StatCard key="weekly"   title={t('dashboard.inspections_week')}   value={weeklyInspections} subtitle={t('dashboard.qc_last_7')} accent={weeklyInspections > 0 ? 'orange' : 'yellow'} icon={FlaskConical} />,
       ]
     }
     if (showQuality && !showProduction) {
       return [
-        <StatCard key="passrate" title="QC Pass Rate" value={passRate !== null ? `${passRate}%` : '—'} subtitle={`${qcCounts.pass + qcCounts.fail + qcCounts.hold} total inspections`} accent={passRateAccent} icon={passRate !== null && passRate >= 80 ? CheckCircle2 : passRate !== null && passRate < 60 ? XCircle : ShieldCheck} />,
-        <StatCard key="failed"   title="Failed"       value={qcCounts.fail}    subtitle="batches with QC fail"      accent="red"    icon={XCircle}      />,
-        <StatCard key="hold"     title="On Hold"      value={qcCounts.hold}    subtitle="pending re-inspection"     accent="yellow" icon={Clock}        />,
-        <StatCard key="weekly"   title="This Week"    value={weeklyInspections} subtitle="inspections last 7 days" accent={weeklyInspections > 0 ? 'orange' : 'yellow'} icon={FlaskConical} />,
+        <StatCard key="passrate" title={t('dashboard.qc_pass_rate')} value={passRate !== null ? `${passRate}%` : '—'} subtitle={`${qcCounts.pass + qcCounts.fail + qcCounts.hold} ${t('dashboard.total_inspections_suffix')}`} accent={passRateAccent} icon={passRate !== null && passRate >= 80 ? CheckCircle2 : passRate !== null && passRate < 60 ? XCircle : ShieldCheck} />,
+        <StatCard key="failed"   title={t('dashboard.failed')}        value={qcCounts.fail}              subtitle={t('dashboard.fail_subtitle')}    accent="red"    icon={XCircle}      />,
+        <StatCard key="hold"     title={t('dashboard.on_hold')}       value={qcCounts.hold}              subtitle={t('dashboard.hold_subtitle')}    accent="yellow" icon={Clock}        />,
+        <StatCard key="weekly"   title={t('dashboard.this_week')}     value={weeklyInspections}          subtitle={t('dashboard.inspection_subtitle')} accent={weeklyInspections > 0 ? 'orange' : 'yellow'} icon={FlaskConical} />,
       ]
     }
     if (showProduction && showTracing && !showInventory && !showSales) {
       return [
-        <StatCard key="batches"    title="Total Batches" value={totalBatches}               subtitle={`${ordersByStatus.completed} completed`}   accent="blue"   icon={ClipboardList} />,
-        <StatCard key="inprogress" title="In Progress"   value={ordersByStatus.in_progress} subtitle="active production orders"                  accent="orange" icon={Clock}         />,
-        <StatCard key="thisweek"   title="This Week"     value={ordersThisWeek}             subtitle="orders created last 7 days"                accent="green"  icon={ClipboardList} />,
-        <StatCard key="scans"      title="QR Scans"      value={totalScans.toLocaleString()} subtitle="all-time trace events"                    accent="purple" icon={QrCode}        />,
+        <StatCard key="batches"    title={t('dashboard.total_batches')} value={totalBatches}               subtitle={`${ordersByStatus.completed} ${t('dashboard.completed_suffix')}`}   accent="blue"   icon={ClipboardList} />,
+        <StatCard key="inprogress" title={t('dashboard.in_progress')}   value={ordersByStatus.in_progress} subtitle={t('dashboard.active_orders_subtitle')}                               accent="orange" icon={Clock}         />,
+        <StatCard key="thisweek"   title={t('dashboard.this_week')}     value={ordersThisWeek}             subtitle={t('dashboard.orders_7days')}                                         accent="green"  icon={ClipboardList} />,
+        <StatCard key="scans"      title={t('dashboard.qr_scans')}      value={totalScans.toLocaleString()} subtitle={t('dashboard.alltime_trace')}                                      accent="purple" icon={QrCode}        />,
       ]
     }
     if (showInventory && !showQuality) {
       return [
-        <StatCard key="materials" title="Raw Materials" value={rawMaterials.length}        subtitle="tracked inventory items"                                          accent="green"                                  icon={Boxes}                                                  />,
-        <StatCard key="lowstock"  title="Low Stock"     value={lowStockCount}              subtitle={lowStockCount > 0 ? 'at or below reorder level' : 'all stocked'} accent={lowStockCount > 0 ? 'red' : 'green'}   icon={lowStockCount > 0 ? AlertTriangle : CheckCircle2} />,
-        <StatCard key="active"    title="Active Orders" value={ordersByStatus.in_progress} subtitle="production orders using materials"                                accent="orange"                                 icon={ClipboardList}                                          />,
-        <StatCard key="batches"   title="Total Batches" value={totalBatches}               subtitle={`${ordersByStatus.completed} completed`}                         accent="blue"                                   icon={Package}                                                />,
+        <StatCard key="materials" title={t('dashboard.raw_materials')} value={rawMaterials.length}        subtitle={t('dashboard.tracked_items')}                                                                             accent="green"                                icon={Boxes}                                                  />,
+        <StatCard key="lowstock"  title={t('dashboard.low_stock')}     value={lowStockCount}              subtitle={lowStockCount > 0 ? t('dashboard.below_reorder') : t('dashboard.all_stocked')}                          accent={lowStockCount > 0 ? 'red' : 'green'}  icon={lowStockCount > 0 ? AlertTriangle : CheckCircle2} />,
+        <StatCard key="active"    title={t('dashboard.active_orders')} value={ordersByStatus.in_progress} subtitle={t('dashboard.orders_using')}                                                                             accent="orange"                               icon={ClipboardList}                                          />,
+        <StatCard key="batches"   title={t('dashboard.total_batches')} value={totalBatches}               subtitle={`${ordersByStatus.completed} ${t('dashboard.completed_suffix')}`}                                        accent="blue"                                 icon={Package}                                                />,
       ]
     }
     if (showSales && !showQuality) {
       return [
-        <StatCard key="salescount" title="Total Sales"  value={totalSalesCount}              subtitle="all-time orders"                                                                        accent="purple"                                          icon={ShoppingCart} />,
-        <StatCard key="salesrev"   title="Revenue"      value={fmtRevenue(totalSalesRevenue)} subtitle="from completed sales"                                                                   accent="green"                                           icon={TrendingUp}   />,
-        <StatCard key="recall"     title="Recall Risk"  value={recallRisk.failedQcCount}      subtitle={recallRisk.failedWithSales > 0 ? `${recallRisk.failedWithSales} distributed` : 'failed QC batches'} accent={recallRisk.failedQcCount > 0 ? 'red' : 'green'} icon={recallRisk.failedQcCount > 0 ? AlertTriangle : CheckCircle2} />,
-        <StatCard key="products"   title="Products Sold" value={topProducts.length}            subtitle="distinct products with sales"                                                           accent="blue"                                            icon={Package}      />,
+        <StatCard key="salescount" title={t('dashboard.total_sales')}   value={totalSalesCount}              subtitle={t('dashboard.alltime_orders')}                                                                                               accent="purple"                                          icon={ShoppingCart} />,
+        <StatCard key="salesrev"   title={t('dashboard.revenue')}        value={fmtRevenue(totalSalesRevenue)} subtitle={t('dashboard.from_completed')}                                                                                              accent="green"                                           icon={TrendingUp}   />,
+        <StatCard key="recall"     title={t('dashboard.recall_risk')}    value={recallRisk.failedQcCount}      subtitle={recallRisk.failedWithSales > 0 ? `${recallRisk.failedWithSales} ${t('dashboard.distributed')}` : t('dashboard.failed_qc_sub')} accent={recallRisk.failedQcCount > 0 ? 'red' : 'green'} icon={recallRisk.failedQcCount > 0 ? AlertTriangle : CheckCircle2} />,
+        <StatCard key="products"   title={t('dashboard.products_sold')}  value={topProducts.length}            subtitle={t('dashboard.distinct_products')}                                                                                           accent="blue"                                            icon={Package}      />,
       ]
     }
     return []
@@ -363,8 +365,8 @@ export default function DashboardPage() {
         <div className="flex h-64 flex-col items-center justify-center gap-3 rounded-xl border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-white/[0.02] text-gray-400 dark:text-[#4A5568]">
           <LayoutDashboard size={22} strokeWidth={1.5} className="opacity-40" />
           <div className="text-center">
-            <p className="text-sm font-medium text-gray-600 dark:text-[#6B7280]">No dashboard sections available for your role.</p>
-            <p className="mt-0.5 text-xs">Use the sidebar to navigate to your module.</p>
+            <p className="text-sm font-medium text-gray-600 dark:text-[#6B7280]">{t('dashboard.no_role_sections')}</p>
+            <p className="mt-0.5 text-xs">{t('dashboard.use_sidebar')}</p>
           </div>
         </div>
       )}
@@ -374,7 +376,7 @@ export default function DashboardPage() {
         <div className="flex items-start gap-3.5 rounded-xl border border-red-200 dark:border-red-500/20 bg-red-50 dark:bg-red-500/[0.06] px-4 py-3.5">
           <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-500 dark:text-red-400" />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-red-700 dark:text-red-400">Recall Risk Detected</p>
+            <p className="text-sm font-semibold text-red-700 dark:text-red-400">{t('dashboard.recall_risk_title')}</p>
             <div className="mt-1 flex flex-wrap gap-x-5 gap-y-0.5">
               {recallRisk.failedQcCount > 0 && (
                 <span className="text-[12px] text-red-600 dark:text-red-400">
@@ -422,7 +424,7 @@ export default function DashboardPage() {
         <section className={`grid gap-4 ${showQuality && showTracing ? 'grid-cols-1 lg:grid-cols-3' : 'grid-cols-1'}`}>
           {showQuality && (
             <div className={showQuality && showTracing ? 'lg:col-span-2' : ''}>
-              <SectionCard title="QC Trend — Last 7 Days" subtitle="Daily pass / fail / hold">
+              <SectionCard title={t('dashboard.section.qc_trend')} subtitle={t('dashboard.section.qc_trend_sub')}>
                 <div className="h-56">
                   <QcTrendChart data={qcTrend} />
                 </div>
@@ -430,7 +432,7 @@ export default function DashboardPage() {
             </div>
           )}
           {showTracing && (
-            <SectionCard title="QR Scan Activity" subtitle="Daily trace volume — 7 days">
+            <SectionCard title={t('dashboard.section.scan_activity')} subtitle={t('dashboard.section.scan_activity_sub')}>
               <div className="h-56">
                 <ScanActivityChart data={scanTrend} />
               </div>
@@ -444,7 +446,7 @@ export default function DashboardPage() {
         <section className={`grid gap-4 ${showProduction && showQuality ? 'grid-cols-1 lg:grid-cols-3' : 'grid-cols-1'}`}>
           {showProduction && (
             <div className={showProduction && showQuality ? 'lg:col-span-2' : ''}>
-              <SectionCard title="Production Pipeline" subtitle="Orders by current status">
+              <SectionCard title={t('dashboard.section.production_pipeline')} subtitle={t('dashboard.section.production_pipeline_sub')}>
                 <div className="h-56">
                   <ProductionChart data={ordersByStatus} />
                 </div>
@@ -452,7 +454,7 @@ export default function DashboardPage() {
             </div>
           )}
           {showQuality && (
-            <SectionCard title="QC Breakdown" subtitle="Cumulative pass / fail / hold">
+            <SectionCard title={t('dashboard.section.qc_breakdown')} subtitle={t('dashboard.section.qc_breakdown_sub')}>
               <QcBar pass={qcCounts.pass} fail={qcCounts.fail} hold={qcCounts.hold} />
             </SectionCard>
           )}
@@ -463,7 +465,7 @@ export default function DashboardPage() {
       {(showQuality || showTracing) && (
         <section className={`grid gap-4 ${showQuality && showTracing ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
           {showQuality && (
-            <SectionCard title="Recent QC Inspections" subtitle="Latest across all batches">
+            <SectionCard title={t('dashboard.section.recent_qc')} subtitle={t('dashboard.section.recent_qc_sub')}>
               {recentQc.length === 0 ? (
                 <EmptyState icon={FlaskConical} message="No inspections recorded yet." />
               ) : (
@@ -488,7 +490,7 @@ export default function DashboardPage() {
             </SectionCard>
           )}
           {showTracing && (
-            <SectionCard title="Most Scanned Batches" subtitle="By QR scan event count">
+            <SectionCard title={t('dashboard.section.most_scanned')} subtitle={t('dashboard.section.most_scanned_sub')}>
               {mostScanned.length === 0 ? (
                 <EmptyState icon={QrCode} message="No scan events recorded yet." />
               ) : (
@@ -510,7 +512,7 @@ export default function DashboardPage() {
       {(showProduction || showTracing) && (
         <section className={`grid gap-4 ${showProduction && showTracing ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
           {showProduction && (
-            <SectionCard title="Batches with Failed QC" subtitle="Latest QC status = fail">
+            <SectionCard title={t('dashboard.section.failed_qc')} subtitle={t('dashboard.section.failed_qc_sub')}>
               {failedBatches.length === 0 ? (
                 <EmptyState icon={CheckCircle2} message="No failed batches — all clear." />
               ) : (
@@ -542,7 +544,7 @@ export default function DashboardPage() {
             </SectionCard>
           )}
           {showTracing && (
-            <SectionCard title="Recent Scan Events" subtitle="Latest QR code traces">
+            <SectionCard title={t('dashboard.section.recent_scans')} subtitle={t('dashboard.section.recent_scans_sub')}>
               {recentScans.length === 0 ? (
                 <EmptyState icon={QrCode} message="No scan events recorded yet." />
               ) : (
@@ -572,7 +574,7 @@ export default function DashboardPage() {
       {/* ── Operations: recent production orders ─────────────────────────── */}
       {showProduction && showTracing && !showQuality && (
         <section>
-          <SectionCard title="Recent Production Orders" subtitle="Last 10 orders across all statuses" flush>
+          <SectionCard title={t('dashboard.section.recent_orders')} subtitle={t('dashboard.section.recent_orders_sub')} flush>
             {recentOrders.length === 0 ? (
               <div className="px-5 py-4">
                 <EmptyState icon={ClipboardList} message="No production orders found." />
@@ -582,11 +584,11 @@ export default function DashboardPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100 dark:border-white/[0.05] text-[10.5px] font-semibold uppercase tracking-[0.08em] text-gray-400 dark:text-[#4A5568]">
-                      <th className="px-5 pb-3 pt-0.5 text-left">Product</th>
-                      <th className="px-5 pb-3 pt-0.5 text-left hidden sm:table-cell">SKU</th>
-                      <th className="px-5 pb-3 pt-0.5 text-right">Qty</th>
-                      <th className="px-5 pb-3 pt-0.5 text-center">Status</th>
-                      <th className="px-5 pb-3 pt-0.5 text-right">Created</th>
+                      <th className="px-5 pb-3 pt-0.5 text-left">{t('dashboard.table.product')}</th>
+                      <th className="px-5 pb-3 pt-0.5 text-left hidden sm:table-cell">{t('dashboard.table.sku')}</th>
+                      <th className="px-5 pb-3 pt-0.5 text-right">{t('dashboard.table.qty')}</th>
+                      <th className="px-5 pb-3 pt-0.5 text-center">{t('dashboard.table.status')}</th>
+                      <th className="px-5 pb-3 pt-0.5 text-right">{t('dashboard.table.created')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50 dark:divide-white/[0.04]">
@@ -612,7 +614,7 @@ export default function DashboardPage() {
       {/* ── Warehouse: inventory + production demand ──────────────────────── */}
       {showInventory && !showQuality && !showTracing && (
         <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <SectionCard title="Inventory Status" subtitle="Current stock vs. reorder points">
+          <SectionCard title={t('dashboard.section.inventory')} subtitle={t('dashboard.section.inventory_sub')}>
             {rawMaterials.length === 0 ? (
               <EmptyState icon={Boxes} message="No raw materials on record." />
             ) : (
@@ -650,7 +652,7 @@ export default function DashboardPage() {
             )}
           </SectionCard>
 
-          <SectionCard title="Production Demand" subtitle="Active orders consuming materials">
+          <SectionCard title={t('dashboard.section.demand')} subtitle={t('dashboard.section.demand_sub')}>
             {inProgressOrders.length === 0 ? (
               <EmptyState icon={ClipboardList} message="No active production orders." />
             ) : (
@@ -680,13 +682,13 @@ export default function DashboardPage() {
         <>
           <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="lg:col-span-2">
-              <SectionCard title="Revenue Trend" subtitle="Sales value — most recent orders">
+              <SectionCard title={t('dashboard.section.revenue_trend')} subtitle={t('dashboard.section.revenue_trend_sub')}>
                 <div className="h-56">
                   <SalesChart data={recentSales} />
                 </div>
               </SectionCard>
             </div>
-            <SectionCard title="Top Products" subtitle="By revenue — completed sales">
+            <SectionCard title={t('dashboard.section.top_products')} subtitle={t('dashboard.section.top_products_sub')}>
               {topProducts.length === 0 ? (
                 <EmptyState icon={Package} message="No completed sales recorded yet." />
               ) : (
@@ -703,7 +705,7 @@ export default function DashboardPage() {
           </section>
 
           <section>
-            <SectionCard title="Recent Sales" subtitle="Last 15 orders across all statuses" flush>
+            <SectionCard title={t('dashboard.section.recent_sales')} subtitle={t('dashboard.section.recent_sales_sub')} flush>
               {recentSales.length === 0 ? (
                 <div className="px-5 py-4">
                   <EmptyState icon={ShoppingCart} message="No sales recorded yet." />
@@ -713,12 +715,12 @@ export default function DashboardPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-100 dark:border-white/[0.05] text-[10.5px] font-semibold uppercase tracking-[0.08em] text-gray-400 dark:text-[#4A5568]">
-                        <th className="px-5 pb-3 pt-0.5 text-left">Product</th>
-                        <th className="px-5 pb-3 pt-0.5 text-right">Qty</th>
-                        <th className="px-5 pb-3 pt-0.5 text-right">Total</th>
-                        <th className="px-5 pb-3 pt-0.5 text-left hidden sm:table-cell">Customer</th>
-                        <th className="px-5 pb-3 pt-0.5 text-center">Status</th>
-                        <th className="px-5 pb-3 pt-0.5 text-right">Date</th>
+                        <th className="px-5 pb-3 pt-0.5 text-left">{t('dashboard.table.product')}</th>
+                        <th className="px-5 pb-3 pt-0.5 text-right">{t('dashboard.table.qty')}</th>
+                        <th className="px-5 pb-3 pt-0.5 text-right">{t('dashboard.table.total')}</th>
+                        <th className="px-5 pb-3 pt-0.5 text-left hidden sm:table-cell">{t('dashboard.table.customer')}</th>
+                        <th className="px-5 pb-3 pt-0.5 text-center">{t('dashboard.table.status')}</th>
+                        <th className="px-5 pb-3 pt-0.5 text-right">{t('dashboard.table.date')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50 dark:divide-white/[0.04]">
@@ -751,7 +753,7 @@ export default function DashboardPage() {
       {feedEntries.length > 0 && (
         <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div className="lg:col-span-2">
-            <SectionCard title="Recent Activity" subtitle="Audit log of actions by your team">
+            <SectionCard title={t('dashboard.section.activity')} subtitle={t('dashboard.section.activity_sub')}>
               <ActivityTimeline entries={feedEntries} />
             </SectionCard>
           </div>
@@ -759,14 +761,14 @@ export default function DashboardPage() {
           <div className="flex flex-col gap-4">
             <div className="glass-card rounded-xl px-5 py-4 space-y-3.5">
               <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-gray-400 dark:text-[#4A5568]">
-                System Status
+                {t('dashboard.system_status')}
               </p>
               <div className="flex items-center gap-2.5">
                 <span className="relative flex h-2 w-2 shrink-0">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
                 </span>
-                <span className="text-[12.5px] text-gray-700 dark:text-[#C4CAD6]">All systems operational</span>
+                <span className="text-[12.5px] text-gray-700 dark:text-[#C4CAD6]">{t('dashboard.all_operational')}</span>
               </div>
               {lastUpdated && (
                 <p className="text-[10.5px] text-gray-400 dark:text-[#4A5568]">
@@ -779,7 +781,7 @@ export default function DashboardPage() {
                 className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-gray-50 dark:bg-white/[0.04] px-3 py-2 text-[11.5px] font-medium text-gray-500 dark:text-[#5A6478] hover:bg-gray-100 dark:hover:bg-white/[0.07] disabled:opacity-40 transition-colors"
               >
                 <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} />
-                Refresh data
+                {t('dashboard.refresh_data')}
               </button>
             </div>
           </div>

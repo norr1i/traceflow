@@ -21,6 +21,7 @@ import {
   type AppNotification,
   type NotificationCategory,
 } from '../lib/notifications'
+import { useT } from '../lib/i18n'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -103,6 +104,7 @@ export default function NotificationPanel() {
   const { companyId } = useAuth()
   const role          = useRole()
   const router        = useRouter()
+  const { t }         = useT()
 
   // Persists across renders; seeded by the initial fetch so realtime
   // reconnect replays for already-loaded rows are silently dropped.
@@ -249,7 +251,7 @@ export default function NotificationPanel() {
 
   for (const n of displayed) {
     const d = new Date(n.created_at); d.setHours(0, 0, 0, 0)
-    const label = d >= today ? 'Today' : d >= yesterday ? 'Yesterday' : 'Earlier'
+    const label = d >= today ? t('notifications.today') : d >= yesterday ? t('notifications.yesterday') : t('notifications.earlier')
     const last = groups[groups.length - 1]
     if (last && last.label === label) last.items.push(n)
     else groups.push({ label, items: [n] })
@@ -293,11 +295,11 @@ export default function NotificationPanel() {
           <div className="flex items-center justify-between gap-3 border-b border-gray-100 dark:border-white/[0.05] px-4 py-3">
             <div className="flex items-center gap-2">
               <p className="text-[13px] font-semibold tracking-[-0.01em] text-gray-900 dark:text-[#E2E8F0]">
-                Notifications
+                {t('notifications.title')}
               </p>
               {unreadCount > 0 && (
                 <span className="inline-flex items-center rounded-full bg-red-500/10 px-1.5 py-0.5 text-[10px] font-bold text-red-600 dark:text-red-400 leading-none">
-                  {unreadCount} new
+                  {unreadCount} {t('notifications.new')}
                 </span>
               )}
             </div>
@@ -308,7 +310,7 @@ export default function NotificationPanel() {
                   onClick={markAllRead}
                   className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-[#4a8fb9] hover:bg-[#4a8fb9]/10 transition-colors"
                 >
-                  <Check size={10} /> Mark all read
+                  <Check size={10} /> {t('notifications.mark_all_read')}
                 </button>
               )}
             </div>
@@ -326,7 +328,7 @@ export default function NotificationPanel() {
                     : 'border-transparent text-gray-400 dark:text-[#525563] hover:text-gray-600 dark:hover:text-[#8B9BAA]'
                 }`}
               >
-                {f === 'all' ? 'All' : 'Unread'}
+                {f === 'all' ? t('notifications.all') : t('notifications.unread')}
                 {f === 'unread' && unreadCount > 0 && (
                   <span className="ml-1.5 inline-flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-red-500/15 px-0.5 text-[9px] font-bold text-red-600 dark:text-red-400 leading-none">
                     {badgeCount}
@@ -345,15 +347,15 @@ export default function NotificationPanel() {
                 </div>
                 <div>
                   <p className="text-[12.5px] font-medium text-gray-600 dark:text-[#8B9BAA]">
-                    {filter === 'unread' ? "You're all caught up" : 'No notifications yet'}
+                    {filter === 'unread' ? t('notifications.all_caught_up') : t('notifications.no_notifications')}
                   </p>
                   <p className="mt-0.5 text-[11px] text-gray-400 dark:text-[#525563]">
-                    {filter === 'unread' ? 'No unread notifications.' : 'Activity events will appear here.'}
+                    {filter === 'unread' ? t('notifications.no_unread') : t('notifications.activity_appears')}
                   </p>
                 </div>
                 {filter === 'unread' && notifications.length > 0 && (
                   <button onClick={() => setFilter('all')} className="text-[11px] text-[#4a8fb9] hover:underline">
-                    View all
+                    {t('notifications.view_all')}
                   </button>
                 )}
               </div>
@@ -428,7 +430,7 @@ export default function NotificationPanel() {
                                 <>
                                   <span className="text-gray-300 dark:text-[#2D3340]">·</span>
                                   <span className="shrink-0 text-[#4a8fb9] opacity-0 group-hover:opacity-100 transition-opacity">
-                                    View →
+                                    {t('notifications.view')}
                                   </span>
                                 </>
                               )}
@@ -446,13 +448,13 @@ export default function NotificationPanel() {
           {/* Footer */}
           <div className="border-t border-gray-100 dark:border-white/[0.05] px-4 py-2 flex items-center justify-between">
             <p className="text-[10.5px] text-gray-400 dark:text-[#3D4451]">
-              {notifications.length} event{notifications.length !== 1 ? 's' : ''} · live
+              {notifications.length} {notifications.length !== 1 ? t('notifications.events_live') : t('notifications.event_live')}
             </p>
             <button
               onClick={() => fetchNotifications()}
               className="flex items-center gap-1 text-[10.5px] text-gray-400 dark:text-[#3D4451] hover:text-gray-600 dark:hover:text-[#6B7280] transition-colors"
             >
-              <RefreshCw size={9} /> Refresh
+              <RefreshCw size={9} /> {t('notifications.refresh')}
             </button>
           </div>
 

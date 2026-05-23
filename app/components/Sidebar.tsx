@@ -10,37 +10,38 @@ import {
 import { useState } from 'react'
 import { useAuth } from '../lib/auth-context'
 import { hasPermission, type Permission } from '../lib/permissions'
+import { useT } from '../lib/i18n'
 import { LogoIcon } from './Logo'
 
 type NavItem = {
-  label: string
+  labelKey: string
   href: string
   icon: React.ElementType
   permission: Permission
 }
 
-const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
+const NAV_GROUPS: { labelKey: string; items: NavItem[] }[] = [
   {
-    label: 'Overview',
+    labelKey: 'nav_group.overview',
     items: [
-      { label: 'Dashboard', href: '/', icon: LayoutDashboard, permission: 'view:dashboard' },
+      { labelKey: 'nav.dashboard', href: '/', icon: LayoutDashboard, permission: 'view:dashboard' },
     ],
   },
   {
-    label: 'Workspace',
+    labelKey: 'nav_group.workspace',
     items: [
-      { label: 'Products',     href: '/products',        icon: Package,       permission: 'view:products'        },
-      { label: 'Materials',    href: '/raw-materials',   icon: Boxes,         permission: 'view:raw-materials'   },
-      { label: 'Production',   href: '/production',      icon: ClipboardList, permission: 'view:production'      },
-      { label: 'Quality',      href: '/quality-control', icon: ShieldCheck,   permission: 'view:quality-control' },
-      { label: 'Sales',        href: '/sales',           icon: ShoppingCart,  permission: 'view:sales'           },
+      { labelKey: 'nav.products',    href: '/products',        icon: Package,       permission: 'view:products'        },
+      { labelKey: 'nav.materials',   href: '/raw-materials',   icon: Boxes,         permission: 'view:raw-materials'   },
+      { labelKey: 'nav.production',  href: '/production',      icon: ClipboardList, permission: 'view:production'      },
+      { labelKey: 'nav.quality',     href: '/quality-control', icon: ShieldCheck,   permission: 'view:quality-control' },
+      { labelKey: 'nav.sales',       href: '/sales',           icon: ShoppingCart,  permission: 'view:sales'           },
     ],
   },
   {
-    label: 'System',
+    labelKey: 'nav_group.system',
     items: [
-      { label: 'Recall', href: '/recall', icon: AlertTriangle, permission: 'view:recall' },
-      { label: 'Team',   href: '/team',   icon: Users,         permission: 'view:team'   },
+      { labelKey: 'nav.recall', href: '/recall', icon: AlertTriangle, permission: 'view:recall' },
+      { labelKey: 'nav.team',   href: '/team',   icon: Users,         permission: 'view:team'   },
     ],
   },
 ]
@@ -49,10 +50,12 @@ function NavLink({
   item,
   pathname,
   onClick,
+  label,
 }: {
   item: NavItem
   pathname: string
   onClick?: () => void
+  label: string
 }) {
   const active = pathname === item.href
   return (
@@ -68,14 +71,14 @@ function NavLink({
       `}
     >
       {active && (
-        <span className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-[3px] rounded-r-full bg-[#4a8fb9]" />
+        <span className="absolute start-0 top-1/2 -translate-y-1/2 h-4 w-[3px] rounded-e-full bg-[#4a8fb9]" />
       )}
       <item.icon
         size={14}
         strokeWidth={active ? 2 : 1.75}
         className={`shrink-0 transition-colors ${active ? 'text-[#4a8fb9]' : ''}`}
       />
-      {item.label}
+      {label}
     </Link>
   )
 }
@@ -83,6 +86,7 @@ function NavLink({
 export default function Sidebar() {
   const pathname  = usePathname()
   const { role }  = useAuth()
+  const { t, dir } = useT()
 
   const [open, setOpen] = useState(false)
 
@@ -96,10 +100,13 @@ export default function Sidebar() {
   const sidebarContent = (
     <aside
       className={`
-        fixed top-0 left-0 z-30 h-full w-[200px] flex flex-col
-        bg-[#07090E] border-r border-white/[0.06]
+        fixed top-0 z-30 h-full w-[200px] flex flex-col
+        bg-[#07090E] border-e border-white/[0.06]
         transition-transform duration-200 ease-in-out
-        ${open ? 'translate-x-0' : '-translate-x-full'}
+        ${dir === 'rtl' ? 'right-0' : 'left-0'}
+        ${open
+          ? 'translate-x-0'
+          : dir === 'rtl' ? 'translate-x-full' : '-translate-x-full'}
         lg:relative lg:translate-x-0
       `}
     >
@@ -114,9 +121,9 @@ export default function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-2.5 py-4 space-y-4">
         {visibleGroups.map(group => (
-          <div key={group.label}>
+          <div key={group.labelKey}>
             <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-[#2D3748]">
-              {group.label}
+              {t(group.labelKey)}
             </p>
             <div className="space-y-0.5">
               {group.items.map(item => (
@@ -124,6 +131,7 @@ export default function Sidebar() {
                   key={item.href}
                   item={item}
                   pathname={pathname}
+                  label={t(item.labelKey)}
                   onClick={() => setOpen(false)}
                 />
               ))}
@@ -132,9 +140,9 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {/* Footer — minimal: just version/branding */}
+      {/* Footer */}
       <div className="shrink-0 border-t border-white/[0.05] px-4 py-3">
-        <p className="text-[10px] text-[#2D3748]">TraceFlow · Manufacturing SaaS</p>
+        <p className="text-[10px] text-[#2D3748]">{t('sidebar.footer')}</p>
       </div>
     </aside>
   )
