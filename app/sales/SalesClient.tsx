@@ -185,7 +185,7 @@ export default function SalesClient() {
 
     const inserted = data?.length ?? 0
     if (inserted > 0) {
-      toast.success(t(inserted !== 1 ? 'sales.import_n_plural' : 'sales.import_n', { n: inserted }))
+      toast.success(t(inserted !== 1 ? 'sales.import_n_plural' : 'sales.import_n', { n: fmtNum(inserted, lang) }))
       console.log('[logActivity] pre-call sale.imported | companyId:', companyId, '| count:', inserted)
       if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
         actionType: 'sale.imported', entityType: 'sale',

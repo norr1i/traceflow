@@ -85,6 +85,14 @@
     "qc_inspector": "مفتش الجودة",
     "sales": "المبيعات"
   },
+  "role_description": {
+    "admin": "يمكنه إدارة الفريق وعرض جميع الصفحات وتعديل كل البيانات.",
+    "manager": "يمكنه إدارة الفريق وعرض جميع الصفحات وتعديل كل البيانات.",
+    "operations": "وصول إلى أوامر الإنتاج فقط.",
+    "warehouse": "وصول إلى المواد الخام فقط.",
+    "qc_inspector": "وصول إلى الإنتاج ومراقبة الجودة.",
+    "sales": "وصول إلى المبيعات فقط."
+  },
   "common": {
     "unknown": "غير معروف",
     "unknown_product": "منتج غير معروف",
@@ -92,6 +100,7 @@
     "device": "جهاز",
     "low": "منخفض",
     "system": "النظام",
+    "you": "أنت",
     "just_now": "الآن",
     "yesterday": "أمس",
     "cancel": "إلغاء",
@@ -344,7 +353,10 @@
     "footer_defects_plural": "{{n}} عيوب إجمالاً",
     "batch_id_placeholder": "مثال: BATCH-001",
     "inspector_id_placeholder": "مثال: inspector-1",
-    "notes_placeholder": "ملاحظات اختيارية…"
+    "notes_placeholder": "ملاحظات اختيارية…",
+    "severity_minor": "طفيف",
+    "severity_major": "متوسط",
+    "severity_critical": "حرج"
   },
   "recall": {
     "lot_number": "رقم الدُفعة",
@@ -430,7 +442,13 @@
     "active_pending": "{{active}} نشط · {{pending}} دعوة معلقة",
     "active_pending_plural": "{{active}} نشط · {{pending}} دعوات معلقة",
     "active_count": "{{n}} عضو نشط",
-    "active_count_plural": "{{n}} أعضاء نشطون"
+    "active_count_plural": "{{n}} أعضاء نشطون",
+    "copy_invite_link_title": "نسخ رابط الدعوة",
+    "cancel_invite_title": "إلغاء الدعوة",
+    "save_role_title": "حفظ الدور",
+    "edit_role_title": "تعديل الدور",
+    "remove_member_title": "إزالة من الشركة",
+    "pending_guidance": "تنتهي صلاحية الدعوات المعلقة بعد ٧ أيام. شارك رابط التسجيل واطلب من الأعضاء المدعوين التسجيل باستخدام بريدهم الإلكتروني."
   },
   "dashboard": {
     "production_batches": "دُفعات الإنتاج",

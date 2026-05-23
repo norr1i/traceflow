@@ -8,7 +8,7 @@ import { useConfirm } from '../components/ConfirmDialog'
 import { ROLE_META, ASSIGNABLE_ROLES, type Role } from '../lib/roles'
 import { hasPermission } from '../lib/permissions'
 import { logActivity, actorName } from '../lib/activity'
-import { useT } from '../lib/i18n'
+import { useT, fmtNum } from '../lib/i18n'
 import {
   Users, Plus, Trash2, X, Check, AlertTriangle,
   Mail, Clock, Pencil, ShieldAlert, Copy, UserCheck,
@@ -44,6 +44,7 @@ const selectClass = `
 `
 
 function RoleBadge({ role }: { role: string }) {
+  const { t } = useT()
   const meta = ROLE_META[role as Role]
   if (!meta) return (
     <span className="inline-flex items-center rounded-md border border-gray-200 dark:border-white/[0.09] bg-gray-100 dark:bg-white/[0.05] px-2 py-0.5 text-[11px] font-semibold text-gray-500 dark:text-[#6B7280]">
@@ -52,7 +53,7 @@ function RoleBadge({ role }: { role: string }) {
   )
   return (
     <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold ${meta.color}`}>
-      {meta.label}
+      {t(`role.${role}`)}
     </span>
   )
 }
@@ -87,6 +88,7 @@ function MemberAvatar({ email, size = 'md' }: { email: string; size?: 'sm' | 'md
 // ── Role distribution bar ──────────────────────────────────────────────────
 
 function RoleDistribution({ members }: { members: TeamMember[] }) {
+  const { t, lang } = useT()
   const active = members.filter(m => m.status === 'active')
   if (active.length === 0) return null
 
@@ -119,7 +121,7 @@ function RoleDistribution({ members }: { members: TeamMember[] }) {
               key={r}
               className={`h-full transition-all duration-700 ${roleColors[r] ?? 'bg-gray-400'}`}
               style={{ width: `${pct}%` }}
-              title={`${ROLE_META[r]?.label ?? r}: ${count}`}
+              title={`${t(`role.${r}`)}: ${fmtNum(count, lang)}`}
             />
           )
         })}
@@ -130,7 +132,7 @@ function RoleDistribution({ members }: { members: TeamMember[] }) {
           <div key={r} className="flex items-center gap-1.5">
             <span className={`h-2 w-2 rounded-sm ${roleColors[r] ?? 'bg-gray-400'}`} />
             <span className="text-[11px] text-gray-500 dark:text-[#525563]">
-              {ROLE_META[r]?.label ?? r} <span className="font-semibold text-gray-700 dark:text-[#A8B3C0]">{counts[r]}</span>
+              {t(`role.${r}`)} <span className="font-semibold text-gray-700 dark:text-[#A8B3C0]">{fmtNum(counts[r], lang)}</span>
             </span>
           </div>
         ))}
@@ -309,14 +311,7 @@ export default function TeamClient() {
 
   // ── Role description ──────────────────────────────────────────────────────
 
-  const roleDescription: Record<string, string> = {
-    admin:        'Can manage team, view all pages, and edit all data.',
-    manager:      'Can manage team, view all pages, and edit all data.',
-    operations:   'Access to Production Orders only.',
-    warehouse:    'Access to Raw Materials only.',
-    qc_inspector: 'Access to Production and Quality Control.',
-    sales:        'Access to Sales only.',
-  }
+  const roleDescription = (r: string) => t(`role_description.${r}`)
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -413,12 +408,12 @@ export default function TeamClient() {
                       className={selectClass}
                     >
                       {assignableRoles.map(r => (
-                        <option key={r} value={r}>{ROLE_META[r].label}</option>
+                        <option key={r} value={r}>{t(`role.${r}`)}</option>
                       ))}
                     </select>
-                    {roleDescription[inviteRole] && (
+                    {inviteRole && (
                       <p className="mt-1.5 text-[11px] text-gray-400 dark:text-[#525563]">
-                        {roleDescription[inviteRole]}
+                        {roleDescription(inviteRole)}
                       </p>
                     )}
                   </div>
@@ -463,7 +458,7 @@ export default function TeamClient() {
               <Users size={14} className="text-[#4a8fb9]" />
             </span>
           </div>
-          <p className="text-3xl font-bold tabular-nums text-gray-900 dark:text-[#E2E8F0]">{activeCount}</p>
+          <p className="text-3xl font-bold tabular-nums text-gray-900 dark:text-[#E2E8F0]">{fmtNum(activeCount, lang)}</p>
           <p className="mt-1 text-[11px] text-gray-400 dark:text-[#525563]">{t('team.active_accounts')}</p>
         </div>
 
@@ -476,7 +471,7 @@ export default function TeamClient() {
             </span>
           </div>
           <p className={`text-3xl font-bold tabular-nums ${pendingCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-[#E2E8F0]'}`}>
-            {pendingCount}
+            {fmtNum(pendingCount, lang)}
           </p>
           <p className="mt-1 text-[11px] text-gray-400 dark:text-[#525563]">{t('team.awaiting_signup')}</p>
         </div>
@@ -489,7 +484,7 @@ export default function TeamClient() {
               <Shield size={14} className="text-violet-500" />
             </span>
           </div>
-          <p className="text-3xl font-bold tabular-nums text-gray-900 dark:text-[#E2E8F0]">{roleCount}</p>
+          <p className="text-3xl font-bold tabular-nums text-gray-900 dark:text-[#E2E8F0]">{fmtNum(roleCount, lang)}</p>
           <p className="mt-1 text-[11px] text-gray-400 dark:text-[#525563]">{t('team.distinct_roles')}</p>
         </div>
 
@@ -501,7 +496,7 @@ export default function TeamClient() {
               <UserCheck size={14} className="text-emerald-600 dark:text-emerald-400" />
             </span>
           </div>
-          <p className="text-3xl font-bold tabular-nums text-gray-900 dark:text-[#E2E8F0]">{activeCount}</p>
+          <p className="text-3xl font-bold tabular-nums text-gray-900 dark:text-[#E2E8F0]">{fmtNum(activeCount, lang)}</p>
           <p className="mt-1 text-[11px] text-gray-400 dark:text-[#525563]">{t('team.confirmed_users')}</p>
         </div>
       </div>
@@ -511,7 +506,7 @@ export default function TeamClient() {
         <div className="glass-card rounded-xl px-5 py-4 space-y-3">
           <div className="flex items-center justify-between">
             <p className="text-[13px] font-semibold text-gray-800 dark:text-[#E2E8F0]">{t('team.role_distribution')}</p>
-            <p className="text-[11px] text-gray-400 dark:text-[#525563]">{t(activeCount !== 1 ? 'team.active_count_plural' : 'team.active_count', { n: activeCount })}</p>
+            <p className="text-[11px] text-gray-400 dark:text-[#525563]">{t(activeCount !== 1 ? 'team.active_count_plural' : 'team.active_count', { n: fmtNum(activeCount, lang) })}</p>
           </div>
           <RoleDistribution members={members} />
         </div>
@@ -533,7 +528,7 @@ export default function TeamClient() {
             <h2 className="text-[13px] font-semibold text-gray-900 dark:text-[#E2E8F0]">{t('team.team_members_title')}</h2>
             {!loading && (
               <p className="mt-0.5 text-[11px] text-gray-400 dark:text-[#525563]">
-                {t(pendingCount !== 1 ? 'team.active_pending_plural' : 'team.active_pending', { active: activeCount, pending: pendingCount })}
+                {t(pendingCount !== 1 ? 'team.active_pending_plural' : 'team.active_pending', { active: fmtNum(activeCount, lang), pending: fmtNum(pendingCount, lang) })}
               </p>
             )}
           </div>
@@ -607,7 +602,7 @@ export default function TeamClient() {
                               {m.email}
                             </p>
                             {isMe && (
-                              <span className="text-[10px] font-medium text-[#4a8fb9]">You</span>
+                              <span className="text-[10px] font-medium text-[#4a8fb9]">{t('common.you')}</span>
                             )}
                           </div>
                         </div>
@@ -623,7 +618,7 @@ export default function TeamClient() {
                             autoFocus
                           >
                             {ASSIGNABLE_ROLES.map(r => (
-                              <option key={r} value={r}>{ROLE_META[r].label}</option>
+                              <option key={r} value={r}>{t(`role.${r}`)}</option>
                             ))}
                           </select>
                         ) : (
@@ -650,14 +645,14 @@ export default function TeamClient() {
                             <>
                               <button
                                 onClick={() => copySignupLink(m.email)}
-                                title="Copy invite link"
+                                title={t('team.copy_invite_link_title')}
                                 className="rounded-lg p-1.5 text-gray-400 dark:text-[#525563] hover:bg-blue-50 dark:hover:bg-blue-500/10 hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
                               >
                                 <Copy size={13} />
                               </button>
                               <button
                                 onClick={() => handleCancelInvite(m)}
-                                title="Cancel invitation"
+                                title={t('team.cancel_invite_title')}
                                 className="rounded-lg p-1.5 text-gray-400 dark:text-[#525563] hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500 dark:hover:text-red-400 transition-colors"
                               >
                                 <Trash2 size={13} />
@@ -665,21 +660,21 @@ export default function TeamClient() {
                             </>
                           ) : isMe ? (
                             <span className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-gray-400 dark:text-[#525563]">
-                              <ShieldAlert size={12} /> You
+                              <ShieldAlert size={12} /> {t('common.you')}
                             </span>
                           ) : isEditing ? (
                             <>
                               <button
                                 onClick={() => saveRole(m)}
                                 disabled={savingRole}
-                                title="Save role"
+                                title={t('team.save_role_title')}
                                 className="rounded-lg p-1.5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 disabled:opacity-50 transition-colors"
                               >
                                 <Check size={13} />
                               </button>
                               <button
                                 onClick={cancelEdit}
-                                title="Cancel"
+                                title={t('common.cancel')}
                                 className="rounded-lg p-1.5 text-gray-400 dark:text-[#525563] hover:bg-gray-100 dark:hover:bg-white/[0.05] transition-colors"
                               >
                                 <X size={13} />
@@ -689,14 +684,14 @@ export default function TeamClient() {
                             <>
                               <button
                                 onClick={() => startEdit(m)}
-                                title="Edit role"
+                                title={t('team.edit_role_title')}
                                 className="rounded-lg p-1.5 text-gray-400 dark:text-[#525563] hover:bg-blue-50 dark:hover:bg-blue-500/10 hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
                               >
                                 <Pencil size={13} />
                               </button>
                               <button
                                 onClick={() => handleRemove(m)}
-                                title="Remove from company"
+                                title={t('team.remove_member_title')}
                                 className="rounded-lg p-1.5 text-gray-400 dark:text-[#525563] hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500 dark:hover:text-red-400 transition-colors"
                               >
                                 <Trash2 size={13} />
@@ -717,7 +712,7 @@ export default function TeamClient() {
         {!loading && members.length > 0 && (
           <div className="flex items-center justify-between border-t border-gray-100 dark:border-white/[0.05] bg-gray-50/50 dark:bg-white/[0.01] px-5 py-3">
             <p className="text-[11px] text-gray-400 dark:text-[#525563]">
-              {activeCount} active · {pendingCount} pending
+              {t(pendingCount !== 1 ? 'team.active_pending_plural' : 'team.active_pending', { active: fmtNum(activeCount, lang), pending: fmtNum(pendingCount, lang) })}
             </p>
             <button
               onClick={() => copySignupLink()}
@@ -734,11 +729,7 @@ export default function TeamClient() {
         <div className="flex items-start gap-3 rounded-xl border border-amber-200 dark:border-amber-500/20 bg-amber-50 dark:bg-amber-500/[0.06] px-4 py-3.5">
           <Clock size={14} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
           <p className="text-[12px] text-amber-800 dark:text-amber-400/90">
-            Pending invitations expire after 7 days. Share the{' '}
-            <button onClick={() => copySignupLink()} className="font-semibold underline underline-offset-2">
-              signup link
-            </button>{' '}
-            and ask invited members to register with their invited email address.
+            {t('team.pending_guidance')}
           </p>
         </div>
       )}

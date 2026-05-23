@@ -46,6 +46,7 @@ function EmptyState({ message }: { message: string }) {
 }
 
 function SeverityBadge({ severity }: { severity?: string }) {
+  const { t } = useT()
   const map: Record<string, string> = {
     minor:    'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 ring-yellow-200 dark:ring-yellow-800',
     major:    'bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 ring-orange-200 dark:ring-orange-800',
@@ -53,8 +54,8 @@ function SeverityBadge({ severity }: { severity?: string }) {
   }
   const key = (severity ?? 'minor').toLowerCase()
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 capitalize ${map[key] ?? map['minor']}`}>
-      {severity ?? 'Minor'}
+    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${map[key] ?? map['minor']}`}>
+      {t(`quality.severity_${key}`)}
     </span>
   )
 }

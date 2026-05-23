@@ -10,7 +10,7 @@ import { useConfirm } from '../components/ConfirmDialog'
 import { useAuth, useRole } from '../lib/auth-context'
 import { canEdit } from '../lib/permissions'
 import { logActivity, actorName } from '../lib/activity'
-import { useT } from '../lib/i18n'
+import { useT, fmtNum } from '../lib/i18n'
 import {
   Plus, Pencil, Trash2, X, Check, AlertTriangle, ClipboardList,
   QrCode, Copy, Download, ExternalLink, Layers, FlaskConical,
@@ -258,7 +258,7 @@ export default function ProductionClient() {
     <>
       <div className="mb-4 flex items-center justify-between">
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          {t(orders.length !== 1 ? 'production.count_plural' : 'production.count', { n: orders.length })}
+          {t(orders.length !== 1 ? 'production.count_plural' : 'production.count', { n: fmtNum(orders.length, lang) })}
         </p>
         {canWrite && (
           <button onClick={openCreate}
@@ -557,7 +557,7 @@ export default function ProductionClient() {
               {orders.map((o) => (
                 <tr key={o.id} className="hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/22 transition-colors">
                   <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{o.products?.name ?? '—'}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{o.quantity.toLocaleString(locale)}</td>
+                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{fmtNum(o.quantity, lang)}</td>
                   <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
                   <td className="px-4 py-3 text-gray-400 dark:text-gray-500 hidden sm:table-cell">
                     {new Date(o.created_at).toLocaleDateString(locale)}

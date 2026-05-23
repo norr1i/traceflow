@@ -85,6 +85,14 @@
     "qc_inspector": "QC Inspector",
     "sales": "Sales"
   },
+  "role_description": {
+    "admin": "Can manage team, view all pages, and edit all data.",
+    "manager": "Can manage team, view all pages, and edit all data.",
+    "operations": "Access to Production Orders only.",
+    "warehouse": "Access to Raw Materials only.",
+    "qc_inspector": "Access to Production and Quality Control.",
+    "sales": "Access to Sales only."
+  },
   "common": {
     "unknown": "Unknown",
     "unknown_product": "Unknown product",
@@ -92,6 +100,7 @@
     "device": "device",
     "low": "Low",
     "system": "System",
+    "you": "You",
     "just_now": "just now",
     "yesterday": "yesterday",
     "cancel": "Cancel",
@@ -344,7 +353,10 @@
     "footer_defects_plural": "{{n}} defects total",
     "batch_id_placeholder": "e.g. BATCH-001",
     "inspector_id_placeholder": "e.g. inspector-1",
-    "notes_placeholder": "Optional notes…"
+    "notes_placeholder": "Optional notes…",
+    "severity_minor": "Minor",
+    "severity_major": "Major",
+    "severity_critical": "Critical"
   },
   "recall": {
     "lot_number": "Lot Number",
@@ -430,7 +442,13 @@
     "active_pending": "{{active}} active · {{pending}} pending invitation",
     "active_pending_plural": "{{active}} active · {{pending}} pending invitations",
     "active_count": "{{n}} active member",
-    "active_count_plural": "{{n}} active members"
+    "active_count_plural": "{{n}} active members",
+    "copy_invite_link_title": "Copy invite link",
+    "cancel_invite_title": "Cancel invitation",
+    "save_role_title": "Save role",
+    "edit_role_title": "Edit role",
+    "remove_member_title": "Remove from company",
+    "pending_guidance": "Pending invitations expire after 7 days. Share the signup link and ask invited members to register with their invited email address."
   },
   "dashboard": {
     "production_batches": "Production Batches",

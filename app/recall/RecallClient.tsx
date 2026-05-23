@@ -193,7 +193,7 @@ function LineageGraph({ batches, edges, t, lang }: { batches: RecallBatch[]; edg
                 className="inline-block h-2.5 w-2.5 rounded-sm border"
                 style={{ background: qcNodeColors[s].fill, borderColor: qcNodeColors[s].stroke }}
               />
-              {s === 'none' ? t('recall.no_qc_label') : s.toUpperCase()}
+              {s === 'none' ? t('recall.no_qc_label') : t(`status.${s}`)}
             </span>
           ))}
         </div>
@@ -291,7 +291,7 @@ function LineageGraph({ batches, edges, t, lang }: { batches: RecallBatch[]; edg
                   fill={colors.text}
                   fontFamily="system-ui,sans-serif"
                 >
-                  {batch.sku}  ·  {latestQc ? latestQc.status.toUpperCase() : 'NO QC'}
+                  {batch.sku}  ·  {latestQc ? t(`status.${latestQc.status}`) : t('recall.no_qc_label')}
                 </text>
               </g>
             )
