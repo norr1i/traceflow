@@ -237,7 +237,6 @@ export default function GlobalSearch({ open, onClose }: Props) {
   if (!open) return null
 
   const totalResults = allFlat.length
-  const showMinHint  = query.length === 1
   const showEmpty    = query.length >= MIN_QUERY_LENGTH && !loading && totalResults === 0
   const showResults  = totalResults > 0
 
@@ -285,21 +284,6 @@ export default function GlobalSearch({ open, onClose }: Props) {
 
           {/* ── Body ── */}
           <div className="max-h-[54vh] overflow-y-auto overscroll-contain">
-
-            {/* Empty / idle state */}
-            {!query && (
-              <div className="flex flex-col items-center gap-2 py-12 text-center">
-                <Search size={20} strokeWidth={1.25} className="text-gray-200 dark:text-[#232B38] mb-0.5" />
-                <p className="text-[12.5px] text-gray-400 dark:text-[#4A5568]">{t('search.hint')}</p>
-              </div>
-            )}
-
-            {/* Min chars nudge */}
-            {showMinHint && (
-              <div className="flex items-center justify-center py-12">
-                <p className="text-[12.5px] text-gray-400 dark:text-[#4A5568]">{t('search.min_chars')}</p>
-              </div>
-            )}
 
             {/* No results */}
             {showEmpty && (
