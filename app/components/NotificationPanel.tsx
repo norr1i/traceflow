@@ -57,11 +57,24 @@ function NotificationIcon({ category }: { category: NotificationCategory }) {
 type Filter   = 'all' | 'unread'
 type DiagLine = { kind: 'ok' | 'err' | 'info'; text: string }
 
+// Shape of an activity_logs row as received from Realtime
+type ActivityLogRow = {
+  id: string
+  action_type: string
+  message: string
+  actor_email: string | null
+  created_at: string
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function NotificationPanel() {
-  const panelRef            = useRef<HTMLDivElement>(null)
-  const { companyId }       = useAuth()
+  const panelRef        = useRef<HTMLDivElement>(null)
+  const { companyId }   = useAuth()
+
+  // Persists across renders; pre-populated by the initial fetch so that
+  // realtime events for already-loaded rows are silently dropped.
+  const seenIds = useRef(new Set<string>())
 
   const [open, setOpen]                   = useState(false)
   const [filter, setFilter]               = useState<Filter>('all')
@@ -76,7 +89,10 @@ export default function NotificationPanel() {
     setLastReadAtState(getLastReadAt())
   }, [])
 
-  // Fetch notifications from activity_logs
+  // ── Initial fetch ──────────────────────────────────────────────────────────
+  // Loads up to 40 recent notifications and seeds seenIds so realtime
+  // events for these rows are ignored on reconnect.
+
   const fetchNotifications = useCallback(async () => {
     setLoading(true)
     try {
@@ -88,9 +104,14 @@ export default function NotificationPanel() {
         .limit(40)
 
       if (!error && data) {
-        setNotifications(
-          data.map(mapLogToNotification).filter((n): n is AppNotification => n !== null)
-        )
+        const mapped = data
+          .map(mapLogToNotification)
+          .filter((n): n is AppNotification => n !== null)
+
+        // Seed the dedup set from the fetched rows
+        mapped.forEach(n => seenIds.current.add(n.id))
+
+        setNotifications(mapped)
       }
     } finally {
       setLoading(false)
@@ -100,7 +121,51 @@ export default function NotificationPanel() {
   useEffect(() => { fetchNotifications() }, [fetchNotifications])
   useEffect(() => { if (open) fetchNotifications() }, [open, fetchNotifications])
 
-  // Click-outside to close
+  // ── Realtime subscription ──────────────────────────────────────────────────
+  // Subscribes to INSERT events on activity_logs filtered to company_id.
+  // Re-creates the channel if companyId changes. Cleans up on unmount.
+
+  useEffect(() => {
+    if (!companyId) return
+
+    const channel = supabase
+      .channel(`activity_logs:company:${companyId}`)
+      .on<ActivityLogRow>(
+        'postgres_changes',
+        {
+          event:  'INSERT',
+          schema: 'public',
+          table:  'activity_logs',
+          filter: `company_id=eq.${companyId}`,
+        },
+        (payload) => {
+          const row = payload.new
+
+          // Only notification-worthy action types
+          if (!NOTIFICATION_ACTION_TYPES.includes(row.action_type)) return
+
+          // Deduplicate — drop if we already have this row (reconnect replay)
+          if (seenIds.current.has(row.id)) return
+          seenIds.current.add(row.id)
+
+          const notif = mapLogToNotification(row)
+          if (!notif) return
+
+          // Prepend so newest-first order is preserved without a full refetch
+          setNotifications(prev => [notif, ...prev])
+        }
+      )
+      .subscribe((status) => {
+        console.log('[NotificationPanel] realtime status:', status)
+      })
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [companyId])
+
+  // ── Click-outside / Escape close ──────────────────────────────────────────
+
   useEffect(() => {
     if (!open) return
     const handler = (e: MouseEvent) => {
@@ -110,7 +175,6 @@ export default function NotificationPanel() {
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  // Escape to close
   useEffect(() => {
     if (!open) return
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
@@ -118,11 +182,15 @@ export default function NotificationPanel() {
     return () => document.removeEventListener('keydown', handler)
   }, [open])
 
+  // ── Mark all read ──────────────────────────────────────────────────────────
+
   function markAllRead() {
     const now = new Date()
     setLastReadAt(now)
     setLastReadAtState(now)
   }
+
+  // ── Diagnostic ────────────────────────────────────────────────────────────
 
   async function runDiagnostic() {
     setDiagRunning(true)
@@ -132,24 +200,20 @@ export default function NotificationPanel() {
     function push(kind: DiagLine['kind'], text: string) {
       lines.push({ kind, text })
       console.log(`[diag][${kind}]`, text)
-      // update state incrementally so user sees progress
       setDiagLines([...lines])
     }
 
-    // Step 1 — auth state
     const { data: { user: authUser } } = await supabase.auth.getUser()
     push('info', `auth.uid: ${authUser?.id ?? 'null'}`)
     push('info', `auth.email: ${authUser?.email ?? 'null'}`)
     push('info', `useAuth companyId: ${companyId ?? 'null'}`)
 
-    // Step 2 — DB-side company
     const { data: rpcData, error: rpcErr } = await supabase.rpc('get_my_company_id')
     if (rpcErr) push('err', `get_my_company_id() → ${rpcErr.message} (${rpcErr.code})`)
     else        push('ok',  `get_my_company_id() → ${rpcData ?? 'null'}`)
 
     const cid = companyId ?? rpcData ?? null
 
-    // Step 3 — build payload
     const payload = {
       company_id:    cid,
       actor_user_id: authUser?.id    ?? null,
@@ -162,7 +226,6 @@ export default function NotificationPanel() {
     }
     push('info', `payload.company_id: ${cid ?? 'null'}`)
 
-    // Step 4 — INSERT
     const { data: inserted, error: insErr } = await supabase
       .from('activity_logs')
       .insert(payload)
@@ -177,7 +240,6 @@ export default function NotificationPanel() {
       push('ok', `INSERT success → id: ${inserted?.id}`)
     }
 
-    // Step 5 — SELECT back
     const { data: fetched, error: fetchErr } = await supabase
       .from('activity_logs')
       .select('id, action_type, message, created_at')
@@ -195,7 +257,12 @@ export default function NotificationPanel() {
     }
 
     setDiagRunning(false)
-    fetchNotifications()
+
+    // If the realtime path delivered the row already (seenIds has it),
+    // no-op; otherwise force a refresh to show it in the list.
+    if (inserted && !seenIds.current.has(inserted.id)) {
+      fetchNotifications()
+    }
   }
 
   // ── Derived state ──────────────────────────────────────────────────────────
@@ -225,7 +292,7 @@ export default function NotificationPanel() {
   return (
     <div ref={panelRef} className="relative">
 
-      {/* ── Bell button ── */}
+      {/* Bell button */}
       <button
         onClick={() => setOpen(o => !o)}
         className={`relative p-2 rounded-lg transition-colors ${
@@ -244,7 +311,7 @@ export default function NotificationPanel() {
         )}
       </button>
 
-      {/* ── Dropdown panel ── */}
+      {/* Dropdown panel */}
       {open && (
         <div
           className="absolute right-0 top-full z-50 mt-2 flex flex-col rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-[#0D1117] shadow-xl shadow-black/10 dark:shadow-black/50"
@@ -298,7 +365,7 @@ export default function NotificationPanel() {
             ))}
           </div>
 
-          {/* ── DIAGNOSTIC SECTION — always visible ── */}
+          {/* Diagnostic section */}
           <div className="border-b border-amber-200 dark:border-amber-500/20 bg-amber-50 dark:bg-amber-500/[0.06] px-4 py-3">
             <button
               onClick={runDiagnostic}
@@ -345,10 +412,7 @@ export default function NotificationPanel() {
                   </p>
                 </div>
                 {filter === 'unread' && notifications.length > 0 && (
-                  <button
-                    onClick={() => setFilter('all')}
-                    className="text-[11px] text-[#4a8fb9] hover:underline"
-                  >
+                  <button onClick={() => setFilter('all')} className="text-[11px] text-[#4a8fb9] hover:underline">
                     View all notifications
                   </button>
                 )}
@@ -414,7 +478,7 @@ export default function NotificationPanel() {
           {/* Footer */}
           <div className="border-t border-gray-100 dark:border-white/[0.06] px-4 py-2.5 flex items-center justify-between">
             <p className="text-[11px] text-gray-400 dark:text-[#525563]">
-              {notifications.length} notification{notifications.length !== 1 ? 's' : ''} · last 7 days
+              {notifications.length} notification{notifications.length !== 1 ? 's' : ''} · live
             </p>
             <button
               onClick={() => fetchNotifications()}
