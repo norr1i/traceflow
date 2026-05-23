@@ -208,11 +208,13 @@ export default function TeamClient() {
 
     setInvitedEmail(inviteEmail.trim().toLowerCase())
     setInviteEmail('')
+    console.log('[logActivity] pre-call invitation.created | companyId:', companyId, '| user:', user?.email)
     if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
       actionType: 'invitation.created', entityType: 'invitation',
       message: `${actorName(user?.email)} invited ${inviteEmail.trim().toLowerCase()} as ${inviteRole}`,
       metadata: { invited_email: inviteEmail.trim().toLowerCase(), role: inviteRole },
-    }).catch(() => {})
+    }).catch(err => console.error('[logActivity] invitation.created failed:', err))
+    else console.warn('[logActivity] skipped invitation.created — companyId is null')
     loadMembers()
   }
 
@@ -242,11 +244,13 @@ export default function TeamClient() {
     if (err) { toast.error(err.message); return }
 
     toast.success('Role updated')
+    console.log('[logActivity] pre-call team.role_changed | companyId:', companyId, '| user:', user?.email)
     if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
       actionType: 'team.role_changed', entityType: 'team_member', entityId: m.user_id,
       message: `${actorName(user?.email)} changed ${m.email}'s role to ${editRole}`,
       metadata: { old_role: m.role, new_role: editRole, member_email: m.email },
-    }).catch(() => {})
+    }).catch(err => console.error('[logActivity] team.role_changed failed:', err))
+    else console.warn('[logActivity] skipped team.role_changed — companyId is null')
     setEditingId(null)
     loadMembers()
   }

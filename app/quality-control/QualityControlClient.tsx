@@ -145,11 +145,13 @@ export default function QualityControlClient() {
     const actionType = form.status === 'passed' ? 'qc_inspection.passed'
       : form.status === 'failed' ? 'qc_inspection.failed'
       : 'qc_inspection.created'
+    console.log('[logActivity] pre-call', actionType, '| companyId:', companyId, '| user:', user?.email)
     if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
       actionType, entityType: 'qc_inspection', entityId: result.id,
       message: `${actorName(user?.email)} recorded ${form.inspection_type} inspection: ${form.status}`,
       metadata: { status: form.status, score: form.overall_score },
-    }).catch(() => {})
+    }).catch(err => console.error('[logActivity]', actionType, 'failed:', err))
+    else console.warn('[logActivity] skipped', actionType, '— companyId is null')
   }
 
   async function handleDelete(id: string) {

@@ -183,11 +183,13 @@ export default function SalesClient() {
     }
     setShowForm(false)
     toast.success('Sale created')
+    console.log('[logActivity] pre-call sale.created | companyId:', companyId, '| user:', user?.email)
     if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
       actionType: 'sale.created', entityType: 'sale', entityId: result.id,
       message: `${actorName(user?.email)} recorded a sale for ${form.product_name}`,
       metadata: { quantity: form.quantity, total_price: form.total_price },
-    }).catch(() => {})
+    }).catch(err => console.error('[logActivity] sale.created failed:', err))
+    else console.warn('[logActivity] skipped sale.created — companyId is null')
   }
 
   async function handleDelete(id: string) {
@@ -222,11 +224,13 @@ export default function SalesClient() {
     const inserted = data?.length ?? 0
     if (inserted > 0) {
       toast.success(`Imported ${inserted} sale${inserted !== 1 ? 's' : ''}`)
+      console.log('[logActivity] pre-call sale.imported | companyId:', companyId, '| count:', inserted)
       if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
         actionType: 'sale.imported', entityType: 'sale',
         message: `${actorName(user?.email)} imported ${inserted} sale${inserted !== 1 ? 's' : ''}`,
         metadata: { count: inserted },
-      }).catch(() => {})
+      }).catch(err => console.error('[logActivity] sale.imported failed:', err))
+      else console.warn('[logActivity] skipped sale.imported — companyId is null')
       refetch()
     }
     return { inserted, skipped: 0, errors: [] }

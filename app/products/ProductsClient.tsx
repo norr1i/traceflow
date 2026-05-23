@@ -113,10 +113,12 @@ export default function ProductsClient() {
       }
       setProducts((prev) => [data, ...prev])
       toast.success('Product created')
+      console.log('[logActivity] pre-call product.created | companyId:', companyId, '| user:', user?.email)
       if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
         actionType: 'product.created', entityType: 'product', entityId: data.id,
         message: `${actorName(user?.email)} added product ${data.name}`,
-      }).catch(() => {})
+      }).catch(err => console.error('[logActivity] product.created failed:', err))
+      else console.warn('[logActivity] skipped product.created — companyId is null')
     }
 
     setSaving(false)
@@ -163,11 +165,13 @@ export default function ProductsClient() {
     setProducts((prev) => [...(data ?? []), ...prev])
     if (inserted > 0) {
       toast.success(`Imported ${inserted} product${inserted !== 1 ? 's' : ''}`)
+      console.log('[logActivity] pre-call product.imported | companyId:', companyId, '| count:', inserted)
       if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
         actionType: 'product.imported', entityType: 'product',
         message: `${actorName(user?.email)} imported ${inserted} product${inserted !== 1 ? 's' : ''}`,
         metadata: { count: inserted, skipped },
-      }).catch(() => {})
+      }).catch(err => console.error('[logActivity] product.imported failed:', err))
+      else console.warn('[logActivity] skipped product.imported — companyId is null')
     }
     return { inserted, skipped, errors: [] }
   }

@@ -109,10 +109,12 @@ export default function RawMaterialsClient() {
       }
       setMaterials((prev) => [data, ...prev])
       toast.success('Material created')
+      console.log('[logActivity] pre-call raw_material.created | companyId:', companyId, '| user:', user?.email)
       if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
         actionType: 'raw_material.created', entityType: 'raw_material', entityId: data.id,
         message: `${actorName(user?.email)} added raw material ${data.name}`,
-      }).catch(() => {})
+      }).catch(err => console.error('[logActivity] raw_material.created failed:', err))
+      else console.warn('[logActivity] skipped raw_material.created — companyId is null')
     }
 
     setSaving(false); setShowForm(false); setForm(empty)
@@ -162,11 +164,13 @@ export default function RawMaterialsClient() {
     if (inserted > 0) {
       setMaterials((prev) => [...inserted_rows, ...prev])
       toast.success(`Imported ${inserted} material${inserted !== 1 ? 's' : ''}`)
+      console.log('[logActivity] pre-call raw_material.imported | companyId:', companyId, '| count:', inserted)
       if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
         actionType: 'raw_material.imported', entityType: 'raw_material',
         message: `${actorName(user?.email)} imported ${inserted} raw material${inserted !== 1 ? 's' : ''}`,
         metadata: { count: inserted },
-      }).catch(() => {})
+      }).catch(err => console.error('[logActivity] raw_material.imported failed:', err))
+      else console.warn('[logActivity] skipped raw_material.imported — companyId is null')
     }
     return { inserted, skipped: 0, errors }
   }

@@ -65,12 +65,14 @@ export interface LogActivityParams {
 
 /**
  * Fire-and-forget activity log insert.
- * Call as: logActivity({...}).catch(() => {})
+ * Call as: logActivity({...}).catch(err => console.error('[logActivity]', err))
  * Never await inside a user-facing code path — a logging failure should
  * never block or revert a successful business operation.
  */
 export async function logActivity(params: LogActivityParams): Promise<void> {
-  await supabase.from('activity_logs').insert({
+  console.log('[logActivity] →', params.actionType, '| company:', params.companyId, '| msg:', params.message)
+
+  const { error } = await supabase.from('activity_logs').insert({
     company_id:    params.companyId,
     actor_user_id: params.actorUserId  ?? null,
     actor_email:   params.actorEmail   ?? null,
@@ -80,6 +82,20 @@ export async function logActivity(params: LogActivityParams): Promise<void> {
     message:       params.message,
     metadata:      params.metadata     ?? null,
   })
+
+  if (error) {
+    console.error('[logActivity] ✗ INSERT FAILED', {
+      code:    error.code,
+      message: error.message,
+      hint:    error.hint,
+      details: error.details,
+      action:  params.actionType,
+      company: params.companyId,
+    })
+    throw error
+  }
+
+  console.log('[logActivity] ✓', params.actionType)
 }
 
 // ── Display helpers ──────────────────────────────────────────────────────────
