@@ -3,26 +3,32 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ── Design tokens ──────────────────────────────────────────────────────────
-   Light: warm greige — #D1CFC9 bg / #E6E4E0 surface / #F1EFEC elevated
-   Dark:  deep midnight — #090F15 bg / #0F1923 surface / #162030 elevated
+   Light: clean off-white — crisp surfaces, subtle borders
+   Dark:  deep GitHub-style midnight — layered surfaces
    ─────────────────────────────────────────────────────────────────────── */
 :root {
-  --bg:          #D1CFC9;
-  --surface:     #E6E4E0;
-  --elevated:    #F1EFEC;
-  --border:      rgba(179,183,186,0.45);
-  --border-sub:  rgba(179,183,186,0.25);
-  --text:        #0F1923;
+  --bg:          #F4F4F2;
+  --surface:     #FFFFFF;
+  --elevated:    #FAFAF9;
+  --border:      rgba(0,0,0,0.07);
+  --border-sub:  rgba(0,0,0,0.04);
+  --text:        #111827;
   --muted:       #6B7280;
   --subtle:      #9CA3AF;
   --accent:      #3a6f8f;
   --accent-fg:   #4a8fb9;
+
+  /* Surface layer scale */
+  --s0: #F4F4F2;
+  --s1: #FFFFFF;
+  --s2: #F7F7F6;
+  --s3: #EEEDE9;
 }
 
 .dark {
-  --bg:          #090F15;
-  --surface:     #0F1923;
-  --elevated:    #141e2c;
+  --bg:          #07090E;
+  --surface:     #0D1117;
+  --elevated:    #161B22;
   --border:      rgba(255,255,255,0.07);
   --border-sub:  rgba(255,255,255,0.04);
   --text:        #E2E8F0;
@@ -30,6 +36,12 @@
   --subtle:      #4B5563;
   --accent:      #3a6f8f;
   --accent-fg:   #60a5d4;
+
+  /* Surface layer scale */
+  --s0: #07090E;
+  --s1: #0D1117;
+  --s2: #161B22;
+  --s3: #1C2333;
 }
 
 body {
@@ -43,63 +55,56 @@ body {
 /* Dark: single very subtle blue-grey haze for depth */
 .dark body {
   background:
-    radial-gradient(ellipse 2400px 1400px at 18% -8%, rgba(74,127,165,0.03) 0%, transparent 65%),
-    #090F15;
+    radial-gradient(ellipse 2400px 1200px at 20% -5%, rgba(74,127,165,0.04) 0%, transparent 60%),
+    #07090E;
 }
 
 /* ── Glass card ─────────────────────────────────────────────────────────────
-   Light: warm elevated surface with layered shadow
-   Dark:  deep navy surface with inset highlight
+   Light: clean white card with subtle shadow
+   Dark:  layered dark surface with inset highlight
    ─────────────────────────────────────────────────────────────────────── */
 .glass-card {
-  background: var(--elevated);
+  background: var(--surface);
   border: 1px solid var(--border);
-  box-shadow: 0 1px 2px rgba(9,15,21,0.04), 0 4px 12px rgba(9,15,21,0.05);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 2px 8px rgba(0,0,0,0.03);
 }
 
 .dark .glass-card {
-  background: linear-gradient(160deg, rgba(20,30,44,0.96) 0%, rgba(9,15,21,0.92) 100%);
-  backdrop-filter: blur(24px) saturate(130%);
-  -webkit-backdrop-filter: blur(24px) saturate(130%);
+  background: var(--s1);
   border: 1px solid rgba(255,255,255,0.07);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.05),
-    0 2px 8px rgba(0,0,0,0.30),
-    0 8px 32px rgba(0,0,0,0.22);
+    inset 0 1px 0 rgba(255,255,255,0.04),
+    0 1px 3px rgba(0,0,0,0.30),
+    0 4px 16px rgba(0,0,0,0.20);
 }
 
 .dark .glass-card:hover {
   border-color: rgba(255,255,255,0.10);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.07),
-    0 4px 16px rgba(0,0,0,0.36),
-    0 12px 40px rgba(0,0,0,0.28);
 }
 
-/* ── Utility glass class (modals, misc) ─────────────────────────────────── */
+/* ── Elevated card (modals, dropdowns) ──────────────────────────────────── */
+.glass-elevated {
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.dark .glass-elevated {
+  background: var(--s2);
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.05),
+    0 8px 32px rgba(0,0,0,0.40),
+    0 24px 64px rgba(0,0,0,0.30);
+}
+
+/* ── Utility glass class (misc) ─────────────────────────────────────────── */
 @layer utilities {
   .glass {
-    background: linear-gradient(160deg, rgba(20,30,44,0.96) 0%, rgba(9,15,21,0.92) 100%);
-    backdrop-filter: blur(24px) saturate(130%);
-    -webkit-backdrop-filter: blur(24px) saturate(130%);
+    background: var(--s2);
     border: 1px solid rgba(255,255,255,0.07);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 8px 32px rgba(0,0,0,0.40);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 8px 32px rgba(0,0,0,0.40);
   }
-
-  .glass-hover:hover {
-    border-color: rgba(255,255,255,0.11);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 12px 48px rgba(0,0,0,0.46);
-    transform: translateY(-1px);
-  }
-
-  /* Accent glows */
-  .glow-accent  { box-shadow: 0 0 32px rgba(74,127,165,0.18); }
-  .glow-blue    { box-shadow: 0 0 32px rgba(74,127,165,0.18); }
-  .glow-green   { box-shadow: 0 0 32px rgba(45,100,75,0.16); }
-  .glow-amber   { box-shadow: 0 0 32px rgba(130,90,35,0.16); }
-  .glow-red     { box-shadow: 0 0 32px rgba(130,45,45,0.16); }
-  .glow-violet  { box-shadow: 0 0 32px rgba(80,60,128,0.16); }
-  .glow-orange  { box-shadow: 0 0 32px rgba(140,80,40,0.16); }
 }
 
 /* ── Logo mark animations ───────────────────────────────────────────────── */
@@ -130,10 +135,26 @@ body {
 .skeleton { animation: sk-pulse 1.6s ease-in-out infinite; border-radius: 0.75rem; }
 
 /* ── Scrollbar ──────────────────────────────────────────────────────────── */
-.dark ::-webkit-scrollbar        { width: 4px; }
-.dark ::-webkit-scrollbar-track  { background: transparent; }
-.dark ::-webkit-scrollbar-thumb  { background: rgba(255,255,255,0.08); border-radius: 99px; }
+::-webkit-scrollbar        { width: 4px; height: 4px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: rgba(0,0,0,0.12); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.20); }
+.dark ::-webkit-scrollbar-thumb  { background: rgba(255,255,255,0.08); }
 .dark ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
 
-/* ── Table row hover ────────────────────────────────────────────────────── */
+/* ── Table utilities ────────────────────────────────────────────────────── */
 .table-row-hover:hover { background: rgba(74,127,165,0.04); }
+
+/* ── Topbar blur backdrop ───────────────────────────────────────────────── */
+.topbar-surface {
+  background: rgba(244,244,242,0.88);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border-bottom: 1px solid rgba(0,0,0,0.07);
+}
+.dark .topbar-surface {
+  background: rgba(7,9,14,0.85);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
