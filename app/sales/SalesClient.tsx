@@ -112,7 +112,7 @@ export default function SalesClient() {
   const [saving, setSaving]             = useState(false)
   const [formError, setFormError]       = useState<string | null>(null)
 
-  const locale = lang === 'ar' ? 'ar-SA' : 'en-US'
+  const locale = lang === 'ar' ? 'ar-SA-u-nu-latn' : 'en-US'
 
   function fmt(n: number) {
     return lang === 'ar'
@@ -406,7 +406,7 @@ export default function SalesClient() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-100 dark:border-[#B3B7BA]/[0.07] bg-[#D1CFC9]/50 dark:bg-[#262E36]/18 text-left text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                <tr className="border-b border-gray-100 dark:border-[#B3B7BA]/[0.07] bg-[#D1CFC9]/50 dark:bg-[#262E36]/18 text-start text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
                   <th className="px-5 py-3">{t('sales.order_id')}</th>
                   <th className="px-5 py-3">{t('sales.customer')}</th>
                   <th className="px-5 py-3">{t('sales.product')}</th>
@@ -435,7 +435,7 @@ export default function SalesClient() {
                       <SaleStatusBadge status={sale.status} t={t} />
                     </td>
                     <td className="px-5 py-3.5 text-gray-500 dark:text-gray-400">{fmtDate(sale.sold_at)}</td>
-                    <td className="px-5 py-3.5 text-right">
+                    <td className="px-5 py-3.5 text-end">
                       {canWrite && (
                         <button onClick={() => handleDelete(sale.id)}
                           className="rounded-lg p-1.5 text-gray-300 dark:text-gray-600 hover:bg-red-500/10 hover:text-red-400 transition-colors"

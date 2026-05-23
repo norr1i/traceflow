@@ -345,7 +345,7 @@ function exportToCSV(batches: RecallBatch[]) {
 
 export default function RecallClient() {
   const { t, lang } = useT()
-  const locale = lang === 'ar' ? 'ar-SA' : 'en-US'
+  const locale = lang === 'ar' ? 'ar-SA-u-nu-latn' : 'en-US'
 
   const [searchType, setSearchType] = useState<SearchType>('lot')
   const [query,      setQuery]      = useState('')
@@ -682,8 +682,8 @@ export default function RecallClient() {
                   {/* ── Row ──────────────────────────────────────────── */}
                   <button
                     onClick={() => setExpandedId(isExpanded ? null : batch.id)}
-                    className={`w-full flex items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/22 ${
-                      hasRisk ? 'border-l-2 border-red-500' : ''
+                    className={`w-full flex items-start gap-3 px-5 py-4 text-start transition-colors hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/22 ${
+                      hasRisk ? 'border-s-2 border-red-500' : ''
                     }`}
                   >
                     <span className="mt-0.5 shrink-0">
@@ -730,9 +730,9 @@ export default function RecallClient() {
                             <table className="w-full text-xs">
                               <thead>
                                 <tr className="border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] text-gray-400">
-                                  <th className="pb-1.5 text-left font-medium">{t('materials.mat_col')}</th>
-                                  <th className="pb-1.5 text-left font-medium">{t('materials.lot_col')}</th>
-                                  <th className="pb-1.5 text-right font-medium">{t('materials.qty_col')}</th>
+                                  <th className="pb-1.5 text-start font-medium">{t('materials.mat_col')}</th>
+                                  <th className="pb-1.5 text-start font-medium">{t('materials.lot_col')}</th>
+                                  <th className="pb-1.5 text-end font-medium">{t('materials.qty_col')}</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-gray-100 dark:divide-[#B3B7BA]/[0.07]">
@@ -740,7 +740,7 @@ export default function RecallClient() {
                                   <tr key={i}>
                                     <td className="py-1.5 font-medium text-gray-900 dark:text-white">{m.material_name}</td>
                                     <td className="py-1.5 font-mono text-gray-400">{m.lot_number ?? '—'}</td>
-                                    <td className="py-1.5 text-right text-gray-700 dark:text-gray-300">{m.quantity} {m.unit}</td>
+                                    <td className="py-1.5 text-end text-gray-700 dark:text-gray-300">{m.quantity} {m.unit}</td>
                                   </tr>
                                 ))}
                               </tbody>

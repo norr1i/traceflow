@@ -178,7 +178,7 @@ export default function RawMaterialsClient() {
   }
 
   const lowStock = materials.filter((m) => m.quantity_in_stock <= m.reorder_level)
-  const locale = lang === 'ar' ? 'ar-SA' : 'en-US'
+  const locale = lang === 'ar' ? 'ar-SA-u-nu-latn' : 'en-US'
 
   const formFields = [
     { label: t('common.name'),              key: 'name',              type: 'text',   placeholder: t('materials.name_placeholder') },

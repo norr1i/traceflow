@@ -260,7 +260,7 @@ export default function DashboardPage() {
 
   // ── Locale-aware helpers (close over lang) ─────────────────────────────
 
-  const locale = lang === 'ar' ? 'ar-SA' : 'en-US'
+  const locale = lang === 'ar' ? 'ar-SA-u-nu-latn' : 'en-US'
 
   function fmt(iso: string) {
     return new Date(iso).toLocaleDateString(locale, {
@@ -276,7 +276,7 @@ export default function DashboardPage() {
     }
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M SAR`
     if (n >= 1_000)     return `${(n / 1_000).toFixed(0)}K SAR`
-    return `${n.toLocaleString()} SAR`
+    return `${fmtNum(n, lang)} SAR`
   }
 
   const load = useCallback(async (silent = false) => {

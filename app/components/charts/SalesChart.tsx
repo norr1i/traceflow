@@ -21,7 +21,7 @@ const TOOLTIP_STYLE = {
 
 export default function SalesChart({ data }: Props) {
   const { t, lang } = useT()
-  const locale = lang === 'ar' ? 'ar-SA' : 'en-US'
+  const locale = lang === 'ar' ? 'ar-SA-u-nu-latn' : 'en-US'
 
   const chartData = [...data].reverse().map((s) => ({
     date: new Date(s.sold_at).toLocaleDateString(locale, { month: 'short', day: 'numeric' }),

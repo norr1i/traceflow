@@ -288,7 +288,7 @@ export default function CsvImportModal({
                     <thead className="bg-[#262E36]/60">
                       <tr>
                         {fields.map(f => (
-                          <th key={f.key} className="px-3 py-2 text-left font-medium text-[#6C6D74] whitespace-nowrap">
+                          <th key={f.key} className="px-3 py-2 text-start font-medium text-[#6C6D74] whitespace-nowrap">
                             {f.label}
                           </th>
                         ))}

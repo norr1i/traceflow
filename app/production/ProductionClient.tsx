@@ -114,7 +114,7 @@ export default function ProductionClient() {
     )
   }
 
-  const locale = lang === 'ar' ? 'ar-SA' : 'en-US'
+  const locale = lang === 'ar' ? 'ar-SA-u-nu-latn' : 'en-US'
 
   function openCreate() {
     setEditing(null)

@@ -94,7 +94,7 @@ export default function QualityControlClient() {
   const [saving, setSaving]             = useState(false)
   const [formError, setFormError]       = useState<string | null>(null)
 
-  const locale = lang === 'ar' ? 'ar-SA' : 'en-US'
+  const locale = lang === 'ar' ? 'ar-SA-u-nu-latn' : 'en-US'
 
   function openNew() {
     setForm({ ...emptyForm, inspection_date: new Date().toISOString().slice(0, 10) })
@@ -362,7 +362,7 @@ export default function QualityControlClient() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] bg-[#D1CFC9]/50 dark:bg-[#262E36]/38 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    <tr className="border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] bg-[#D1CFC9]/50 dark:bg-[#262E36]/38 text-start text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                       <th className="px-5 py-3">{t('quality.id_col')}</th>
                       <th className="px-5 py-3">{t('quality.batch_col')}</th>
                       <th className="px-5 py-3">{t('quality.date_col')}</th>
@@ -403,7 +403,7 @@ export default function QualityControlClient() {
                         <td className="max-w-xs px-5 py-3.5 text-gray-600 dark:text-gray-400">
                           <span className="line-clamp-1">{item.notes || '—'}</span>
                         </td>
-                        <td className="px-5 py-3.5 text-right">
+                        <td className="px-5 py-3.5 text-end">
                           {effectiveCanEdit && (
                             <button onClick={() => handleDelete(item.id)}
                               className="rounded p-1 text-gray-300 dark:text-gray-600 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-500 dark:hover:text-red-400 transition-colors">
@@ -435,7 +435,7 @@ export default function QualityControlClient() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] bg-[#D1CFC9]/50 dark:bg-[#262E36]/38 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    <tr className="border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] bg-[#D1CFC9]/50 dark:bg-[#262E36]/38 text-start text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                       <th className="px-5 py-3">{t('quality.defect_id')}</th>
                       <th className="px-5 py-3">{t('quality.defect_type')}</th>
                       <th className="px-5 py-3">{t('quality.severity_col')}</th>

@@ -62,10 +62,11 @@ export function LangProvider({ children }: { children: ReactNode }) {
 
 export const useT = () => useContext(Ctx)
 
-export function fmtNum(n: number, lang: Lang, opts?: Intl.NumberFormatOptions): string {
-  return n.toLocaleString(lang === 'ar' ? 'ar-SA' : 'en-US', opts)
+export function fmtNum(n: number, _lang: Lang, opts?: Intl.NumberFormatOptions): string {
+  return n.toLocaleString('en-US', opts)
 }
 
 export function fmtDate(iso: string, lang: Lang, opts?: Intl.DateTimeFormatOptions): string {
-  return new Date(iso).toLocaleDateString(lang === 'ar' ? 'ar-SA' : 'en-US', opts)
+  const locale = lang === 'ar' ? 'ar-SA-u-nu-latn' : 'en-US'
+  return new Date(iso).toLocaleDateString(locale, opts)
 }

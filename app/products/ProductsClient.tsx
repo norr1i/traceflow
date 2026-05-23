@@ -178,7 +178,7 @@ export default function ProductsClient() {
     return { inserted, skipped, errors: [] }
   }
 
-  const locale = lang === 'ar' ? 'ar-SA' : 'en-US'
+  const locale = lang === 'ar' ? 'ar-SA-u-nu-latn' : 'en-US'
 
   return (
     <>

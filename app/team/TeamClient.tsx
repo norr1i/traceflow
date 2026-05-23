@@ -148,7 +148,7 @@ export default function TeamClient() {
   const toast    = useToast()
   const confirm  = useConfirm()
   const { t, lang } = useT()
-  const locale = lang === 'ar' ? 'ar-SA' : 'en-US'
+  const locale = lang === 'ar' ? 'ar-SA-u-nu-latn' : 'en-US'
   const assignableRoles = hasPermission(role as Role | null, 'invite:admin')
     ? ASSIGNABLE_ROLES
     : ASSIGNABLE_ROLES.filter((r) => r !== 'admin')
@@ -571,11 +571,11 @@ export default function TeamClient() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-50 dark:border-white/[0.05] bg-gray-50/50 dark:bg-white/[0.01]">
-                  <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#525563]">{t('team.member_col')}</th>
-                  <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#525563] hidden sm:table-cell">{t('team.role_label')}</th>
-                  <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#525563] hidden md:table-cell">{t('common.status')}</th>
-                  <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#525563] hidden lg:table-cell">{t('team.joined_col')}</th>
-                  <th className="px-5 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#525563]">{t('team.actions_col')}</th>
+                  <th className="px-5 py-2.5 text-start text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#525563]">{t('team.member_col')}</th>
+                  <th className="px-5 py-2.5 text-start text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#525563] hidden sm:table-cell">{t('team.role_label')}</th>
+                  <th className="px-5 py-2.5 text-start text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#525563] hidden md:table-cell">{t('common.status')}</th>
+                  <th className="px-5 py-2.5 text-start text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#525563] hidden lg:table-cell">{t('team.joined_col')}</th>
+                  <th className="px-5 py-2.5 text-end text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#525563]">{t('team.actions_col')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-white/[0.04]">
@@ -639,7 +639,7 @@ export default function TeamClient() {
                       </td>
 
                       {/* Actions */}
-                      <td className="px-5 py-3.5 text-right">
+                      <td className="px-5 py-3.5 text-end">
                         <div className="flex items-center justify-end gap-1">
                           {isPending ? (
                             <>
