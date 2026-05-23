@@ -2,7 +2,15 @@
 
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
-const PALETTE = ['#8C6B2A', '#2E6080', '#2A7A50', '#4A5568']
+// Semantic status colors — muted, readable on dark, never neon
+const STATUS_COLOR: Record<string, string> = {
+  completed:   '#2A7A52',  // muted green
+  in_progress: '#2A6080',  // muted steel blue
+  pending:     '#8A6318',  // muted amber
+  hold:        '#8A6318',  // same amber — hold ≈ pending
+  cancelled:   '#943030',  // muted crimson
+}
+const FALLBACK_COLOR = '#4A5568'
 
 const TOOLTIP_STYLE = {
   backgroundColor: '#0F1923',
@@ -19,9 +27,14 @@ type Props = { data: Record<string, number> }
 export default function ProductionChart({ data }: Props) {
   const chartData = Object.entries(data)
     .filter(([, v]) => v > 0)
-    .map(([name, value]) => ({ name: name.replace('_', ' '), value }))
+    .map(([key, value]) => ({
+      key,
+      name: key.replace(/_/g, ' '),
+      value,
+      fill: STATUS_COLOR[key] ?? FALLBACK_COLOR,
+    }))
 
-  if (chartData.length === 0 || chartData.every(d => d.value === 0)) {
+  if (chartData.length === 0) {
     return (
       <div className="flex h-[220px] items-center justify-center text-sm text-[#525563]">
         No production orders yet.
@@ -42,8 +55,8 @@ export default function ProductionChart({ data }: Props) {
           dataKey="value"
           strokeWidth={0}
         >
-          {chartData.map((_, i) => (
-            <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
+          {chartData.map((entry, i) => (
+            <Cell key={i} fill={entry.fill} />
           ))}
         </Pie>
         <Tooltip
