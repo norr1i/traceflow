@@ -32,17 +32,26 @@ type NotificationMeta = {
 }
 
 const ACTION_META: Record<string, NotificationMeta> = {
-  'qc_inspection.failed':    { category: 'qc_failure',  severity: 'critical', title: 'QC Failure'       },
-  'qc_inspection.passed':    { category: 'qc_activity', severity: 'info',     title: 'QC Passed'         },
-  'qc_inspection.hold':      { category: 'qc_activity', severity: 'warning',  title: 'QC On Hold'        },
-  'raw_material.imported':   { category: 'inventory',   severity: 'info',     title: 'Inventory Import'  },
-  'product.imported':        { category: 'production',  severity: 'info',     title: 'Product Import'    },
-  'production_order.created':{ category: 'production',  severity: 'info',     title: 'New Order'         },
-  'sale.created':            { category: 'sales',       severity: 'info',     title: 'New Sale'          },
-  'sale.imported':           { category: 'sales',       severity: 'info',     title: 'Sales Import'      },
-  'invitation.created':      { category: 'team',        severity: 'info',     title: 'Team Invitation'   },
-  'team.role_changed':       { category: 'team',        severity: 'warning',  title: 'Role Changed'      },
-  'test.notification':       { category: 'team',        severity: 'info',     title: 'Diagnostic Test'   },
+  // QC
+  'qc_inspection.created':   { category: 'qc_activity', severity: 'info',     title: 'Inspection Started' },
+  'qc_inspection.passed':    { category: 'qc_activity', severity: 'info',     title: 'QC Passed'          },
+  'qc_inspection.failed':    { category: 'qc_failure',  severity: 'critical', title: 'QC Failure'         },
+  'qc_inspection.hold':      { category: 'qc_activity', severity: 'warning',  title: 'QC On Hold'         },
+  'qc_result.added':         { category: 'qc_activity', severity: 'info',     title: 'QC Result Added'    },
+  // Inventory
+  'raw_material.created':    { category: 'inventory',   severity: 'info',     title: 'Material Added'     },
+  'raw_material.imported':   { category: 'inventory',   severity: 'info',     title: 'Inventory Import'   },
+  // Production
+  'product.created':         { category: 'production',  severity: 'info',     title: 'Product Added'      },
+  'product.imported':        { category: 'production',  severity: 'info',     title: 'Product Import'     },
+  'production_order.created':{ category: 'production',  severity: 'info',     title: 'New Order'          },
+  'production_order.updated':{ category: 'production',  severity: 'info',     title: 'Order Updated'      },
+  // Sales
+  'sale.created':            { category: 'sales',       severity: 'info',     title: 'New Sale'           },
+  'sale.imported':           { category: 'sales',       severity: 'info',     title: 'Sales Import'       },
+  // Team
+  'invitation.created':      { category: 'team',        severity: 'info',     title: 'Team Invitation'    },
+  'team.role_changed':       { category: 'team',        severity: 'warning',  title: 'Role Changed'       },
 }
 
 // Only these action types generate notifications (high-signal events only)

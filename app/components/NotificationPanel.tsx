@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Bell, Check, XCircle, ShieldCheck, ClipboardList,
-  Boxes, ShoppingCart, Users, Inbox, RefreshCw, FlaskConical,
+  Boxes, ShoppingCart, Users, Inbox, RefreshCw,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth-context'
@@ -54,10 +54,8 @@ function NotificationIcon({ category }: { category: NotificationCategory }) {
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-type Filter   = 'all' | 'unread'
-type DiagLine = { kind: 'ok' | 'err' | 'info'; text: string }
+type Filter = 'all' | 'unread'
 
-// Shape of an activity_logs row as received from Realtime
 type ActivityLogRow = {
   id: string
   action_type: string
@@ -69,11 +67,11 @@ type ActivityLogRow = {
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function NotificationPanel() {
-  const panelRef        = useRef<HTMLDivElement>(null)
-  const { companyId }   = useAuth()
+  const panelRef      = useRef<HTMLDivElement>(null)
+  const { companyId } = useAuth()
 
-  // Persists across renders; pre-populated by the initial fetch so that
-  // realtime events for already-loaded rows are silently dropped.
+  // Persists across renders; seeded by the initial fetch so that realtime
+  // reconnect replays for already-loaded rows are silently dropped.
   const seenIds = useRef(new Set<string>())
 
   const [open, setOpen]                   = useState(false)
@@ -81,8 +79,6 @@ export default function NotificationPanel() {
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [loading, setLoading]             = useState(false)
   const [lastReadAt, setLastReadAtState]  = useState<Date>(() => new Date(0))
-  const [diagLines, setDiagLines]         = useState<DiagLine[]>([])
-  const [diagRunning, setDiagRunning]     = useState(false)
 
   // Init read-state from localStorage (client-only)
   useEffect(() => {
@@ -90,8 +86,6 @@ export default function NotificationPanel() {
   }, [])
 
   // ── Initial fetch ──────────────────────────────────────────────────────────
-  // Loads up to 40 recent notifications and seeds seenIds so realtime
-  // events for these rows are ignored on reconnect.
 
   const fetchNotifications = useCallback(async () => {
     setLoading(true)
@@ -108,9 +102,7 @@ export default function NotificationPanel() {
           .map(mapLogToNotification)
           .filter((n): n is AppNotification => n !== null)
 
-        // Seed the dedup set from the fetched rows
         mapped.forEach(n => seenIds.current.add(n.id))
-
         setNotifications(mapped)
       }
     } finally {
@@ -122,8 +114,6 @@ export default function NotificationPanel() {
   useEffect(() => { if (open) fetchNotifications() }, [open, fetchNotifications])
 
   // ── Realtime subscription ──────────────────────────────────────────────────
-  // Subscribes to INSERT events on activity_logs filtered to company_id.
-  // Re-creates the channel if companyId changes. Cleans up on unmount.
 
   useEffect(() => {
     if (!companyId) return
@@ -141,30 +131,22 @@ export default function NotificationPanel() {
         (payload) => {
           const row = payload.new
 
-          // Only notification-worthy action types
           if (!NOTIFICATION_ACTION_TYPES.includes(row.action_type)) return
-
-          // Deduplicate — drop if we already have this row (reconnect replay)
           if (seenIds.current.has(row.id)) return
           seenIds.current.add(row.id)
 
           const notif = mapLogToNotification(row)
           if (!notif) return
 
-          // Prepend so newest-first order is preserved without a full refetch
           setNotifications(prev => [notif, ...prev])
         }
       )
-      .subscribe((status) => {
-        console.log('[NotificationPanel] realtime status:', status)
-      })
+      .subscribe()
 
-    return () => {
-      supabase.removeChannel(channel)
-    }
+    return () => { supabase.removeChannel(channel) }
   }, [companyId])
 
-  // ── Click-outside / Escape close ──────────────────────────────────────────
+  // ── Click-outside / Escape ─────────────────────────────────────────────────
 
   useEffect(() => {
     if (!open) return
@@ -188,81 +170,6 @@ export default function NotificationPanel() {
     const now = new Date()
     setLastReadAt(now)
     setLastReadAtState(now)
-  }
-
-  // ── Diagnostic ────────────────────────────────────────────────────────────
-
-  async function runDiagnostic() {
-    setDiagRunning(true)
-    setDiagLines([])
-    const lines: DiagLine[] = []
-
-    function push(kind: DiagLine['kind'], text: string) {
-      lines.push({ kind, text })
-      console.log(`[diag][${kind}]`, text)
-      setDiagLines([...lines])
-    }
-
-    const { data: { user: authUser } } = await supabase.auth.getUser()
-    push('info', `auth.uid: ${authUser?.id ?? 'null'}`)
-    push('info', `auth.email: ${authUser?.email ?? 'null'}`)
-    push('info', `useAuth companyId: ${companyId ?? 'null'}`)
-
-    const { data: rpcData, error: rpcErr } = await supabase.rpc('get_my_company_id')
-    if (rpcErr) push('err', `get_my_company_id() → ${rpcErr.message} (${rpcErr.code})`)
-    else        push('ok',  `get_my_company_id() → ${rpcData ?? 'null'}`)
-
-    const cid = companyId ?? rpcData ?? null
-
-    const payload = {
-      company_id:    cid,
-      actor_user_id: authUser?.id    ?? null,
-      actor_email:   authUser?.email ?? null,
-      action_type:   'test.notification',
-      entity_type:   'debug',
-      entity_id:     null,
-      message:       'Test notification from current session',
-      metadata:      null,
-    }
-    push('info', `payload.company_id: ${cid ?? 'null'}`)
-
-    const { data: inserted, error: insErr } = await supabase
-      .from('activity_logs')
-      .insert(payload)
-      .select()
-      .single()
-
-    if (insErr) {
-      push('err', `INSERT failed [${insErr.code}]: ${insErr.message}`)
-      if (insErr.hint)    push('err', `  hint: ${insErr.hint}`)
-      if (insErr.details) push('err', `  details: ${insErr.details}`)
-    } else {
-      push('ok', `INSERT success → id: ${inserted?.id}`)
-    }
-
-    const { data: fetched, error: fetchErr } = await supabase
-      .from('activity_logs')
-      .select('id, action_type, message, created_at')
-      .in('action_type', NOTIFICATION_ACTION_TYPES)
-      .order('created_at', { ascending: false })
-      .limit(10)
-
-    if (fetchErr) {
-      push('err', `SELECT failed [${fetchErr.code}]: ${fetchErr.message}`)
-    } else {
-      push('ok', `SELECT → ${fetched?.length ?? 0} row(s)`)
-      fetched?.slice(0, 3).forEach((r, i) =>
-        push('info', `  [${i}] ${r.action_type} @ ${r.created_at}`)
-      )
-    }
-
-    setDiagRunning(false)
-
-    // If the realtime path delivered the row already (seenIds has it),
-    // no-op; otherwise force a refresh to show it in the list.
-    if (inserted && !seenIds.current.has(inserted.id)) {
-      fetchNotifications()
-    }
   }
 
   // ── Derived state ──────────────────────────────────────────────────────────
@@ -365,37 +272,8 @@ export default function NotificationPanel() {
             ))}
           </div>
 
-          {/* Diagnostic section */}
-          <div className="border-b border-amber-200 dark:border-amber-500/20 bg-amber-50 dark:bg-amber-500/[0.06] px-4 py-3">
-            <button
-              onClick={runDiagnostic}
-              disabled={diagRunning}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-amber-300 dark:border-amber-500/40 bg-white dark:bg-amber-500/10 px-3 py-2 text-[12px] font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20 disabled:opacity-50 transition-colors"
-            >
-              <FlaskConical size={13} />
-              {diagRunning ? 'Running pipeline test…' : 'Run pipeline test'}
-            </button>
-
-            {diagLines.length > 0 && (
-              <div className="mt-2 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-gray-900 p-2 max-h-[200px] overflow-y-auto">
-                {diagLines.map((l, i) => (
-                  <p
-                    key={i}
-                    className={`font-mono text-[10px] leading-relaxed whitespace-pre-wrap break-all ${
-                      l.kind === 'err'  ? 'text-red-400'
-                      : l.kind === 'ok' ? 'text-emerald-400'
-                      :                   'text-gray-400'
-                    }`}
-                  >
-                    {l.kind === 'err' ? '✗ ' : l.kind === 'ok' ? '✓ ' : '· '}{l.text}
-                  </p>
-                ))}
-              </div>
-            )}
-          </div>
-
           {/* Notification list */}
-          <div className="max-h-[360px] overflow-y-auto">
+          <div className="max-h-[420px] overflow-y-auto">
             {groups.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 dark:bg-white/[0.05]">
