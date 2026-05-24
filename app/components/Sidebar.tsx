@@ -66,8 +66,8 @@ function NavLink({
         group relative flex items-center gap-2.5 rounded-lg px-3 py-[7px]
         text-[13px] font-medium transition-all duration-100
         ${active
-          ? 'bg-[#1C2333] text-[#E2E8F0]'
-          : 'text-[#6B7280] hover:text-[#A8B3C0] hover:bg-white/[0.04]'}
+          ? 'bg-[var(--s3)] text-[var(--text)]'
+          : 'text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--border)]'}
       `}
     >
       {active && (
@@ -101,7 +101,7 @@ export default function Sidebar() {
     <aside
       className={`
         fixed top-0 z-30 h-full w-[200px] flex flex-col
-        bg-[#07090E] border-e border-white/[0.06]
+        bg-[var(--surface)] border-e border-[var(--border)]
         transition-transform duration-200 ease-in-out
         ${dir === 'rtl' ? 'right-0' : 'left-0'}
         ${open
@@ -111,9 +111,9 @@ export default function Sidebar() {
       `}
     >
       {/* Logo */}
-      <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-white/[0.06] px-4">
+      <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-[var(--border)] px-4">
         <LogoIcon size="sm" />
-        <p className="text-[13px] font-semibold leading-none tracking-tight text-[#D3D1CE]">
+        <p className="text-[13px] font-semibold leading-none tracking-tight text-[var(--text)]">
           <span className="font-normal text-[#6a9fc0]">Trace</span>Flow
         </p>
       </div>
@@ -122,7 +122,7 @@ export default function Sidebar() {
       <nav className="flex-1 overflow-y-auto px-2.5 py-4 space-y-4">
         {visibleGroups.map(group => (
           <div key={group.labelKey}>
-            <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-[#2D3748]">
+            <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--subtle)]">
               {t(group.labelKey)}
             </p>
             <div className="space-y-0.5">
@@ -141,8 +141,8 @@ export default function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="shrink-0 border-t border-white/[0.05] px-4 py-3">
-        <p className="text-[10px] text-[#2D3748]">{t('sidebar.footer')}</p>
+      <div className="shrink-0 border-t border-[var(--border)] px-4 py-3">
+        <p className="text-[10px] text-[var(--subtle)]">{t('sidebar.footer')}</p>
       </div>
     </aside>
   )
@@ -150,14 +150,14 @@ export default function Sidebar() {
   return (
     <>
       {/* Mobile top bar */}
-      <div className="flex items-center justify-between border-b border-white/[0.06] bg-[#07090E] px-4 py-3 lg:hidden">
+      <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3 lg:hidden">
         <div className="flex items-center gap-2.5">
           <LogoIcon size="sm" />
-          <span className="text-[13px] font-semibold text-[#D3D1CE] tracking-tight">TraceFlow</span>
+          <span className="text-[13px] font-semibold text-[var(--text)] tracking-tight">TraceFlow</span>
         </div>
         <button
           onClick={() => setOpen(!open)}
-          className="rounded-lg p-2 text-[#525563] hover:bg-white/[0.06] hover:text-[#8B9BAA] transition-colors"
+          className="rounded-lg p-2 text-[var(--muted)] hover:bg-[var(--border)] hover:text-[var(--text)] transition-colors"
         >
           {open ? <X size={18} /> : <Menu size={18} />}
         </button>
