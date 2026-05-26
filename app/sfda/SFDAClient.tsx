@@ -26,21 +26,36 @@ type CAPAStatus = 'open' | 'in_progress' | 'closed' | 'overdue'
 type Severity = 'critical' | 'major' | 'minor'
 
 interface CAPAItem {
-  id: string; title: string; arTitle: string
+  id: string; title: string
   severity: Severity; due: string; assigned: string; root: string; status: CAPAStatus
+}
+
+interface AuditEntry {
+  id: number
+  actor: string
+  role: string
+  action: string
+  entity: string
+  time: string
+  type: 'edit' | 'qc' | 'delete' | 'recall'
+  badgeCls: string
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 function todayISO(): string { return todayStr() }
+function nowSA(): string    { return nowGregorian() }
 
-function auditHash(): string {
-  return `TF-${Date.now().toString(36).toUpperCase()}`
+function fmtAuditTime(raw: string): string {
+  const parts = raw.split(' ')
+  const datePart = parts[0] ?? ''
+  const timePart = parts[1] ?? ''
+  const seg = datePart.split('-').map(Number)
+  const year = seg[0] ?? 0; const month = seg[1] ?? 1; const day = seg[2] ?? 1
+  const months = ['January','February','March','April','May','June',
+                  'July','August','September','October','November','December']
+  return `${day} ${months[month - 1]} ${year} — ${timePart}`
 }
-
-function nowSA(): string { return nowGregorian() }
-
-// ── Report builders ───────────────────────────────────────────────────────────
 
 // ── PDF report maps ───────────────────────────────────────────────────────────
 
@@ -73,61 +88,45 @@ const REPORT_ICON_CLS: Record<string, string> = {
 
 // ── Requirement detail data ───────────────────────────────────────────────────
 
-const REQ_DETAILS: Record<string, { en: string; ar: string; notesEn: string; notesAr: string; lastAudit: string }> = {
+const REQ_DETAILS: Record<string, { en: string; notesEn: string; lastAudit: string }> = {
   gmp: {
-    en: 'Manufacturing processes comply with Saudi FDA GMP guidelines. SOPs are documented, version-controlled, and reviewed annually per SOP-GMP-2024-01.',
-    ar: 'تتوافق عمليات التصنيع مع إرشادات ممارسات التصنيع الجيدة. إجراءات التشغيل الموحدة موثقة ومراجعة سنويًا.',
-    notesEn: 'Annual GMP audit completed April 2026. All 24 production lines verified. No major findings except calibration gap.',
-    notesAr: 'اكتمل تدقيق ممارسات التصنيع الجيدة في أبريل 2026. تم التحقق من جميع خطوط الإنتاج.',
+    en:      'Manufacturing processes comply with Saudi FDA GMP guidelines. SOPs are documented, version-controlled, and reviewed annually per SOP-GMP-2024-01.',
+    notesEn: 'Annual GMP audit completed April 2026. All 24 production lines verified. No major findings except calibration gap on Line 3.',
     lastAudit: '2026-04-15',
   },
   batch: {
-    en: 'Full batch traceability from raw material receipt through finished product release. Lot numbers tracked via integrated barcode scanning system.',
-    ar: 'تتبع كامل للدفعة من استلام المواد الخام حتى الإفراج عن المنتج النهائي عبر نظام مسح الباركود.',
-    notesEn: '231 batches fully traced. System coverage: 100%. Minor gap in 2 receiving records — CAPA-2024-005 now closed.',
-    notesAr: 'تم تتبع 231 دفعة بالكامل. تغطية النظام: 100%. ثغرة بسيطة في سجلَّي الاستلام — CAPA-2024-005 مغلق.',
+    en:      'Full batch traceability from raw material receipt through finished product release. Lot numbers tracked via integrated barcode scanning system.',
+    notesEn: '231 batches fully traced. System coverage: 100%. Minor gap in 2 receiving records — CAPA-2024-005 now closed and verified.',
     lastAudit: '2026-05-24',
   },
   ncr: {
-    en: 'Non-conformances are identified, documented, investigated, and resolved per SOP-NCR-001. All major NCRs trigger mandatory CAPA creation.',
-    ar: 'يتم تحديد حالات عدم المطابقة وتوثيقها والتحقيق فيها. الحالات الرئيسية تستدعي إنشاء إجراء تصحيحي.',
-    notesEn: '12 NCRs on record. 3 open, 5 closed. Gap: some NCRs lack complete root-cause documentation for internal records.',
-    notesAr: '12 حالة عدم مطابقة مسجلة. 3 مفتوحة، 5 مغلقة. فجوة: بعض الحالات تفتقر إلى توثيق السبب الجذري.',
+    en:      'Non-conformances are identified, documented, investigated, and resolved per SOP-NCR-001. All major NCRs trigger mandatory CAPA creation.',
+    notesEn: '12 NCRs on record. 3 open, 5 closed. Gap: some NCRs lack complete root-cause documentation — under remediation.',
     lastAudit: '2026-05-18',
   },
   capa: {
-    en: 'Corrective and preventive actions are formally tracked to closure and verified for effectiveness per the CAPA Management Procedure CAPA-REG-2024.',
-    ar: 'تتم إدارة الإجراءات التصحيحية والوقائية رسميًا وتتبعها حتى الإغلاق والتحقق من فعاليتها.',
+    en:      'Corrective and preventive actions are formally tracked to closure and verified for effectiveness per CAPA Management Procedure CAPA-REG-2024.',
     notesEn: '5 CAPAs on record. 2 critical CAPAs approaching due dates. Effectiveness verification pending for 3 items.',
-    notesAr: '5 إجراءات مسجلة. إجراءان حرجان يقتربان من مواعيدهما النهائية.',
     lastAudit: '2026-05-15',
   },
   qc: {
-    en: 'QC inspections are conducted for every production batch by certified inspectors. Results are documented and linked to the batch record in the system.',
-    ar: 'تُجرى فحوصات الجودة لكل دفعة إنتاج من قِبل مفتشين معتمدين. النتائج موثقة ومرتبطة بسجل الدفعة.',
+    en:      'QC inspections are conducted for every production batch by certified inspectors. Results are documented and linked to the batch record in the system.',
     notesEn: '104 inspections completed, 96.2% pass rate. 4 failed batches on hold pending CAPA resolution.',
-    notesAr: '104 فحوصات مكتملة. معدل النجاح 96.2٪. 4 دفعات معلقة قيد معالجة CAPA.',
     lastAudit: '2026-05-23',
   },
   equip: {
-    en: 'All production and testing equipment is maintained and calibrated per an approved schedule. Calibration certificates are controlled documents with defined expiry.',
-    ar: 'تتم صيانة ومعايرة جميع معدات الإنتاج والاختبار وفق جدول معتمد. شهادات المعايرة وثائق خاضعة للرقابة.',
+    en:      'All production and testing equipment is maintained and calibrated per an approved schedule. Calibration certificates are controlled documents with defined expiry.',
     notesEn: 'MAJOR NON-CONFORMITY: 1 critical balance on Line 3 has expired calibration (expired 2026-04-30). CAPA-2024-001 open — due 2026-05-30. Corrective Action Required.',
-    notesAr: 'ملاحظة رئيسية: شهادة معايرة الميزان الحرج في خط 3 منتهية منذ 2026-04-30. CAPA-2024-001 مفتوح.',
     lastAudit: '2026-04-30',
   },
   audit: {
-    en: 'All system activities are logged with timestamp, actor, and entity. Logs are immutable and retained for a minimum of 5 years per SFDA data integrity requirements.',
-    ar: 'يتم تسجيل جميع أنشطة النظام مع الطابع الزمني ومعلومات المستخدم. السجلات غير قابلة للتعديل ومحفوظة 5 سنوات.',
+    en:      'All system activities are logged with timestamp, actor, and entity. Logs are immutable and retained for a minimum of 5 years per SFDA data integrity requirements.',
     notesEn: '892 audit entries on record. Chain integrity verified. No tampering detected. Hash validation active.',
-    notesAr: '892 إدخال تدقيق مسجل. سلامة السلسلة محققة. لم يتم اكتشاف تلاعب.',
     lastAudit: '2026-05-24',
   },
   sop: {
-    en: 'Standard Operating Procedures are documented, version-controlled, and accessible to all relevant personnel. Training records are maintained for each active SOP.',
-    ar: 'إجراءات التشغيل الموحدة موثقة وخاضعة لإدارة الإصدارات ومتاحة لجميع الموظفين. سجلات التدريب محفوظة.',
+    en:      'Standard Operating Procedures are documented, version-controlled, and accessible to all relevant personnel. Training records are maintained for each active SOP.',
     notesEn: '33 active SOPs. Gap: 4 SOPs not yet acknowledged by all relevant staff — training completion pending.',
-    notesAr: '33 إجراء نشط. فجوة: 4 إجراءات لم يُقرّها جميع الموظفين — التدريب معلق.',
     lastAudit: '2026-05-10',
   },
 }
@@ -149,22 +148,53 @@ const REQUIREMENTS = [
 ]
 
 const CAPAS_INIT: CAPAItem[] = [
-  { id: 'CAPA-2024-001', title: 'Equipment calibration certificate expired — Line 3',       arTitle: 'انتهاء صلاحية شهادة معايرة المعدات — خط الإنتاج 3',           severity: 'critical', due: '2026-05-30', assigned: 'م. خالد العتيبي',     root: 'Periodic calibration schedule not enforced',          status: 'open' },
-  { id: 'CAPA-2024-002', title: 'Batch B-2024-089 — temperature excursion during storage', arTitle: 'دفعة B-2024-089 — انحراف درجة الحرارة أثناء التخزين',           severity: 'critical', due: '2026-05-28', assigned: 'م. سارة الزهراني',    root: 'Cold chain monitoring gap during night shift',        status: 'overdue' },
-  { id: 'CAPA-2024-003', title: 'Incomplete QC documentation for 4 production runs',       arTitle: 'توثيق جودة غير مكتمل لـ 4 دورات إنتاج',                        severity: 'major',    due: '2026-06-10', assigned: 'م. نورة الحربي',      root: 'SOP checklist not followed by QC team',               status: 'in_progress' },
-  { id: 'CAPA-2024-004', title: 'Supplier audit gap — Al-Rawdah Chemicals',                arTitle: 'فجوة في تدقيق المورد — شركة الروضة للكيماويات',                  severity: 'major',    due: '2026-06-20', assigned: 'م. عبدالله القحطاني', root: 'Supplier qualification renewal not scheduled',        status: 'in_progress' },
-  { id: 'CAPA-2024-005', title: 'Missing lot traceability for 2 raw material batches',     arTitle: 'غياب تتبع الدفعة لمادتين خامتين',                               severity: 'minor',    due: '2026-06-05', assigned: 'م. فهد الدوسري',      root: 'Receiving process skipped barcode scan step',         status: 'closed' },
+  {
+    id: 'CAPA-2024-001', severity: 'critical', status: 'open',
+    title:    'Equipment calibration certificate expired — Line 3 critical balance',
+    assigned: 'Eng. Khalid Al-Otaibi', due: '2026-05-30',
+    root:     'Periodic calibration schedule not enforced by maintenance team',
+  },
+  {
+    id: 'CAPA-2024-002', severity: 'critical', status: 'overdue',
+    title:    'Batch B-2024-089 — temperature excursion during overnight storage',
+    assigned: 'Eng. Sara Al-Zahrani',  due: '2026-05-28',
+    root:     'Cold chain monitoring gap during night shift operations',
+  },
+  {
+    id: 'CAPA-2024-003', severity: 'major', status: 'in_progress',
+    title:    'Incomplete QC documentation for 4 consecutive production runs',
+    assigned: 'Eng. Nora Al-Harbi',   due: '2026-06-10',
+    root:     'SOP-QC-001 checklist not consistently followed — inspector training gap',
+  },
+  {
+    id: 'CAPA-2024-004', severity: 'major', status: 'in_progress',
+    title:    'Supplier qualification renewal overdue — Al-Rawdah Chemicals',
+    assigned: 'Eng. Abdullah Al-Qahtani', due: '2026-06-20',
+    root:     'Supplier qualification renewal not scheduled in vendor management system',
+  },
+  {
+    id: 'CAPA-2024-005', severity: 'minor', status: 'closed',
+    title:    'Missing lot traceability for 2 raw material batches at receiving',
+    assigned: 'Eng. Fahad Al-Dosari', due: '2026-06-05',
+    root:     'Receiving team skipped mandatory barcode scan step',
+  },
 ]
 
-const MOCK_AUDIT = [
-  { id: 1, actor: 'م. نورة الحربي',      action: 'product.created',      entity: 'منتج: مكمل فيتامين د',    time: '2026-05-24 14:32', type: 'edit'   },
-  { id: 2, actor: 'م. خالد العتيبي',     action: 'qc.result.updated',    entity: 'دفعة: B-2024-091',        time: '2026-05-24 12:18', type: 'qc'     },
-  { id: 3, actor: 'م. سارة الزهراني',    action: 'production.completed', entity: 'أمر إنتاج: PO-2024-0044', time: '2026-05-23 16:45', type: 'edit'   },
-  { id: 4, actor: 'م. عبدالله القحطاني', action: 'recall.initiated',     entity: 'دفعة: B-2024-079',        time: '2026-05-22 09:12', type: 'recall' },
-  { id: 5, actor: 'م. فهد الدوسري',      action: 'material.deleted',     entity: 'مادة: كبريتات الزنك',     time: '2026-05-21 11:05', type: 'delete' },
-  { id: 6, actor: 'م. نورة الحربي',      action: 'qc.override.applied',  entity: 'دفعة: B-2024-088',        time: '2026-05-20 15:30', type: 'qc'     },
-  { id: 7, actor: 'م. خالد العتيبي',     action: 'product.updated',      entity: 'منتج: حبوب المغنيسيوم',   time: '2026-05-19 10:22', type: 'edit'   },
-  { id: 8, actor: 'م. سارة الزهراني',    action: 'capa.created',         entity: 'CAPA-2024-003',            time: '2026-05-18 14:00', type: 'edit'   },
+// Action badge classes — green = created/completed, blue = updates, amber = overrides, red = recalls/deletions
+const GREEN_BADGE  = 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
+const BLUE_BADGE   = 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400'
+const AMBER_BADGE  = 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'
+const RED_BADGE    = 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+
+const MOCK_AUDIT: AuditEntry[] = [
+  { id: 1, actor: 'Nora Al-Harbi',        role: 'QC Supervisor',          type: 'edit',   action: 'Product Created',             entity: 'Vitamin D 5000 IU Supplement',       time: '2026-05-24 14:32', badgeCls: GREEN_BADGE  },
+  { id: 2, actor: 'Khalid Al-Otaibi',     role: 'QC Inspector',           type: 'qc',     action: 'QC Result Updated',           entity: 'Batch B-2024-091',                   time: '2026-05-24 12:18', badgeCls: BLUE_BADGE   },
+  { id: 3, actor: 'Sara Al-Zahrani',      role: 'Production Lead',        type: 'edit',   action: 'Production Order Completed',  entity: 'Production Order PO-2024-0044',      time: '2026-05-23 16:45', badgeCls: GREEN_BADGE  },
+  { id: 4, actor: 'Abdullah Al-Qahtani', role: 'Compliance Manager',     type: 'recall', action: 'Recall Initiated',            entity: 'Batch B-2024-079',                   time: '2026-05-22 09:12', badgeCls: RED_BADGE    },
+  { id: 5, actor: 'Fahad Al-Dosari',      role: 'Warehouse Operator',     type: 'delete', action: 'Material Deleted',            entity: 'Raw Material: Zinc Sulfate',         time: '2026-05-21 11:05', badgeCls: RED_BADGE    },
+  { id: 6, actor: 'Nora Al-Harbi',        role: 'QC Supervisor',          type: 'qc',     action: 'QC Override Applied',         entity: 'Batch B-2024-088',                   time: '2026-05-20 15:30', badgeCls: AMBER_BADGE  },
+  { id: 7, actor: 'Khalid Al-Otaibi',     role: 'QC Inspector',           type: 'edit',   action: 'Product Updated',             entity: 'Magnesium Complex 400mg',            time: '2026-05-19 10:22', badgeCls: BLUE_BADGE   },
+  { id: 8, actor: 'Sara Al-Zahrani',      role: 'Production Lead',        type: 'edit',   action: 'CAPA Created',                entity: 'CAPA-2024-003',                      time: '2026-05-18 14:00', badgeCls: GREEN_BADGE  },
 ]
 
 const REPORTS = [
@@ -197,10 +227,10 @@ function StatusBadge({ status }: { status: ComplianceStatus }) {
 function CAPAStatusBadge({ status }: { status: CAPAStatus }) {
   const { t } = useT()
   const map: Record<CAPAStatus, { cls: string; key: string }> = {
-    open:        { cls: 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400',                 key: 'sfda.capa_open'       },
-    overdue:     { cls: 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400',                     key: 'sfda.capa_overdue'    },
-    in_progress: { cls: 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400',             key: 'sfda.capa_inprogress' },
-    closed:      { cls: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400',     key: 'sfda.capa_closed'     },
+    open:        { cls: 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400',              key: 'sfda.capa_open'       },
+    overdue:     { cls: 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400',                  key: 'sfda.capa_overdue'    },
+    in_progress: { cls: 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400',          key: 'sfda.capa_inprogress' },
+    closed:      { cls: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400',  key: 'sfda.capa_closed'     },
   }
   const { cls, key } = map[status]
   return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${cls}`}>{t(key)}</span>
@@ -249,24 +279,20 @@ export default function SFDAClient() {
   const [activeTab,        setActiveTab]        = useState<TabId>('overview')
   const [auditFilter,      setAuditFilter]      = useState('all')
 
-  // Inspection package
   const [generating,       setGenerating]       = useState(false)
   const [packageGenerated, setPackageGenerated] = useState(false)
   const [packageLastGen,   setPackageLastGen]   = useState('2026-05-20')
 
-  // Recall simulation
   const [simulating,  setSimulating]  = useState(false)
   const [simDone,     setSimDone]     = useState(false)
   const [simLastRun,  setSimLastRun]  = useState('2026-05-10')
 
-  // Reports
   const [reportLastGen,    setReportLastGen]    = useState<Record<string, string>>({
     rpt_qc: '2026-05-20', rpt_batch: '2026-05-18', rpt_ncr: '2026-05-15',
     rpt_recall: '2026-05-22', rpt_capa: '2026-05-10', rpt_gmp: '2026-05-01',
   })
   const [reportGenerating, setReportGenerating] = useState<string | null>(null)
 
-  // CAPA
   const [capaList,      setCapaList]      = useState<CAPAItem[]>(CAPAS_INIT)
   const [showCAPAModal, setShowCAPAModal] = useState(false)
   const [capaForm,      setCapaForm]      = useState({
@@ -274,7 +300,6 @@ export default function SFDAClient() {
     due: '', assigned: '', root: '', status: 'open' as CAPAStatus,
   })
 
-  // Requirements
   const [expandedReq, setExpandedReq] = useState<string | null>(null)
 
   // ── Handlers ────────────────────────────────────────────────────────────────
@@ -285,7 +310,7 @@ export default function SFDAClient() {
       setGenerating(false)
       setPackageGenerated(true)
       setPackageLastGen(todayISO())
-      toast.success(lang === 'ar' ? 'تم إنشاء الحزمة — 14.2 MB' : 'Package generated — 14.2 MB')
+      toast.success('Inspection Dossier compiled — 14.2 MB')
     }, 2200)
   }
 
@@ -293,16 +318,16 @@ export default function SFDAClient() {
     if (type === 'zip') {
       buildInspectionPackageZIP().then(blob => {
         downloadBlob(blob, `SFDA-Inspection-Package-${todayISO()}.zip`)
-        toast.success(lang === 'ar' ? 'تم تنزيل الحزمة' : 'Package downloaded')
+        toast.success('ZIP archive downloaded')
       })
       return
     }
     const blob = type === 'audit' ? buildGMPReportPDF() : buildInspectionPackagePDF()
     const name = type === 'audit'
       ? `GMP-Audit-Report-${todayISO()}.pdf`
-      : `SFDA-Inspection-Package-${todayISO()}.pdf`
+      : `SFDA-Inspection-Dossier-${todayISO()}.pdf`
     downloadBlob(blob, name)
-    toast.success(lang === 'ar' ? 'جارٍ التنزيل…' : 'Downloading…')
+    toast.success('PDF downloading…')
   }
 
   function handleGenerateReport(key: string) {
@@ -310,7 +335,7 @@ export default function SFDAClient() {
     setTimeout(() => {
       setReportGenerating(null)
       setReportLastGen(prev => ({ ...prev, [key]: todayISO() }))
-      toast.success(lang === 'ar' ? 'تم إنشاء التقرير' : 'Report generated')
+      toast.success('Report generated')
     }, 2500)
   }
 
@@ -319,7 +344,7 @@ export default function SFDAClient() {
     const filename = PDF_FILENAMES[key]
     if (!builder || !filename) return
     downloadBlob(builder(), `${filename}-${todayISO()}.pdf`)
-    toast.success(lang === 'ar' ? 'جارٍ التنزيل…' : 'Downloading…')
+    toast.success('PDF downloading…')
   }
 
   function handleSimulate() {
@@ -327,7 +352,7 @@ export default function SFDAClient() {
     setTimeout(() => {
       setSimulating(false); setSimDone(true)
       setSimLastRun(nowSA())
-      toast.success(lang === 'ar' ? 'اكتملت المحاكاة بنجاح' : 'Simulation completed successfully')
+      toast.success('Recall simulation completed successfully')
     }, 3000)
   }
 
@@ -338,7 +363,6 @@ export default function SFDAClient() {
     const newCapa: CAPAItem = {
       id:       `CAPA-${new Date().getFullYear()}-${String(nextNum).padStart(3, '0')}`,
       title:    capaForm.title,
-      arTitle:  capaForm.title,
       severity: capaForm.severity,
       due:      capaForm.due,
       assigned: capaForm.assigned,
@@ -348,7 +372,7 @@ export default function SFDAClient() {
     setCapaList(prev => [newCapa, ...prev])
     setShowCAPAModal(false)
     setCapaForm({ title: '', severity: 'major', due: '', assigned: '', root: '', status: 'open' })
-    toast.success(lang === 'ar' ? 'تم إضافة الإجراء التصحيحي' : 'CAPA added successfully')
+    toast.success('CAPA action added successfully')
   }
 
   // ── Tab definitions ──────────────────────────────────────────────────────────
@@ -434,14 +458,13 @@ export default function SFDAClient() {
           <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl overflow-hidden">
             <div className="px-5 py-3.5 border-b border-[var(--border)] flex items-center gap-2">
               <AlertTriangle size={14} className="text-amber-500" />
-              <h3 className="text-sm font-semibold text-[var(--text)]">
-                {lang === 'ar' ? 'بنود تستوجب الانتباه' : 'Areas Requiring Attention'}
-              </h3>
+              <h3 className="text-sm font-semibold text-[var(--text)]">Corrective Actions Requiring Attention</h3>
               <span className="ms-auto text-xs text-[var(--muted)]">{attention.length}</span>
             </div>
             <div className="divide-y divide-[var(--border)]">
               {attention.map(req => (
-                <div key={req.id} className="px-5 py-3 flex items-center justify-between gap-4 hover:bg-[var(--bg)] transition-colors cursor-pointer"
+                <div key={req.id}
+                  className="px-5 py-3 flex items-center justify-between gap-4 hover:bg-[var(--bg)] transition-colors cursor-pointer"
                   onClick={() => { setActiveTab('requirements'); setExpandedReq(req.id) }}>
                   <div className="flex items-center gap-3">
                     <ChevronRight size={14} className="text-[var(--subtle)] shrink-0" />
@@ -474,7 +497,7 @@ export default function SFDAClient() {
             </thead>
             <tbody>
               {REQUIREMENTS.map((req, i) => {
-                const detail = REQ_DETAILS[req.id]
+                const detail    = REQ_DETAILS[req.id]
                 const isExpanded = expandedReq === req.id
                 return (
                   <>
@@ -499,25 +522,19 @@ export default function SFDAClient() {
                         <td colSpan={6} className="px-6 py-4">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                             <div>
-                              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--subtle)] mb-1">
-                                {lang === 'ar' ? 'الوصف' : 'Description'}
-                              </p>
-                              <p className="text-[var(--text)] leading-relaxed">
-                                {lang === 'ar' ? detail.ar : detail.en}
-                              </p>
+                              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--subtle)] mb-1">Description</p>
+                              <p className="text-[var(--text)] leading-relaxed">{detail.en}</p>
                             </div>
                             <div className="space-y-3">
                               <div>
-                                <p className="text-xs font-semibold uppercase tracking-wider text-[var(--subtle)] mb-1">
-                                  {lang === 'ar' ? 'ملاحظات التدقيق' : 'Audit Notes'}
-                                </p>
+                                <p className="text-xs font-semibold uppercase tracking-wider text-[var(--subtle)] mb-1">Audit Notes</p>
                                 <p className={`leading-relaxed ${req.status === 'non_compliant' ? 'text-red-600 dark:text-red-400' : req.status === 'partial' ? 'text-amber-600 dark:text-amber-400' : 'text-[var(--text)]'}`}>
-                                  {lang === 'ar' ? detail.notesAr : detail.notesEn}
+                                  {detail.notesEn}
                                 </p>
                               </div>
                               <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
                                 <Calendar size={11} />
-                                {lang === 'ar' ? 'آخر تدقيق:' : 'Last audit:'} {fmtDate(detail.lastAudit, lang)}
+                                Last audit: {fmtDate(detail.lastAudit, lang)}
                               </div>
                             </div>
                           </div>
@@ -534,18 +551,18 @@ export default function SFDAClient() {
     )
   }
 
-  // ── Tab: Inspection Package ──────────────────────────────────────────────────
+  // ── Tab: Inspection Dossier ──────────────────────────────────────────────────
 
   function TabInspection() {
     const contents = [
-      { label: lang === 'ar' ? 'سجل الدفعات'       : 'Batch history',         detail: '156 records'   },
-      { label: lang === 'ar' ? 'تقارير فحص الجودة' : 'QC inspection reports', detail: '104 reports'   },
-      { label: lang === 'ar' ? 'سلسلة التتبع'       : 'Traceability chain',   detail: lang === 'ar' ? 'مكتمل' : 'Complete' },
-      { label: lang === 'ar' ? 'سجلات الاستدعاء'   : 'Recall records',        detail: '3 events'      },
-      { label: lang === 'ar' ? 'سجلات CAPA'         : 'CAPA logs',            detail: `${capaList.length} actions` },
-      { label: lang === 'ar' ? 'سجل التدقيق'        : 'System audit trail',   detail: '892 entries'   },
-      { label: lang === 'ar' ? 'تاريخ التفتيش'      : 'Inspection history',   detail: lang === 'ar' ? 'جميع الزيارات' : 'All visits' },
-      { label: lang === 'ar' ? 'سجل العمليات'       : 'Operator action log',  detail: lang === 'ar' ? 'الجدول الزمني كاملاً' : 'Full timeline' },
+      { label: 'Batch History Records',          detail: '156 records'               },
+      { label: 'QC Inspection Reports',          detail: '104 reports'               },
+      { label: 'Full Traceability Chain',        detail: '100% coverage'             },
+      { label: 'Recall Event Records',           detail: '3 events on record'        },
+      { label: 'CAPA Action Register',           detail: `${capaList.length} actions`},
+      { label: 'Tamper-Evident Audit Trail',     detail: '892 immutable entries'     },
+      { label: 'Regulatory Inspection History',  detail: 'All prior visits'          },
+      { label: 'Operator Activity Log',          detail: 'Full timestamped timeline' },
     ]
     return (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -556,13 +573,15 @@ export default function SFDAClient() {
                 <Archive size={18} className="text-blue-600 dark:text-blue-400" />
               </div>
               <div>
-                <h2 className="text-base font-semibold text-[var(--text)]">{t('sfda.pkg_title')}</h2>
-                <p className="text-sm text-[var(--muted)] mt-0.5">{t('sfda.pkg_desc')}</p>
+                <h2 className="text-base font-semibold text-[var(--text)]">Compile Inspection Dossier</h2>
+                <p className="text-sm text-[var(--muted)] mt-0.5">
+                  Compile all GMP compliance records into a tamper-evident, SFDA-ready inspection dossier.
+                </p>
               </div>
             </div>
 
             <div className="border-t border-[var(--border)] pt-4">
-              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--subtle)] mb-3">{t('sfda.pkg_includes')}</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--subtle)] mb-3">Dossier Contents</p>
               <div className="space-y-2">
                 {contents.map(item => (
                   <div key={item.label} className="flex items-center justify-between py-1">
@@ -581,17 +600,17 @@ export default function SFDAClient() {
                 <button
                   onClick={handleGeneratePackage}
                   disabled={generating}
-                  title={lang === 'ar' ? 'إنشاء حزمة التفتيش الكاملة' : 'Generate the full inspection package'}
+                  title="Generate the full inspection dossier"
                   className="flex items-center gap-2 rounded-lg bg-[#3a6f8f] hover:bg-[#2e5a75] text-white px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60"
                 >
                   {generating
-                    ? <><RefreshCw size={14} className="animate-spin" />{t('sfda.pkg_generating')}</>
-                    : <><Zap size={14} />{t('sfda.pkg_generate')}</>}
+                    ? <><RefreshCw size={14} className="animate-spin" />Compiling…</>
+                    : <><Zap size={14} />Generate Dossier</>}
                 </button>
               )}
               {!generating && packageGenerated && (
                 <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400">
-                  <CheckCircle2 size={11} />{t('sfda.pkg_ready')}
+                  <CheckCircle2 size={11} />Dossier Ready
                 </span>
               )}
             </div>
@@ -600,27 +619,25 @@ export default function SFDAClient() {
 
         <div className="space-y-4">
           <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-5">
-            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--subtle)] mb-4">
-              {lang === 'ar' ? 'خيارات التصدير' : 'Export Options'}
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--subtle)] mb-4">Export Formats</p>
             <div className="space-y-2">
               {([
-                { type: 'pdf'   as const, icon: FileText,      key: 'sfda.pkg_export_pdf',   ext: '.pdf', enabled: packageGenerated },
-                { type: 'zip'   as const, icon: Archive,       key: 'sfda.pkg_export_zip',   ext: '.zip', enabled: packageGenerated },
-                { type: 'audit' as const, icon: ClipboardList, key: 'sfda.pkg_export_audit', ext: '.pdf', enabled: true             },
-              ]).map(({ type, icon: Icon, key, ext, enabled }) => (
+                { type: 'pdf'   as const, icon: FileText,      label: 'Dossier PDF',       ext: '.pdf', enabled: packageGenerated },
+                { type: 'zip'   as const, icon: Archive,       label: 'ZIP Archive',        ext: '.zip', enabled: packageGenerated },
+                { type: 'audit' as const, icon: ClipboardList, label: 'GMP Audit Report',  ext: '.pdf', enabled: true            },
+              ]).map(({ type, icon: Icon, label, ext, enabled }) => (
                 <button
-                  key={key}
+                  key={type}
                   onClick={() => enabled && handleExport(type)}
                   disabled={!enabled}
-                  title={enabled ? undefined : (lang === 'ar' ? 'قم بإنشاء الحزمة أولاً' : 'Generate the package first')}
+                  title={enabled ? undefined : 'Generate the dossier first'}
                   className={`w-full flex items-center gap-3 rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm transition-colors
                     ${enabled
                       ? 'text-[var(--text)] hover:bg-[var(--bg)] cursor-pointer'
                       : 'text-[var(--subtle)] opacity-50 cursor-not-allowed'}`}
                 >
                   <Icon size={15} className="text-[var(--muted)] shrink-0" />
-                  <span className="flex-1 text-start">{t(key)}</span>
+                  <span className="flex-1 text-start">{label}</span>
                   <span className="text-[10px] font-mono text-[var(--subtle)] uppercase">{ext}</span>
                   <Download size={13} className="text-[var(--muted)]" />
                 </button>
@@ -629,7 +646,7 @@ export default function SFDAClient() {
           </div>
 
           <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-5">
-            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--subtle)] mb-3">{t('sfda.pkg_last')}</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--subtle)] mb-3">Last Compiled</p>
             <div className="flex items-center gap-2 text-sm text-[var(--text)]">
               <Calendar size={13} className="text-[var(--muted)] shrink-0" />
               {fmtDate(packageLastGen, lang)} — 14.2 MB
@@ -644,30 +661,28 @@ export default function SFDAClient() {
 
   function TabAudit() {
     const FILTERS = [
-      { id: 'all',    labelKey: 'sfda.audit_filter_all'     },
-      { id: 'edit',   labelKey: 'sfda.audit_filter_edits'   },
-      { id: 'delete', labelKey: 'sfda.audit_filter_deletes' },
-      { id: 'qc',     labelKey: 'sfda.audit_filter_qc'      },
-      { id: 'recall', labelKey: 'sfda.audit_filter_recalls' },
+      { id: 'all',    label: 'All Events' },
+      { id: 'edit',   label: 'Edits'      },
+      { id: 'delete', label: 'Deletions'  },
+      { id: 'qc',     label: 'QC Changes' },
+      { id: 'recall', label: 'Recalls'    },
     ]
     const filtered = auditFilter === 'all' ? MOCK_AUDIT : MOCK_AUDIT.filter(e => e.type === auditFilter)
-    const actionCls: Record<string, string> = {
-      edit:   'text-blue-600 dark:text-blue-400',
-      qc:     'text-emerald-600 dark:text-emerald-400',
-      delete: 'text-red-600 dark:text-red-400',
-      recall: 'text-amber-600 dark:text-amber-400',
-    }
+
     return (
       <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl overflow-hidden">
+        {/* Toolbar */}
         <div className="px-5 py-3.5 border-b border-[var(--border)] flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2 overflow-x-auto">
             <Filter size={13} className="text-[var(--muted)] shrink-0" />
             {FILTERS.map(f => (
               <button key={f.id} onClick={() => setAuditFilter(f.id)}
                 className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                  auditFilter === f.id ? 'bg-[#3a6f8f] text-white' : 'bg-[var(--bg)] text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--s3)]'
+                  auditFilter === f.id
+                    ? 'bg-[#3a6f8f] text-white'
+                    : 'bg-[var(--bg)] text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--s3)]'
                 }`}>
-                {t(f.labelKey)}
+                {f.label}
               </button>
             ))}
           </div>
@@ -676,36 +691,72 @@ export default function SFDAClient() {
           </span>
         </div>
 
+        {/* Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--border)] bg-[var(--bg)]">
-                {['sfda.audit_who','sfda.audit_action','sfda.audit_entity','sfda.audit_time'].map(k => (
-                  <th key={k} className="text-start px-4 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">{t(k)}</th>
+                {[
+                  { label: 'Personnel',        w: 'w-48' },
+                  { label: 'Action',           w: 'w-44' },
+                  { label: 'Affected Record',  w: ''     },
+                  { label: 'Timestamp',        w: 'w-52' },
+                  { label: '',                 w: 'w-8'  },
+                ].map(({ label, w }) => (
+                  <th key={label} className={`text-start px-4 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--muted)] ${w}`}>
+                    {label}
+                  </th>
                 ))}
-                <th className="w-8 px-4 py-3" />
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border)]">
               {filtered.map((entry, i) => (
-                <tr key={entry.id} className={i % 2 === 0 ? 'bg-[var(--surface)]' : 'bg-[var(--bg)]'}>
-                  <td className="px-4 py-3 font-medium text-[var(--text)]">{entry.actor}</td>
-                  <td className={`px-4 py-3 font-mono text-xs ${actionCls[entry.type] ?? 'text-[var(--muted)]'}`}>{entry.action}</td>
-                  <td className="px-4 py-3 text-[var(--muted)]">{entry.entity}</td>
-                  <td className="px-4 py-3 text-[var(--muted)] whitespace-nowrap">{entry.time}</td>
-                  <td className="px-4 py-3"><span title="Immutable"><Lock size={11} className="text-[var(--subtle)]" /></span></td>
+                <tr
+                  key={entry.id}
+                  className={`group transition-colors
+                    ${i % 2 === 0 ? 'bg-[var(--surface)]' : 'bg-[var(--bg)]'}
+                    hover:bg-[var(--s3)]`}
+                >
+                  {/* Actor + role */}
+                  <td className="px-4 py-4">
+                    <p className="text-sm font-medium text-[var(--text)] leading-snug">{entry.actor}</p>
+                    <p className="text-xs text-[var(--muted)] mt-0.5">{entry.role}</p>
+                  </td>
+                  {/* Action badge */}
+                  <td className="px-4 py-4">
+                    <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold ${entry.badgeCls}`}>
+                      {entry.action}
+                    </span>
+                  </td>
+                  {/* Entity */}
+                  <td className="px-4 py-4 text-sm text-[var(--muted)] max-w-[200px]">
+                    <span className="truncate block">{entry.entity}</span>
+                  </td>
+                  {/* Timestamp */}
+                  <td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap tabular-nums">
+                    {fmtAuditTime(entry.time)}
+                  </td>
+                  {/* Lock */}
+                  <td className="px-4 py-4">
+                    <span title="Immutable record"><Lock size={11} className="text-[var(--subtle)]" /></span>
+                  </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={5} className="px-4 py-10 text-center text-sm text-[var(--muted)]">
-                  {lang === 'ar' ? 'لا توجد أحداث تطابق هذا الفلتر' : 'No events match this filter.'}
-                </td></tr>
+                <tr>
+                  <td colSpan={5} className="px-4 py-10 text-center text-sm text-[var(--muted)]">
+                    No events match this filter.
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
         </div>
+
+        {/* Footer */}
         <div className="px-5 py-3 border-t border-[var(--border)] text-xs text-[var(--subtle)] flex items-center gap-1.5">
-          <Lock size={10} />{lang === 'ar' ? `${filtered.length} من ${MOCK_AUDIT.length} إدخال — سجلات تدقيق غير قابلة للتعديل` : `${filtered.length} of ${MOCK_AUDIT.length} entries — Immutable Audit Entries`}
+          <Lock size={10} />
+          {filtered.length} of {MOCK_AUDIT.length} entries — Immutable Audit Entries · Hash-Validated Chain
         </div>
       </div>
     )
@@ -725,10 +776,10 @@ export default function SFDAClient() {
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap">
             {([
-              { status: 'open'        as CAPAStatus, count: counts.open,        cls: 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400'       },
-              { status: 'in_progress' as CAPAStatus, count: counts.in_progress, cls: 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'   },
-              { status: 'overdue'     as CAPAStatus, count: counts.overdue,     cls: 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'           },
-              { status: 'closed'      as CAPAStatus, count: counts.closed,      cls: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400' },
+              { status: 'open'        as CAPAStatus, count: counts.open,        cls: 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400'                },
+              { status: 'in_progress' as CAPAStatus, count: counts.in_progress, cls: 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'            },
+              { status: 'overdue'     as CAPAStatus, count: counts.overdue,     cls: 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'                    },
+              { status: 'closed'      as CAPAStatus, count: counts.closed,      cls: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'    },
             ]).map(({ status, count, cls }) => (
               <span key={status} className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${cls}`}>
                 <span className="text-sm font-bold">{count}</span>
@@ -757,10 +808,10 @@ export default function SFDAClient() {
               </thead>
               <tbody className="divide-y divide-[var(--border)]">
                 {capaList.map((capa, i) => (
-                  <tr key={capa.id} className={i % 2 === 0 ? 'bg-[var(--surface)]' : 'bg-[var(--bg)]'}>
+                  <tr key={capa.id} className={`hover:bg-[var(--s3)] transition-colors ${i % 2 === 0 ? 'bg-[var(--surface)]' : 'bg-[var(--bg)]'}`}>
                     <td className="px-4 py-3 font-mono text-xs text-[var(--muted)] whitespace-nowrap">{capa.id}</td>
                     <td className="px-4 py-3 max-w-xs">
-                      <p className="font-medium text-[var(--text)] leading-snug">{lang === 'ar' ? capa.arTitle : capa.title}</p>
+                      <p className="font-medium text-[var(--text)] leading-snug">{capa.title}</p>
                       {capa.root && <p className="text-xs text-[var(--muted)] mt-0.5 truncate">{capa.root}</p>}
                     </td>
                     <td className="px-4 py-3"><SeverityBadge severity={capa.severity} /></td>
@@ -772,8 +823,8 @@ export default function SFDAClient() {
                     <td className="px-4 py-3">
                       {capa.status === 'closed' && (
                         <button
-                          onClick={() => toast.info(lang === 'ar' ? 'التحقق مسجل' : 'Verification recorded')}
-                          title={lang === 'ar' ? 'تسجيل التحقق' : 'Record verification'}
+                          onClick={() => toast.info('Verification recorded')}
+                          title="Record effectiveness verification"
                           className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:underline transition-colors">
                           <CheckCircle2 size={12} />{t('sfda.capa_verify')}
                         </button>
@@ -782,9 +833,7 @@ export default function SFDAClient() {
                   </tr>
                 ))}
                 {capaList.length === 0 && (
-                  <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-[var(--muted)]">
-                    {lang === 'ar' ? 'لا توجد إجراءات تصحيحية' : 'No CAPAs on record.'}
-                  </td></tr>
+                  <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-[var(--muted)]">No CAPA actions on record.</td></tr>
                 )}
               </tbody>
             </table>
@@ -823,34 +872,34 @@ export default function SFDAClient() {
         <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6">
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div>
-              <h3 className="text-sm font-semibold text-[var(--text)]">{t('sfda.recall_simulate')}</h3>
+              <h3 className="text-sm font-semibold text-[var(--text)]">Recall Simulation</h3>
               <p className="text-xs text-[var(--muted)] mt-1">
-                {t('sfda.recall_last')}: {simLastRun}
+                Last run: {simLastRun}
               </p>
             </div>
             <button onClick={handleSimulate} disabled={simulating}
               className="flex items-center gap-2 rounded-lg bg-[#3a6f8f] hover:bg-[#2e5a75] text-white px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60 shrink-0">
               {simulating
-                ? <><RefreshCw size={14} className="animate-spin" />{lang === 'ar' ? 'جارٍ التشغيل…' : 'Running…'}</>
-                : <><Activity size={14} />{t('sfda.recall_simulate')}</>}
+                ? <><RefreshCw size={14} className="animate-spin" />Running…</>
+                : <><Activity size={14} />Run Simulation</>}
             </button>
           </div>
 
           {simDone && (
             <div className="mt-5 pt-5 border-t border-[var(--border)] grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <p className="text-xs text-[var(--muted)]">{t('sfda.recall_time_to_notify')}</p>
-                <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">&lt; 2 {lang === 'ar' ? 'ساعة' : 'hours'}</p>
+                <p className="text-xs text-[var(--muted)]">Estimated Notification Time</p>
+                <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">&lt; 2 hours</p>
               </div>
               <div>
-                <p className="text-xs text-[var(--muted)]">{lang === 'ar' ? 'التغطية' : 'Coverage'}</p>
+                <p className="text-xs text-[var(--muted)]">Coverage</p>
                 <p className="text-xl font-bold text-[var(--text)] mt-1">100%</p>
-                <p className="text-xs text-[var(--muted)]">{lang === 'ar' ? 'من الدفعات المتأثرة تم تحديدها' : 'of affected batches identified'}</p>
+                <p className="text-xs text-[var(--muted)]">of affected batches identified</p>
               </div>
               <div>
-                <p className="text-xs text-[var(--muted)]">{t('sfda.recall_risk')}</p>
+                <p className="text-xs text-[var(--muted)]">Recall Risk Score</p>
                 <span className="inline-flex items-center gap-1.5 mt-1 rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">
-                  <AlertTriangle size={11} />{t('sfda.risk_medium')}
+                  <AlertTriangle size={11} />Medium Risk
                 </span>
               </div>
             </div>
@@ -858,14 +907,12 @@ export default function SFDAClient() {
         </div>
 
         <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6">
-          <h3 className="text-sm font-semibold text-[var(--text)] mb-4">
-            {lang === 'ar' ? 'عوامل مخاطر الاستدعاء' : 'Recall Risk Factors'}
-          </h3>
+          <h3 className="text-sm font-semibold text-[var(--text)] mb-4">Recall Risk Factors</h3>
           <div className="space-y-3">
             {[
-              { label: lang === 'ar' ? 'فجوات مراقبة سلسلة التبريد'        : 'Cold chain monitoring gaps',    dot: 'bg-red-500',     level: lang === 'ar' ? 'مرتفع' : 'High'   },
-              { label: lang === 'ar' ? 'تأخر تجديد تأهيل الموردين'         : 'Supplier qualification lapses', dot: 'bg-amber-400',   level: lang === 'ar' ? 'متوسط' : 'Medium' },
-              { label: lang === 'ar' ? 'أخطاء مسح الباركود عند الاستلام'   : 'Barcode scan misses on intake', dot: 'bg-emerald-500', level: lang === 'ar' ? 'منخفض' : 'Low'    },
+              { label: 'Cold chain monitoring gaps',       dot: 'bg-red-500',     level: 'High'   },
+              { label: 'Supplier qualification lapses',    dot: 'bg-amber-400',   level: 'Medium' },
+              { label: 'Barcode scan misses at intake',   dot: 'bg-emerald-500', level: 'Low'    },
             ].map(item => (
               <div key={item.label} className="flex items-center gap-3">
                 <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${item.dot}`} />
@@ -879,16 +926,16 @@ export default function SFDAClient() {
     )
   }
 
-  // ── Tab: Reports ─────────────────────────────────────────────────────────────
+  // ── Tab: Regulatory Reports ──────────────────────────────────────────────────
 
   function TabReports() {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {REPORTS.map(rpt => {
-          const Icon      = rpt.icon
-          const iconCls   = REPORT_ICON_CLS[rpt.color] ?? REPORT_ICON_CLS.slate
-          const isGen     = reportGenerating === rpt.key
-          const lastDate  = reportLastGen[rpt.key]
+          const Icon    = rpt.icon
+          const iconCls = REPORT_ICON_CLS[rpt.color] ?? REPORT_ICON_CLS.slate
+          const isGen   = reportGenerating === rpt.key
+          const lastDate = reportLastGen[rpt.key]
           return (
             <div key={rpt.key} className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-5 flex flex-col gap-4">
               <div className="flex items-start gap-3">
@@ -901,25 +948,27 @@ export default function SFDAClient() {
                 </div>
               </div>
 
-              <div className="text-xs text-[var(--muted)] flex items-center gap-1.5 mt-auto">
-                <Calendar size={11} />
-                {t('sfda.reports_last')}: {fmtDate(lastDate, lang)}
-              </div>
+              {lastDate && (
+                <div className="text-xs text-[var(--muted)] flex items-center gap-1.5 mt-auto">
+                  <Calendar size={11} />
+                  Last generated: {fmtDate(lastDate, lang)}
+                </div>
+              )}
 
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => handleGenerateReport(rpt.key)}
                   disabled={isGen}
-                  title={lang === 'ar' ? 'إنشاء تقرير محدّث' : 'Generate an updated report'}
+                  title="Generate an updated report"
                   className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-[#3a6f8f] hover:bg-[#2e5a75] text-white px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60"
                 >
                   {isGen
-                    ? <><RefreshCw size={11} className="animate-spin" />{lang === 'ar' ? 'جارٍ الإنشاء…' : 'Generating…'}</>
+                    ? <><RefreshCw size={11} className="animate-spin" />Generating…</>
                     : <><BarChart3 size={11} />{t('sfda.reports_generate')}</>}
                 </button>
                 <button
                   onClick={() => handleDownloadReport(rpt.key)}
-                  title={lang === 'ar' ? 'تنزيل آخر نسخة' : 'Download the latest version'}
+                  title="Download the latest version as PDF"
                   className="flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--text)] hover:bg-[var(--bg)] transition-colors"
                 >
                   <Download size={11} />{t('sfda.reports_download')}
@@ -964,7 +1013,7 @@ export default function SFDAClient() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl">
             <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-4">
-              <h2 className="text-base font-semibold text-[var(--text)]">{t('sfda.capa_add')}</h2>
+              <h2 className="text-base font-semibold text-[var(--text)]">New CAPA Action</h2>
               <button onClick={() => setShowCAPAModal(false)}
                 className="rounded-lg p-1.5 text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)] transition-colors">
                 <X size={18} />
@@ -974,68 +1023,68 @@ export default function SFDAClient() {
             <form onSubmit={handleAddCAPA} className="px-6 py-5 space-y-4">
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-[var(--text)]">
-                  {t('sfda.capa_col_title')} *
+                  Finding / Issue *
                 </label>
                 <input required value={capaForm.title}
                   onChange={e => setCapaForm(f => ({ ...f, title: e.target.value }))}
                   className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]"
-                  placeholder={lang === 'ar' ? 'وصف الملاحظة أو المشكلة' : 'Describe the finding or issue'} />
+                  placeholder="Describe the finding or issue" />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-[var(--text)]">{t('sfda.capa_col_severity')} *</label>
+                  <label className="mb-1.5 block text-sm font-medium text-[var(--text)]">Severity *</label>
                   <select value={capaForm.severity}
                     onChange={e => setCapaForm(f => ({ ...f, severity: e.target.value as Severity }))}
                     className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]">
-                    <option value="critical">{t('sfda.severity_critical')}</option>
-                    <option value="major">{t('sfda.severity_major')}</option>
-                    <option value="minor">{t('sfda.severity_minor')}</option>
+                    <option value="critical">Critical</option>
+                    <option value="major">Major</option>
+                    <option value="minor">Minor</option>
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-[var(--text)]">{t('sfda.capa_col_status')} *</label>
+                  <label className="mb-1.5 block text-sm font-medium text-[var(--text)]">Status *</label>
                   <select value={capaForm.status}
                     onChange={e => setCapaForm(f => ({ ...f, status: e.target.value as CAPAStatus }))}
                     className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]">
-                    <option value="open">{t('sfda.capa_open')}</option>
-                    <option value="in_progress">{t('sfda.capa_inprogress')}</option>
+                    <option value="open">Open</option>
+                    <option value="in_progress">In Progress</option>
                   </select>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-[var(--text)]">{t('sfda.capa_col_due')} *</label>
+                  <label className="mb-1.5 block text-sm font-medium text-[var(--text)]">Due Date *</label>
                   <input required type="date" value={capaForm.due}
                     onChange={e => setCapaForm(f => ({ ...f, due: e.target.value }))}
                     className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]" />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-[var(--text)]">{t('sfda.capa_col_assigned')} *</label>
+                  <label className="mb-1.5 block text-sm font-medium text-[var(--text)]">Assigned To *</label>
                   <input required value={capaForm.assigned}
                     onChange={e => setCapaForm(f => ({ ...f, assigned: e.target.value }))}
                     className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]"
-                    placeholder={lang === 'ar' ? 'اسم المسؤول' : 'Responsible person'} />
+                    placeholder="Responsible person" />
                 </div>
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-[var(--text)]">{t('sfda.capa_col_root')}</label>
+                <label className="mb-1.5 block text-sm font-medium text-[var(--text)]">Root Cause</label>
                 <textarea rows={2} value={capaForm.root}
                   onChange={e => setCapaForm(f => ({ ...f, root: e.target.value }))}
                   className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[#4a7fa5] resize-none"
-                  placeholder={lang === 'ar' ? 'وصف السبب الجذري' : 'Describe the root cause'} />
+                  placeholder="Describe the root cause" />
               </div>
 
               <div className="flex justify-end gap-2 pt-1">
                 <button type="button" onClick={() => setShowCAPAModal(false)}
                   className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm text-[var(--text)] hover:bg-[var(--bg)] transition-colors">
-                  {t('common.cancel')}
+                  Cancel
                 </button>
                 <button type="submit"
                   className="flex items-center gap-2 rounded-lg bg-[#3a6f8f] hover:bg-[#2e5a75] text-white px-4 py-2 text-sm font-medium transition-colors">
-                  <Plus size={14} />{t('sfda.capa_add')}
+                  <Plus size={14} />Add CAPA
                 </button>
               </div>
             </form>
