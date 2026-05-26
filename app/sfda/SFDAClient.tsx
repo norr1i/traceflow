@@ -998,7 +998,7 @@ export default function SFDAClient() {
                   <td className={`px-4 py-3 font-mono text-xs ${actionCls[entry.type] ?? 'text-[var(--muted)]'}`}>{entry.action}</td>
                   <td className="px-4 py-3 text-[var(--muted)]">{entry.entity}</td>
                   <td className="px-4 py-3 text-[var(--muted)] whitespace-nowrap">{entry.time}</td>
-                  <td className="px-4 py-3"><Lock size={11} className="text-[var(--subtle)]" title="Immutable" /></td>
+                  <td className="px-4 py-3"><span title="Immutable"><Lock size={11} className="text-[var(--subtle)]" /></span></td>
                 </tr>
               ))}
               {filtered.length === 0 && (
