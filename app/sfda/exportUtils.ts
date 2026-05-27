@@ -225,71 +225,24 @@ class PDFDoc {
   private drawFooter(page: number, total: number) {
     const { doc, meta } = this
 
-    // Footer rule
     dc(doc, C.rule); doc.setLineWidth(0.25)
     doc.line(ML, FOOTY, PW - MR, FOOTY)
 
-    // ── Compact QR verification mark — bottom-right corner ───────────────
-    // 12 × 12 mm: professional compliance mark, not a visual feature
-    const qw = 12, qh = 12
-    const qx  = PW - MR - qw      // x = 178 mm
-    const qy  = FOOTY + 3         // y = 279 mm
-
-    // White field (no border — clean integration with footer zone)
-    fc(doc, C.white); doc.rect(qx, qy, qw, qh, 'F')
-
-    // Corner detection patterns — scaled to fit 12 mm footprint
-    const m  = 0.6, cs = 0.55, cp = 7 * cs   // cp = 3.85 mm
-    const drawCP = (cx: number, cy: number) => {
-      fc(doc, C.dark);  doc.rect(cx, cy, cp, cp, 'F')
-      fc(doc, C.white); doc.rect(cx + cs, cy + cs, 5 * cs, 5 * cs, 'F')
-      fc(doc, C.dark);  doc.rect(cx + 2 * cs, cy + 2 * cs, 3 * cs, 3 * cs, 'F')
-    }
-    drawCP(qx + m,            qy + m)              // top-left
-    drawCP(qx + qw - m - cp,  qy + m)              // top-right
-    drawCP(qx + m,            qy + qh - m - cp)    // bottom-left
-
-    // Data modules — consistent pseudo-random pattern
-    fc(doc, C.dark)
-    ;[[7,6],[8,6],[7,8],[9,6],[7,10],[9,8],[8,10]].forEach(([c, r]) => {
-      doc.rect(qx + m + c * cs, qy + m + r * cs, cs * 0.8, cs * 0.8, 'F')
-    })
-
-    // ── Metadata left of QR — low-contrast, right-aligned ───────────────
-    // metaRX: right edge of metadata block (gap between text and QR)
-    const metaRX = qx - 3   // 175 mm
-    // pageRX: right edge for page number / confidential label
-    const pageRX = metaRX - 32  // 143 mm
-
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(5.5)
-    tc(doc, C.muted)
-    doc.text('Regulatory Verification', metaRX, qy + 3.5, { align: 'right' })
-
-    doc.setFont('courier', 'normal'); doc.setFontSize(5.2)
-    tc(doc, C.subtle)
-    doc.text(meta.hash.slice(0, 17), metaRX, qy + 7.5, { align: 'right' })
-
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(5.2)
-    tc(doc, C.subtle)
-    doc.text(meta.generated.split(' ')[0] ?? '', metaRX, qy + 11.5, { align: 'right' })
-
-    // ── Footer line 1: platform · docNo  |  Page N of M ──────────────────
+    // Line 1: platform · docNo  |  Page N of M
     doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5)
     tc(doc, C.muted)
     doc.text(`TraceFlow Regulatory Compliance Engine  ·  ${meta.docNo}`, ML, FOOTY + 5)
-
     doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5)
     tc(doc, C.dark)
-    doc.text(`Page ${page} of ${total}`, pageRX, FOOTY + 5, { align: 'right' })
+    doc.text(`Page ${page} of ${total}`, PW - MR, FOOTY + 5, { align: 'right' })
 
-    // ── Footer line 2: regulatory notices  |  CONFIDENTIAL ───────────────
+    // Line 2: regulatory notices  |  CONFIDENTIAL
     doc.setFont('helvetica', 'normal'); doc.setFontSize(5.6)
     tc(doc, C.subtle)
-    doc.text('Electronically Generated  ·  Tamper-Evident  ·  No Handwritten Signature Required', ML, FOOTY + 10)
-
+    doc.text('Electronically Generated  ·  Tamper-Evident  ·  No Handwritten Signature Required  ·  SFDA Authorized Use Only', ML, FOOTY + 10)
     doc.setFont('helvetica', 'bold'); doc.setFontSize(5.6)
     tc(doc, C.subtle)
-    doc.text('CONFIDENTIAL', pageRX, FOOTY + 10, { align: 'right' })
+    doc.text('CONFIDENTIAL', PW - MR, FOOTY + 10, { align: 'right' })
   }
 
   finalize(): this {
