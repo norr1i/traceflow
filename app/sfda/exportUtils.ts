@@ -265,48 +265,48 @@ class PDFDoc {
   spacer(h = 5) { this.y += h }
 
   sectionTitle(text: string, minFollowing = 0) {
-    this.ensure(20 + minFollowing)
-    this.spacer(4)
-    this.doc.setFont('helvetica', 'bold'); this.doc.setFontSize(8.5)
+    this.ensure(19 + minFollowing)
+    this.spacer(3)
+    this.doc.setFont('helvetica', 'bold'); this.doc.setFontSize(8)
     tc(this.doc, C.blue)
     this.doc.text(text.toUpperCase(), ML, this.y)
-    dc(this.doc, C.rule); this.doc.setLineWidth(0.3)
-    this.doc.line(ML, this.y + 3.5, ML + CW, this.y + 3.5)
-    this.y += 11
+    dc(this.doc, C.rule); this.doc.setLineWidth(0.25)
+    this.doc.line(ML, this.y + 3, ML + CW, this.y + 3)
+    this.y += 9
   }
 
   field(label: string, value: string,
     opts: { color?: readonly [number,number,number]; bold?: boolean; mono?: boolean } = {}
   ) {
     if (!value) return
-    const vlines = this.doc.splitTextToSize(value, CW - LBL - 2)
-    this.ensure(vlines.length * 4.8 + 2)
-    this.doc.setFont('helvetica', 'bold'); this.doc.setFontSize(7.5)
+    const vlines = this.doc.splitTextToSize(value, CW - LBL - 4)
+    this.ensure(vlines.length * 4.5 + 1.5)
+    this.doc.setFont('helvetica', 'bold'); this.doc.setFontSize(7)
     tc(this.doc, C.muted)
     this.doc.text(label, ML, this.y)
     this.doc.setFont(opts.mono ? 'courier' : 'helvetica', opts.bold ? 'bold' : 'normal')
-    this.doc.setFontSize(opts.mono ? 7.5 : 8.5)
+    this.doc.setFontSize(opts.mono ? 7 : 8)
     tc(this.doc, opts.color ?? C.text)
     this.doc.text(vlines, ML + LBL, this.y)
-    this.y += vlines.length * 4.8 + 2
+    this.y += vlines.length * 4.5 + 1.5
   }
 
   statusRow(label: string, value: string, level: 'ok'|'partial'|'error'|'warn'|'info') {
     const col = { ok: C.green, partial: C.amber, error: C.red, warn: C.amber, info: C.blue }[level]
-    const h   = 9.5
+    const h   = 9
     this.ensure(h + 2)
     const y0 = this.y
     fc(this.doc, C.rowalt);  this.doc.rect(ML, y0, CW, h, 'F')
     fc(this.doc, col);       this.doc.rect(ML, y0, 3, h, 'F')
     dc(this.doc, C.border); this.doc.setLineWidth(0.12)
     this.doc.line(ML, y0 + h, ML + CW, y0 + h)
-    this.doc.setFont('helvetica', 'normal'); this.doc.setFontSize(8)
+    this.doc.setFont('helvetica', 'normal'); this.doc.setFontSize(7.5)
     tc(this.doc, C.muted)
-    this.doc.text(label, ML + 7, y0 + 6.5)
-    this.doc.setFont('helvetica', 'bold'); this.doc.setFontSize(8)
+    this.doc.text(label, ML + 7, y0 + 6)
+    this.doc.setFont('helvetica', 'bold'); this.doc.setFontSize(7.5)
     tc(this.doc, col)
-    this.doc.text(value, ML + CW - 3, y0 + 6.5, { align: 'right' })
-    this.y = y0 + h + 1.5
+    this.doc.text(value, ML + CW - 3, y0 + 6, { align: 'right' })
+    this.y = y0 + h + 1
   }
 
   scorecard(items: Array<{ label: string; value: string; level: 'ok'|'partial'|'error'|'warn'|'info' }>) {
@@ -338,21 +338,21 @@ class PDFDoc {
   }
 
   bullet(text: string, color: readonly [number,number,number] = C.text) {
-    const lines = this.doc.splitTextToSize(text, CW - 10)
-    this.ensure(lines.length * 4.8 + 2)
-    this.doc.setFont('helvetica', 'normal'); this.doc.setFontSize(8.5)
-    tc(this.doc, C.blue); this.doc.text('–', ML + 2, this.y)
+    const lines = this.doc.splitTextToSize(text, CW - 12)
+    this.ensure(lines.length * 4.5 + 2)
+    this.doc.setFont('helvetica', 'normal'); this.doc.setFontSize(8)
+    tc(this.doc, C.blue); this.doc.text('-', ML + 2, this.y)
     tc(this.doc, color);  this.doc.text(lines, ML + 8, this.y)
-    this.y += lines.length * 4.8 + 1
+    this.y += lines.length * 4.5 + 1
   }
 
   note(text: string) {
-    const lines = this.doc.splitTextToSize(text, CW - 8)
-    this.ensure(lines.length * 4.2 + 2)
-    this.doc.setFont('helvetica', 'italic'); this.doc.setFontSize(7.5)
+    const lines = this.doc.splitTextToSize(text, CW - 16)
+    this.ensure(lines.length * 4.0 + 2)
+    this.doc.setFont('helvetica', 'normal'); this.doc.setFontSize(7)
     tc(this.doc, C.subtle)
-    this.doc.text(lines, ML + 6, this.y)
-    this.y += lines.length * 4.2 + 2
+    this.doc.text(lines, ML + 8, this.y)
+    this.y += lines.length * 4.0 + 1.5
   }
 
   divider() {
@@ -366,27 +366,27 @@ class PDFDoc {
   table(headers: string[], rows: string[][], widths?: number[]) {
     const cols = headers.length
     const ws   = widths ?? headers.map(() => +(CW / cols).toFixed(1))
-    const hrh  = 10.5   // header row height
-    const drh  = 9      // data row height
-    const hp   = 3.5    // horizontal cell padding
+    const hrh  = 9      // header row height
+    const drh  = 8      // data row height
+    const hp   = 3      // horizontal cell padding
 
-    this.ensure(hrh + drh + 6)
+    this.ensure(hrh + drh + 5)
     const tsY = this.y
 
     // Header
     fc(this.doc, C.rowhdr); this.doc.rect(ML, tsY, CW, hrh, 'F')
-    this.doc.setFont('helvetica', 'bold'); this.doc.setFontSize(7.5)
+    this.doc.setFont('helvetica', 'bold'); this.doc.setFontSize(7)
     tc(this.doc, C.dark)
     let x = ML + hp
     headers.forEach((h, i) => {
       const maxW = ws[i] - hp * 2
       const txt  = this.doc.splitTextToSize(h, maxW)[0] ?? h
-      this.doc.text(txt, x, tsY + 7)
+      this.doc.text(txt, x, tsY + 6)
       x += ws[i]
     })
 
     // Header separator
-    dc(this.doc, C.blue); this.doc.setLineWidth(0.5)
+    dc(this.doc, C.blue); this.doc.setLineWidth(0.4)
     this.doc.line(ML, tsY + hrh, ML + CW, tsY + hrh)
     this.y = tsY + hrh
 
@@ -395,23 +395,23 @@ class PDFDoc {
       this.ensure(drh)
       const rowY = this.y
       if (ri % 2 === 1) { fc(this.doc, C.rowalt); this.doc.rect(ML, rowY, CW, drh, 'F') }
-      this.doc.setFont('helvetica', 'normal'); this.doc.setFontSize(7.5)
+      this.doc.setFont('helvetica', 'normal'); this.doc.setFontSize(7)
       x = ML + hp
       row.forEach((cell, ci) => {
         const txt = this.doc.splitTextToSize(cell, ws[ci] - hp * 2)[0] ?? ''
         tc(this.doc, cellStatusColor(txt))
-        this.doc.text(txt, x, rowY + 6.2)
+        this.doc.text(txt, x, rowY + 5.4)
         x += ws[ci]
       })
-      dc(this.doc, C.border); this.doc.setLineWidth(0.12)
+      dc(this.doc, C.border); this.doc.setLineWidth(0.1)
       this.doc.line(ML, rowY + drh, ML + CW, rowY + drh)
       this.y = rowY + drh
     })
 
     // Outer border
-    dc(this.doc, C.border); this.doc.setLineWidth(0.25)
+    dc(this.doc, C.border); this.doc.setLineWidth(0.2)
     this.doc.rect(ML, tsY, CW, hrh + rows.length * drh, 'S')
-    this.y += 6
+    this.y += 5
   }
 
   // CAPA detail block — prominent header band, status pill, severity label
@@ -421,7 +421,7 @@ class PDFDoc {
     corrective: string; preventive: string; evidRef: string
     status: string; statusNote: string
   }) {
-    this.ensure(65)
+    this.ensure(48)
 
     const sCol = b.status === 'CLOSED'     ? C.green
                : b.status === 'OVERDUE'    ? C.red
@@ -429,39 +429,39 @@ class PDFDoc {
                : b.severity === 'MAJOR'    ? C.amber
                : C.slate
 
-    const hH = 12, y0 = this.y
+    const hH = 10, y0 = this.y
     // Header band
     fc(this.doc, C.rowalt); this.doc.rect(ML, y0, CW, hH, 'F')
-    fc(this.doc, sCol);     this.doc.rect(ML, y0, 4.5, hH, 'F')
+    fc(this.doc, sCol);     this.doc.rect(ML, y0, 4, hH, 'F')
     // CAPA ID
-    this.doc.setFont('helvetica', 'bold'); this.doc.setFontSize(10.5)
-    tc(this.doc, C.dark); this.doc.text(b.id, ML + 10, y0 + 8.2)
+    this.doc.setFont('helvetica', 'bold'); this.doc.setFontSize(9)
+    tc(this.doc, C.dark); this.doc.text(b.id, ML + 9, y0 + 7)
     // Status pill
-    const pillW = 31
-    fc(this.doc, sCol); this.doc.rect(PW - MR - pillW, y0 + 3, pillW, 6.5, 'F')
-    this.doc.setFont('helvetica', 'bold'); this.doc.setFontSize(6.5)
+    const pillW = 28
+    fc(this.doc, sCol); this.doc.rect(PW - MR - pillW, y0 + 2.5, pillW, 5.5, 'F')
+    this.doc.setFont('helvetica', 'bold'); this.doc.setFontSize(6)
     tc(this.doc, C.white)
-    this.doc.text(b.status, PW - MR - 2.5, y0 + 7.5, { align: 'right' })
+    this.doc.text(b.status, PW - MR - 2.5, y0 + 6.5, { align: 'right' })
     // Severity label
-    this.doc.setFont('helvetica', 'bold'); this.doc.setFontSize(7)
+    this.doc.setFont('helvetica', 'bold'); this.doc.setFontSize(6.5)
     tc(this.doc, sCol)
-    this.doc.text(b.severity, PW - MR - pillW - 4, y0 + 7.8, { align: 'right' })
+    this.doc.text(b.severity, PW - MR - pillW - 3, y0 + 6.8, { align: 'right' })
     // Rule under header
-    dc(this.doc, C.border); this.doc.setLineWidth(0.15)
+    dc(this.doc, C.border); this.doc.setLineWidth(0.12)
     this.doc.line(ML, y0 + hH, ML + CW, y0 + hH)
-    this.y = y0 + hH + 4
+    this.y = y0 + hH + 3
 
-    const indent = 7
+    const indent = 6
     const ifield = (lbl: string, val: string, opts?: { color?: readonly [number,number,number]; bold?: boolean; mono?: boolean }) => {
       if (!val) return
-      const vl = this.doc.splitTextToSize(val, CW - LBL - indent - 2)
-      this.ensure(vl.length * 4.8 + 1)
-      this.doc.setFont('helvetica', 'bold'); this.doc.setFontSize(7.5)
+      const vl = this.doc.splitTextToSize(val, CW - LBL - indent - 4)
+      this.ensure(vl.length * 4.5 + 1)
+      this.doc.setFont('helvetica', 'bold'); this.doc.setFontSize(7)
       tc(this.doc, C.muted); this.doc.text(lbl, ML + indent, this.y)
       this.doc.setFont(opts?.mono ? 'courier' : 'helvetica', opts?.bold ? 'bold' : 'normal')
-      this.doc.setFontSize(opts?.mono ? 7.5 : 8.5)
+      this.doc.setFontSize(opts?.mono ? 7 : 8)
       tc(this.doc, opts?.color ?? C.text); this.doc.text(vl, ML + indent + LBL, this.y)
-      this.y += vl.length * 4.8 + 2
+      this.y += vl.length * 4.5 + 1.5
     }
 
     ifield('Finding',              b.finding)
@@ -474,10 +474,10 @@ class PDFDoc {
     ifield('Evidence Reference',   b.evidRef,   { color: C.blue, mono: true })
     if (b.statusNote) ifield('Status Note', b.statusNote, { color: sCol })
 
-    this.y += 2
-    dc(this.doc, C.border); this.doc.setLineWidth(0.15)
-    this.doc.line(ML + 7, this.y, ML + CW, this.y)
-    this.y += 5
+    this.y += 1
+    dc(this.doc, C.border); this.doc.setLineWidth(0.12)
+    this.doc.line(ML + 6, this.y, ML + CW, this.y)
+    this.y += 4
   }
 
   // ── Output ─────────────────────────────────────────────────────────────────
