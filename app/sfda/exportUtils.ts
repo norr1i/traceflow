@@ -239,7 +239,7 @@ class PDFDoc {
     // Line 2: regulatory notices  |  CONFIDENTIAL
     doc.setFont('helvetica', 'normal'); doc.setFontSize(5.6)
     tc(doc, C.subtle)
-    doc.text('Electronically Generated  ·  Controlled Document  ·  Tamper-Evident Record  ·  Authorized Use Only', ML, FOOTY + 10)
+    doc.text('Electronically Generated  ·  Controlled Document  ·  Audit Trail Verified  ·  Authorized Distribution Only', ML, FOOTY + 10)
     doc.setFont('helvetica', 'bold'); doc.setFontSize(5.6)
     tc(doc, C.subtle)
     doc.text('CONFIDENTIAL', PW - MR, FOOTY + 10, { align: 'right' })
@@ -483,43 +483,6 @@ class PDFDoc {
     this.y += 10
   }
 
-  // ── Certification seal — centered card with blue header bar ──────────────
-  private certSeal() {
-    const w = 100, h = 27
-    this.ensure(h + 8)
-    const sx = PW / 2 - w / 2, sy = this.y
-
-    // Card background
-    fc(this.doc, C.certbg); this.doc.rect(sx, sy, w, h, 'F')
-    // Outer border
-    dc(this.doc, C.blue); this.doc.setLineWidth(0.7)
-    this.doc.rect(sx, sy, w, h, 'S')
-    // Inner inset
-    dc(this.doc, C.rule); this.doc.setLineWidth(0.2)
-    this.doc.rect(sx + 2, sy + 2, w - 4, h - 4, 'S')
-    // Blue header bar
-    fc(this.doc, C.blue); this.doc.rect(sx, sy, w, 4, 'F')
-    // Title on bar
-    this.doc.setFont('helvetica', 'bold'); this.doc.setFontSize(8)
-    tc(this.doc, C.white)
-    this.doc.text('REGULATORY COMPLIANCE CERTIFIED', PW / 2, sy + 3, { align: 'center' })
-    // Sub-line 1
-    this.doc.setFont('helvetica', 'bold'); this.doc.setFontSize(7)
-    tc(this.doc, C.blue)
-    this.doc.text('TraceFlow Quality Management System  ·  Saudi FDA GMP Guidelines v2024', PW / 2, sy + 12, { align: 'center' })
-    // Sub-line 2
-    this.doc.setFont('helvetica', 'normal'); this.doc.setFontSize(6)
-    tc(this.doc, C.muted)
-    this.doc.text('ICH Q10 Pharmaceutical Quality System  ·  ISO 9001:2015 Aligned', PW / 2, sy + 17.5, { align: 'center' })
-    // Doc + copy ref
-    this.doc.setFont('courier', 'normal'); this.doc.setFontSize(5.5)
-    tc(this.doc, C.subtle)
-    const copyRef = this.meta.copyNo ? `${this.meta.docNo}  ·  ${this.meta.copyNo}` : `${this.meta.docNo}  ·  ${this.meta.generated}`
-    this.doc.text(copyRef, PW / 2, sy + 23, { align: 'center' })
-
-    this.y = sy + h + 6
-  }
-
   // ── Revision timeline — horizontal lifecycle card ─────────────────────────
   private revisionTimeline() {
     const cardH = 32
@@ -595,7 +558,7 @@ class PDFDoc {
     )
     this.spacer(2)
     const reviewRef = this.meta.reviewRef ?? `QA-REV-${revCode}`
-    this.note(`Approval Reference: ${reviewRef}  ·  Electronic approval constitutes a legally equivalent signature per SFDA Electronic Records & Signatures Guidance. All approvals are immutable upon generation.`)
+    this.note(`Approval Reference: ${reviewRef}  ·  Electronic approval per SFDA Electronic Records & Signatures Guidance.`)
   }
 
   // ── Revision history table ────────────────────────────────────────────────
@@ -615,10 +578,8 @@ class PDFDoc {
     this.doc.setFont('helvetica', 'italic'); this.doc.setFontSize(7)
     tc(this.doc, C.subtle)
     const lines = this.doc.splitTextToSize(
-      'Retention: This document shall be retained for a minimum of 5 years from the date of generation per SFDA GMP Guidelines v2024, Section 4.3. ' +
-      'Distribution: CONFIDENTIAL — authorized regulatory inspection personnel and Quality Assurance department only. ' +
-      'Amendment: Any amendment requires issuance of a new document version with a new integrity hash. ' +
-      'This is a controlled document — unauthorized reproduction or distribution is prohibited.',
+      'Retention: This document shall be retained for a minimum of 5 years per SFDA GMP Guidelines v2024, Section 4.3. ' +
+      'Distribution: CONFIDENTIAL — authorized regulatory inspection personnel and Quality Assurance department only. Unauthorized reproduction is prohibited.',
       CW
     )
     this.ensure(lines.length * 4.5 + 3)
@@ -626,15 +587,14 @@ class PDFDoc {
     this.y += lines.length * 4.5 + 3
   }
 
-  // ── Full closing block — certSeal + approvalMatrix + timeline + QR ────────
+  // ── Full closing block — certbg metadata + approvalMatrix + timeline ────────
   inspectionCertification() {
     this.spacer(8)
     this.sectionTitle('Inspection Certification', 60)
 
     const stmt = this.doc.splitTextToSize(
       'This document has been generated and certified by the TraceFlow Regulatory Compliance Engine in accordance with Saudi Food and Drug Authority (SFDA) inspection requirements and applicable GMP guidelines. ' +
-      'All data and records are authentic, complete, and sourced directly from the organization\'s validated quality management system. ' +
-      'This document is a tamper-evident, immutable regulatory compliance artifact.',
+      'All data presented are authentic, complete, and sourced directly from the organisation\'s validated quality management system.',
       CW
     )
     this.ensure(stmt.length * 5.2 + 40)
@@ -684,9 +644,6 @@ class PDFDoc {
     this.y = mY + mPad + 4
 
     this.spacer(6)
-    this.certSeal()
-
-    this.spacer(5)
     this.approvalMatrix()
 
     this.spacer(5)
@@ -699,43 +656,29 @@ class PDFDoc {
     this.spacer(5)
     this.sectionTitle('Regulatory Review Confirmation', 44)
     this.statusRow('Document Completeness',  'VERIFIED — All required sections present and complete',  'ok')
-    this.statusRow('Data Integrity',         'VERIFIED — Hash-validated at time of generation',        'ok')
-    this.statusRow('Distribution Control',   'CONTROLLED — Authorized recipients only',               'info')
-    this.statusRow('Regulatory Framework',   'Saudi FDA GMP Guidelines v2024  |  ICH Q10',            'info')
+    this.statusRow('Data Integrity',         'VERIFIED — Integrity hash confirmed at time of generation', 'ok')
+    this.statusRow('Distribution Control',   'CONTROLLED — Authorized recipients only',                'info')
 
     this.retentionNotice()
 
     this.spacer(6)
-    this.sectionTitle('Applicable Standards & Regulatory Frameworks', 65)
+    this.sectionTitle('Applicable Standards & Regulatory Frameworks', 50)
     this.table(
       ['Standard / Framework', 'Version', 'Application Scope'],
       [
-        ['Saudi FDA GMP Guidelines',                   'v2024',      'All GMP-regulated manufacturing activities'],
-        ['ICH Q10 Pharmaceutical Quality System',      'Current',    'Quality system framework and product lifecycle management'],
-        ['ICH Q9 Quality Risk Management',             'Rev. 2023',  'Risk-based decision making and quality risk assessment'],
-        ['ISO 9001:2015 Quality Management',           '2015',       'General quality management system alignment and audit'],
-        ['SFDA Electronic Records & Signatures',       '2023 Ed.',   'Electronic records, signatures, and audit trail compliance'],
-        ['ICH Q7 Good Manufacturing Practice',         'Current',    'GMP for pharmaceutical ingredients and finished products'],
+        ['Saudi FDA GMP Guidelines',              'v2024',     'All GMP-regulated manufacturing and quality activities'],
+        ['ICH Q10 Pharmaceutical Quality System', 'Current',   'Quality management system framework and product lifecycle'],
+        ['ICH Q9 Quality Risk Management',        'Rev. 2023', 'Risk-based decision making and quality risk assessment'],
+        ['ISO 9001:2015 Quality Management',      '2015',      'Quality management system alignment and third-party audit'],
       ],
       [68, 24, 78]
     )
 
     this.spacer(4)
-    this.sectionTitle('Data Integrity Statement', 28)
-    this.bullet('ALCOA+ Framework: All records are Attributable, Legible, Contemporaneous, Original, and Accurate — in full compliance with SFDA Data Integrity Guidelines 2023')
-    this.bullet('Source System: TraceFlow Production Database — immutable, audit-trail-backed, tamper-evident with embedded cryptographic integrity verification')
-    this.bullet('Audit Trail: 892 immutable entries hash-validated at time of generation — no post-generation modification is possible or permitted')
-    this.bullet('Retention: Electronic primary storage with geographic redundancy — minimum 5-year retention guaranteed per SFDA GMP Guidelines v2024, Section 4.3')
-    this.bullet('Independent Verification: Embedded document hash and generation timestamp allow forensic verification of document authenticity at any future point in time')
-
-    this.spacer(4)
-    this.sectionTitle('Controlled Document Classification', 40)
-    this.field('Document Type',        'Regulatory Compliance Report — GMP Quality Record')
-    this.field('Classification Level', 'CONFIDENTIAL — Authorized Personnel Only',                  { color: C.red, bold: true })
-    this.field('Distribution Class',   'Class A — Regulatory Inspection Personnel and Quality Assurance Department Only')
-    this.field('Reproduction',         'Prohibited without prior written authorization from the Quality Assurance Manager')
-    this.field('Amendment Procedure',  'Full document re-issuance required — new version number and integrity hash are mandatory for any amendment')
-    this.field('Destruction Method',   'Secure certified shredding or cryptographic deletion — destruction record to be maintained in Document Control Log')
+    this.sectionTitle('Data Integrity', 18)
+    this.bullet('ALCOA+ Compliance: All records are Attributable, Legible, Contemporaneous, Original, and Accurate — per SFDA Data Integrity Guidelines 2023')
+    this.bullet('Source: TraceFlow Production Database — audit-trail backed with cryptographic integrity verification at time of generation')
+    this.bullet('Verification: Embedded document hash and generation timestamp support independent forensic verification of document authenticity')
   }
 
   // ── Output ─────────────────────────────────────────────────────────────────
@@ -902,7 +845,7 @@ export function buildNCRReportPDF(): Blob {
       ['NCR-2024-004', 'Supplier qualification gap — Al-Rawdah',   'MAJOR',    'CAPA-2024-004', 'UNDER REVIEW'],
       ['NCR-2024-005', 'Lot traceability gap — 2 material batches','MINOR',    'CAPA-2024-005', 'CLOSED'],
     ],
-    [28, 54, 18, 34, 36]
+    [28, 50, 22, 34, 36]
   )
 
   p.spacer(3)
@@ -1038,7 +981,7 @@ export function buildCAPAReportPDF(): Blob {
       ['CAPA-2024-004', 'NC / Supplier Qual.',         'MAJOR',    '2026-06-20', 'Eng. A. Al-Qahtani', 'IN PROGRESS'],
       ['CAPA-2024-005', 'NC / Lot Traceability',       'MINOR',    '2026-06-05', 'Eng. F. Al-Dosari',  'CLOSED'],
     ],
-    [28, 40, 20, 22, 34, 26]
+    [28, 38, 22, 22, 34, 26]
   )
 
   // ── Detail blocks — minFollowing prevents orphan title ────────────────────
@@ -1227,7 +1170,7 @@ export function buildInspectionPackagePDF(): Blob {
       ['3', 'Traceability Chain Records',  '100 % batch coverage, forward & backward'],
       ['4', 'Recall Event Log',            '3 events  (1 under investigation, 2 closed)'],
       ['5', 'CAPA Register',               '5 actions  (1 overdue, 2 in progress, 1 closed)'],
-      ['6', 'Tamper-Evident Audit Trail',  '892 immutable entries  —  hash-validated'],
+      ['6', 'Audit Trail',                 '892 verified entries  —  integrity hash confirmed'],
       ['7', 'SFDA Inspection History',     'All prior inspections and outcomes on record'],
       ['8', 'Operator Activity Log',       'Full timestamped timeline with actor attribution'],
     ],
@@ -1266,8 +1209,8 @@ export function buildInspectionPackagePDF(): Blob {
   p.sectionTitle('Data Integrity Attestation', 40)
   p.bullet('Dossier compiled by the TraceFlow Regulatory Compliance Engine')
   p.bullet('All records sourced directly from the production database with full audit provenance')
-  p.bullet('Tamper-evident audit trail hash validates data integrity at time of generation')
-  p.bullet('Contents are immutable upon generation — amendments require new dossier issuance')
+  p.bullet('Audit trail hash validates data integrity at time of generation')
+  p.bullet('Contents are locked upon generation — any amendments require issuance of a new dossier version')
   p.spacer(3)
   p.field('Dossier ID', `PKG-${dateFlat}`,   { mono: true, bold: true })
   p.field('Generated',  ts)
