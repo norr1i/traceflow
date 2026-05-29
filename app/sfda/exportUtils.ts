@@ -688,7 +688,6 @@ export function buildQCReportPDF(): Blob {
   p.statusRow('Documentation Compliance',     'PARTIAL — 4 records under review  |  Ref: CAPA-2024-003', 'partial')
   p.statusRow('Equipment Calibration Status', 'ACTION REQUIRED  |  Ref: CAPA-2024-001',                  'error')
 
-  p.inspectionCertification()
   return p.blob()
 }
 
