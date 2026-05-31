@@ -356,44 +356,47 @@ export default function SFDAClient() {
       })
   }, [companyId])
 
-  // Fetch recall readiness metrics from recall_affected_batches, distribution_records, batch_events
+  // Fetch recall readiness metrics from real live tables:
+  //   recall_affected_batches → active recall count + customers affected
+  //   sales                   → downstream shipment count (distribution_records is empty)
+  //   quality_inspections     → risk signals (batch_events is empty)
   useEffect(() => {
     if (!companyId) return
     setRecallLoading(true)
     void Promise.all([
+      // Active (non-simulation) recall batches + customers impacted
       supabase
         .from('recall_affected_batches')
         .select('customers_affected')
         .eq('company_id', companyId)
         .eq('status', 'active'),
+      // Downstream distribution — sales are the outbound shipment record
       supabase
-        .from('distribution_records')
+        .from('sales')
         .select('id', { count: 'exact', head: true })
-        .eq('company_id', companyId),
-      supabase
-        .from('batch_events')
-        .select('event_type')
         .eq('company_id', companyId)
-        .not('event_type', 'like', 'simulation%'),
-    ]).then(([{ data: rabData }, { count: distCount }, { data: evData }]) => {
+        .neq('status', 'cancelled'),
+      // QC risk signals — failed or conditional inspections
+      supabase
+        .from('quality_inspections')
+        .select('status')
+        .eq('company_id', companyId)
+        .in('status', ['failed', 'conditional']),
+    ]).then(([{ data: rabData }, { count: salesCount }, { data: qiData }]) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const customers  = (rabData ?? []).reduce((s: number, r: any) => s + (Number(r.customers_affected) || 0), 0)
       const affected   = (rabData ?? []).length
-      const downstream = distCount ?? 0
+      const downstream = salesCount ?? 0
       const score      = downstream > 0 ? Math.max(0, 100 - affected * 15) : 0
-      const EVENT_RISK: Record<string, { label: string; dot: string; level: string }> = {
-        qc_failure:         { label: 'QC failure events recorded',     dot: 'bg-red-500',     level: 'High'   },
-        cold_chain_breach:  { label: 'Cold chain breach recorded',     dot: 'bg-red-500',     level: 'High'   },
-        recall_initiated:   { label: 'Active recall in progress',      dot: 'bg-red-500',     level: 'High'   },
-        shipment_delay:     { label: 'Shipment delay events detected',  dot: 'bg-amber-400',   level: 'Medium' },
-        supplier_deviation: { label: 'Supplier deviation reported',    dot: 'bg-amber-400',   level: 'Medium' },
-        intake_scan_miss:   { label: 'Barcode scan misses at intake',  dot: 'bg-amber-400',   level: 'Medium' },
+      const QI_RISK: Record<string, { label: string; dot: string; level: string }> = {
+        failed:      { label: 'Failed QC inspections on record',          dot: 'bg-red-500',   level: 'High'   },
+        conditional: { label: 'Conditional QC outcomes requiring review', dot: 'bg-amber-400', level: 'Medium' },
       }
       const seen = new Set<string>()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const factors: { label: string; dot: string; level: string }[] = (evData ?? []).reduce((acc: { label: string; dot: string; level: string }[], r: any) => {
-        const t = String(r.event_type)
-        if (EVENT_RISK[t] && !seen.has(t)) { seen.add(t); acc.push(EVENT_RISK[t]) }
+      const factors: { label: string; dot: string; level: string }[] = (qiData ?? []).reduce((acc: { label: string; dot: string; level: string }[], r: any) => {
+        const t = String(r.status)
+        if (QI_RISK[t] && !seen.has(t)) { seen.add(t); acc.push(QI_RISK[t]) }
         return acc
       }, [])
       setRecallStats({ affected, downstream, customers, score })
