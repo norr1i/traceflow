@@ -109,7 +109,6 @@ const REQ_DESCRIPTIONS: Record<string, string> = {
 // Action badge classes — green = created/completed, blue = updates, amber = overrides, red = recalls/deletions
 const GREEN_BADGE  = 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
 const BLUE_BADGE   = 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400'
-const AMBER_BADGE  = 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'
 const RED_BADGE    = 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
 
 // Map a raw activity_logs row into the AuditEntry shape the UI expects.
@@ -208,10 +207,642 @@ function ScoreRing({ score, size = 160 }: { score: number; size?: number }) {
   )
 }
 
+// ── Prop types for hoisted tab components ────────────────────────────────────
+
+type SFDARecallStats    = { affected: number; downstream: number; customers: number; score: number; coveragePct: number }
+type SFDAComplianceData = { qcTotal: number; qcPassed: number; qcLastDate: string | null; batchCount: number; auditCount: number }
+type SFDASimResult      = { notificationTime: string; coverage: number; riskLevel: string; riskCls: string }
+type SFDARiskFactor     = { label: string; dot: string; level: string }
+
+type TabOverviewProps = {
+  liveRequirements:  RequirementRow[]
+  recallStats:       SFDARecallStats
+  complianceScore:   number
+  qcFailed:          number
+  complianceData:    SFDAComplianceData
+  complianceLoading: boolean
+  recallLoading:     boolean
+  capaList:          CAPAItem[]
+  setActiveTab:      (tab: TabId) => void
+  setExpandedReq:    (req: string | null) => void
+}
+type TabRequirementsProps = {
+  liveRequirements: RequirementRow[]
+  expandedReq:      string | null
+  setExpandedReq:   (req: string | null) => void
+}
+type TabInspectionProps = {
+  complianceData: SFDAComplianceData
+  recallStats:    SFDARecallStats
+  capaList:       CAPAItem[]
+  auditLog:       AuditEntry[]
+  generating:     boolean
+  onExport:       (type: 'pdf' | 'zip' | 'audit') => void
+}
+type TabAuditProps = {
+  auditLog:       AuditEntry[]
+  auditFilter:    string
+  setAuditFilter: (f: string) => void
+  auditLoading:   boolean
+  auditError:     string | null
+  companyId:      string | null
+}
+type TabCAPAProps = {
+  capaList:         CAPAItem[]
+  canEditSFDA:      boolean
+  setShowCAPAModal: (v: boolean) => void
+}
+type TabRecallProps = {
+  recallStats:   SFDARecallStats
+  recallLoading: boolean
+  simLastRun:    string
+  simulating:    boolean
+  simDone:       boolean
+  simResult:     SFDASimResult | null
+  riskFactors:   SFDARiskFactor[]
+  onSimulate:    () => void
+}
+type TabReportsProps = {
+  onDownloadReport: (key: string) => void
+}
+
+// ── Tab: Overview ─────────────────────────────────────────────────────────────
+
+function TabOverview({ liveRequirements, recallStats, complianceScore, qcFailed, complianceData, complianceLoading, recallLoading, capaList, setActiveTab, setExpandedReq }: TabOverviewProps) {
+  const { t, lang } = useT()
+  const attention = liveRequirements.filter(r => r.status !== 'compliant' && r.status !== 'pending')
+  const reqCounts = {
+    compliant:     liveRequirements.filter(r => r.status === 'compliant').length,
+    non_compliant: liveRequirements.filter(r => r.status === 'non_compliant').length,
+    partial:       liveRequirements.filter(r => r.status === 'partial').length,
+    pending:       liveRequirements.filter(r => r.status === 'pending').length,
+  }
+  const readinessPct = recallStats.score
+  const riskKey = complianceScore === 0 ? 'sfda.risk_medium'
+    : complianceScore >= 80 ? 'sfda.risk_low'
+    : complianceScore >= 60 ? 'sfda.risk_medium'
+    : 'sfda.risk_high'
+  const riskCls = complianceScore === 0 ? 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
+    : complianceScore >= 80 ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
+    : complianceScore >= 60 ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
+    : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+  const lastInspectionLabel = complianceData.qcLastDate ? fmtDate(complianceData.qcLastDate, lang) : '—'
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6 flex flex-col items-center justify-center gap-2">
+          {complianceLoading
+            ? <div className="w-[140px] h-[140px] flex items-center justify-center text-sm text-[var(--muted)]">Loading…</div>
+            : <ScoreRing score={complianceScore} size={140} />}
+          <p className="text-sm font-medium text-[var(--muted)]">{t('sfda.score_label')}</p>
+        </div>
+
+        <div className="md:col-span-2 bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6 flex flex-col justify-between gap-5">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-[var(--text)]">{t('sfda.readiness_label')}</span>
+              <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                {recallLoading ? '…' : `${readinessPct}%`}
+              </span>
+            </div>
+            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+              <div className="bg-emerald-500 h-2.5 rounded-full" style={{ width: `${readinessPct}%` }} />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-[var(--muted)]">{t('sfda.risk_label')}</span>
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold ${riskCls}`}>
+              <AlertTriangle size={14} />{t(riskKey)}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 pt-3 border-t border-[var(--border)]">
+            {[
+              { icon: CheckCircle2, cls: 'text-emerald-500', count: reqCounts.compliant,     key: 'sfda.status_compliant'     },
+              { icon: XCircle,      cls: 'text-red-500',     count: reqCounts.non_compliant, key: 'sfda.status_non_compliant' },
+              { icon: AlertTriangle,cls: 'text-amber-500',   count: reqCounts.partial,       key: 'sfda.status_partial'       },
+              { icon: Clock,        cls: 'text-gray-400',    count: reqCounts.pending,       key: 'sfda.status_pending'       },
+            ].map(({ icon: Icon, cls, count, key }) => (
+              <div key={key} className="flex items-center gap-2 text-sm">
+                <Icon size={14} className={`${cls} shrink-0`} />
+                <span className="text-[var(--muted)]">{count} {t(key)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { icon: ShieldAlert,  label: 'sfda.open_capas',       value: String(capaList.filter(c => c.status === 'open' || c.status === 'overdue').length), cls: 'text-blue-600 dark:text-blue-400',   bg: 'bg-blue-50 dark:bg-blue-900/20'   },
+          { icon: AlertTriangle,label: 'sfda.critical_findings', value: String(capaList.filter(c => c.severity === 'critical').length),                     cls: 'text-red-600 dark:text-red-400',     bg: 'bg-red-50 dark:bg-red-900/20'     },
+          { icon: XCircle,      label: 'sfda.failed_qc',         value: complianceLoading ? '…' : String(qcFailed),   cls: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/20' },
+          { icon: Calendar,     label: 'sfda.last_inspection',   value: complianceLoading ? '…' : lastInspectionLabel, cls: 'text-[var(--muted)]',               bg: 'bg-[var(--bg)]'                   },
+        ].map(({ icon: Icon, label, value, cls, bg }) => (
+          <div key={label} className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-5 flex flex-col gap-3">
+            <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center`}>
+              <Icon size={16} className={cls} />
+            </div>
+            <div>
+              <p className={`text-xl font-bold ${cls}`}>{value}</p>
+              <p className="text-xs text-[var(--muted)] mt-0.5">{t(label)}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {attention.length > 0 && (
+        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-[var(--border)] flex items-center gap-2">
+            <AlertTriangle size={14} className="text-amber-500" />
+            <h3 className="text-sm font-semibold text-[var(--text)]">Corrective Actions Requiring Attention</h3>
+            <span className="ms-auto text-xs text-[var(--muted)]">{attention.length}</span>
+          </div>
+          <div className="divide-y divide-[var(--border)]">
+            {attention.map(req => (
+              <div key={req.id}
+                className="px-5 py-3 flex items-center justify-between gap-4 hover:bg-[var(--bg)] transition-colors cursor-pointer"
+                onClick={() => { setActiveTab('requirements'); setExpandedReq(req.id) }}>
+                <div className="flex items-center gap-3">
+                  <ChevronRight size={14} className="text-[var(--subtle)] shrink-0" />
+                  <span className="text-sm text-[var(--text)]">{t(`sfda.${req.key}`)}</span>
+                </div>
+                <StatusBadge status={req.status} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Tab: Requirements ─────────────────────────────────────────────────────────
+
+function TabRequirements({ liveRequirements, expandedReq, setExpandedReq }: TabRequirementsProps) {
+  const { t, lang } = useT()
+  return (
+    <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-[var(--border)] bg-[var(--bg)]">
+              {['sfda.req_col_req','sfda.req_col_evidence','sfda.req_col_records','sfda.req_col_status','sfda.req_col_updated'].map(k => (
+                <th key={k} className="text-start px-4 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">{t(k)}</th>
+              ))}
+              <th className="w-8 px-4 py-3" />
+            </tr>
+          </thead>
+          <tbody>
+            {liveRequirements.map((req, i) => {
+              const description = REQ_DESCRIPTIONS[req.id]
+              const isExpanded  = expandedReq === req.id
+              return (
+                <>
+                  <tr
+                    key={req.id}
+                    onClick={() => setExpandedReq(isExpanded ? null : req.id)}
+                    className={`border-b border-[var(--border)] cursor-pointer transition-colors
+                      ${i % 2 === 0 ? 'bg-[var(--surface)]' : 'bg-[var(--bg)]'}
+                      hover:bg-[var(--s3)]`}
+                  >
+                    <td className="px-4 py-3 font-medium text-[var(--text)]">{t(`sfda.${req.key}`)}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-[var(--muted)]">{req.evidence}</td>
+                    <td className="px-4 py-3 text-[var(--text)]">{req.records.toLocaleString()}</td>
+                    <td className="px-4 py-3"><StatusBadge status={req.status} /></td>
+                    <td className="px-4 py-3 text-[var(--muted)]">{req.updated ? fmtDate(req.updated, lang) : '—'}</td>
+                    <td className="px-4 py-3 text-[var(--subtle)]">
+                      {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </td>
+                  </tr>
+                  {isExpanded && (
+                    <tr key={`${req.id}-detail`} className="border-b border-[var(--border)] bg-[var(--s3)]">
+                      <td colSpan={6} className="px-6 py-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--subtle)] mb-1">Description</p>
+                            <p className="text-[var(--text)] leading-relaxed">{description}</p>
+                          </div>
+                          <div className="space-y-3">
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--subtle)] mb-1">Audit Notes</p>
+                              <p className="text-[var(--muted)] leading-relaxed italic">No audit notes recorded yet.</p>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
+                              <Calendar size={11} />
+                              Last record: {req.updated ? fmtDate(req.updated, lang) : '—'}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ── Tab: Inspection Dossier ───────────────────────────────────────────────────
+
+function TabInspection({ complianceData, recallStats, capaList, auditLog, generating, onExport }: TabInspectionProps) {
+  const contents = [
+    { label: 'Batch History Records',         detail: complianceData.batchCount > 0 ? `${complianceData.batchCount} records` : 'No records on file' },
+    { label: 'QC Inspection Reports',         detail: complianceData.qcTotal > 0 ? `${complianceData.qcTotal} reports` : 'No records on file'       },
+    { label: 'Full Traceability Chain',       detail: recallStats.downstream > 0 ? `${recallStats.coveragePct}% coverage` : 'No data'               },
+    { label: 'Recall Event Records',          detail: recallStats.affected > 0 ? `${recallStats.affected} events on record` : 'No active recalls'   },
+    { label: 'CAPA Action Register',          detail: `${capaList.length} actions`                                                                   },
+    { label: 'Timestamped Activity Log',       detail: auditLog.length > 0 ? `${auditLog.length}+ entries` : 'No entries recorded'                   },
+    { label: 'Regulatory Inspection History', detail: 'All prior visits'                                                                             },
+    { label: 'Operator Activity Log',         detail: 'Full timestamped timeline'                                                                    },
+  ]
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="lg:col-span-2 space-y-5">
+        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6">
+          <div className="flex items-start gap-3 mb-5">
+            <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
+              <Archive size={18} className="text-blue-600 dark:text-blue-400" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-[var(--text)]">Compile Inspection Dossier</h2>
+              <p className="text-sm text-[var(--muted)] mt-0.5">
+                Compile all GMP compliance records into an SFDA-ready inspection dossier.
+              </p>
+            </div>
+          </div>
+
+          <div className="border-t border-[var(--border)] pt-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--subtle)] mb-3">Dossier Contents</p>
+            <div className="space-y-2">
+              {contents.map(item => (
+                <div key={item.label} className="flex items-center justify-between py-1">
+                  <div className="flex items-center gap-2.5">
+                    <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+                    <span className="text-sm text-[var(--text)]">{item.label}</span>
+                  </div>
+                  <span className="text-xs text-[var(--muted)]">{item.detail}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="border-t border-[var(--border)] pt-4 mt-4 flex items-center gap-3 flex-wrap">
+            <button
+              onClick={() => { onExport('pdf') }}
+              disabled={generating}
+              title="Download the full inspection dossier as PDF"
+              className="flex items-center gap-2 rounded-lg bg-[#3a6f8f] hover:bg-[#2e5a75] text-white px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60"
+            >
+              {generating
+                ? <><RefreshCw size={14} className="animate-spin" />Generating…</>
+                : <><Download size={14} />Download Dossier</>}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-5">
+          <p className="text-xs font-semibold uppercase tracking-wider text-[var(--subtle)] mb-4">Export Formats</p>
+          <div className="space-y-2">
+            {([
+              { type: 'pdf'   as const, icon: FileText,      label: 'Dossier PDF',      ext: '.pdf' },
+              { type: 'zip'   as const, icon: Archive,       label: 'ZIP Archive',       ext: '.zip' },
+              { type: 'audit' as const, icon: ClipboardList, label: 'GMP Audit Report', ext: '.pdf' },
+            ]).map(({ type, icon: Icon, label, ext }) => (
+              <button key={type}
+                onClick={() => { onExport(type) }}
+                disabled={generating}
+                className="w-full flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-sm text-[var(--text)] hover:bg-[var(--s3)] transition-colors disabled:opacity-60 text-start">
+                <Icon size={14} className="text-[var(--muted)] shrink-0" />
+                <span className="flex-1">{label}</span>
+                <span className="text-xs text-[var(--subtle)] font-mono">{ext}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Tab: Audit Trail ──────────────────────────────────────────────────────────
+
+function TabAudit({ auditLog, auditFilter, setAuditFilter, auditLoading, auditError, companyId }: TabAuditProps) {
+  const FILTERS = [
+    { id: 'all',    label: 'All Events' },
+    { id: 'edit',   label: 'Edits'      },
+    { id: 'create', label: 'Creates'    },
+    { id: 'delete', label: 'Deletions'  },
+    { id: 'qc',     label: 'QC Changes' },
+    { id: 'recall', label: 'Recalls'    },
+  ]
+  const filtered = auditFilter === 'all' ? auditLog : auditLog.filter(e => e.type === auditFilter)
+
+  return (
+    <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl overflow-hidden">
+      {/* Toolbar */}
+      <div className="px-5 py-3.5 border-b border-[var(--border)] flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 overflow-x-auto">
+          <Filter size={13} className="text-[var(--muted)] shrink-0" />
+          {FILTERS.map(f => (
+            <button key={f.id} onClick={() => setAuditFilter(f.id)}
+              className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                auditFilter === f.id
+                  ? 'bg-[#3a6f8f] text-white'
+                  : 'bg-[var(--bg)] text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--s3)]'
+              }`}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 shrink-0 tracking-wide">
+          <Lock size={9} />ACTIVITY LOG
+        </span>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-[var(--border)] bg-[var(--bg)]">
+              {[
+                { label: 'Personnel',        w: 'w-48' },
+                { label: 'Action',           w: 'w-44' },
+                { label: 'Affected Record',  w: ''     },
+                { label: 'Timestamp',        w: 'w-52' },
+                { label: '',                 w: 'w-8'  },
+              ].map(({ label, w }) => (
+                <th key={label} className={`text-start px-4 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--muted)] ${w}`}>
+                  {label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--border)]">
+            {filtered.map((entry, i) => (
+              <tr
+                key={entry.id}
+                className={`group transition-colors
+                  ${i % 2 === 0 ? 'bg-[var(--surface)]' : 'bg-[var(--bg)]'}
+                  hover:bg-[var(--s3)]`}
+              >
+                <td className="px-4 py-4">
+                  <p className="text-sm font-medium text-[var(--text)] leading-snug">{entry.actor}</p>
+                  <p className="text-xs text-[var(--muted)] mt-0.5">{entry.role}</p>
+                </td>
+                <td className="px-4 py-4">
+                  <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold ${entry.badgeCls}`}>
+                    {entry.action}
+                  </span>
+                </td>
+                <td className="px-4 py-4 text-sm text-[var(--muted)] max-w-[200px]">
+                  <span className="truncate block">{entry.entity}</span>
+                </td>
+                <td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap tabular-nums">
+                  {fmtAuditTime(entry.time)}
+                </td>
+                <td className="px-4 py-4">
+                  <span title="Immutable record"><Lock size={11} className="text-[var(--subtle)]" /></span>
+                </td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-10 text-center text-sm text-[var(--muted)]">
+                  {auditLoading
+                    ? 'Loading audit entries…'
+                    : auditError
+                      ? <span className="text-red-500 dark:text-red-400">RLS / permission error — {auditError}</span>
+                      : !companyId
+                        ? 'Company profile not loaded — please refresh the page'
+                        : 'No audit entries recorded yet.'}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Footer */}
+      <div className="px-5 py-3 border-t border-[var(--border)] text-xs text-[var(--subtle)] flex items-center gap-1.5">
+        <Lock size={10} />
+        {filtered.length} of {auditLog.length} entries — company-scoped activity log
+      </div>
+    </div>
+  )
+}
+
+// ── Tab: CAPA ─────────────────────────────────────────────────────────────────
+
+function TabCAPA({ capaList, canEditSFDA, setShowCAPAModal }: TabCAPAProps) {
+  const { t, lang } = useT()
+  const toast = useToast()
+  const counts = {
+    open:        capaList.filter(c => c.status === 'open').length,
+    in_progress: capaList.filter(c => c.status === 'in_progress').length,
+    closed:      capaList.filter(c => c.status === 'closed').length,
+    overdue:     capaList.filter(c => c.status === 'overdue').length,
+  }
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          {([
+            { status: 'open'        as CAPAStatus, count: counts.open,        cls: 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400'             },
+            { status: 'in_progress' as CAPAStatus, count: counts.in_progress, cls: 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'         },
+            { status: 'overdue'     as CAPAStatus, count: counts.overdue,     cls: 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'                 },
+            { status: 'closed'      as CAPAStatus, count: counts.closed,      cls: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400' },
+          ]).map(({ status, count, cls }) => (
+            <span key={status} className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${cls}`}>
+              <span className="text-sm font-bold">{count}</span>
+              <CAPAStatusBadge status={status} />
+            </span>
+          ))}
+        </div>
+        {canEditSFDA && (
+          <button onClick={() => setShowCAPAModal(true)}
+            className="flex items-center gap-2 rounded-lg bg-[#3a6f8f] hover:bg-[#2e5a75] text-white px-4 py-2 text-sm font-medium transition-colors">
+            <Plus size={14} />{t('sfda.capa_add')}
+          </button>
+        )}
+      </div>
+
+      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[var(--border)] bg-[var(--bg)]">
+                {['sfda.capa_col_id','sfda.capa_col_title','sfda.capa_col_severity','sfda.capa_col_due','sfda.capa_col_assigned','sfda.capa_col_status'].map(k => (
+                  <th key={k} className="text-start px-4 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">{t(k)}</th>
+                ))}
+                <th className="w-20 px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--border)]">
+              {capaList.map((capa, i) => (
+                <tr key={capa.id} className={`hover:bg-[var(--s3)] transition-colors ${i % 2 === 0 ? 'bg-[var(--surface)]' : 'bg-[var(--bg)]'}`}>
+                  <td className="px-4 py-3 font-mono text-xs text-[var(--muted)] whitespace-nowrap">{capa.id}</td>
+                  <td className="px-4 py-3 max-w-xs">
+                    <p className="font-medium text-[var(--text)] leading-snug">{capa.title}</p>
+                    {capa.root && <p className="text-xs text-[var(--muted)] mt-0.5 truncate">{capa.root}</p>}
+                  </td>
+                  <td className="px-4 py-3"><SeverityBadge severity={capa.severity} /></td>
+                  <td className={`px-4 py-3 whitespace-nowrap text-sm font-medium ${capa.status === 'overdue' ? 'text-red-600 dark:text-red-400' : 'text-[var(--text)]'}`}>
+                    {fmtDate(capa.due, lang)}
+                  </td>
+                  <td className="px-4 py-3 text-[var(--text)] whitespace-nowrap">{capa.assigned}</td>
+                  <td className="px-4 py-3"><CAPAStatusBadge status={capa.status} /></td>
+                  <td className="px-4 py-3">
+                    {capa.status === 'closed' && (
+                      <button
+                        onClick={() => toast.info('Verification recorded')}
+                        title="Record effectiveness verification"
+                        className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:underline transition-colors">
+                        <CheckCircle2 size={12} />{t('sfda.capa_verify')}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {capaList.length === 0 && (
+                <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-[var(--muted)]">No CAPA actions on record.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Tab: Recall Readiness ─────────────────────────────────────────────────────
+
+function TabRecall({ recallStats, recallLoading, simLastRun, simulating, simDone, simResult, riskFactors, onSimulate }: TabRecallProps) {
+  const { t } = useT()
+  const dash = recallLoading ? '…' : '—'
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6 flex flex-col items-center justify-center gap-2">
+          <ScoreRing score={recallStats.score} size={120} />
+          <p className="text-xs font-medium text-[var(--muted)] text-center">{t('sfda.recall_score')}</p>
+        </div>
+        {[
+          { icon: Package,    label: 'sfda.recall_affected',   value: recallLoading ? dash : String(recallStats.affected),   cls: 'text-amber-600 dark:text-amber-400',   bg: 'bg-amber-50 dark:bg-amber-900/20'   },
+          { icon: TrendingUp, label: 'sfda.recall_downstream', value: recallLoading ? dash : String(recallStats.downstream), cls: 'text-blue-600 dark:text-blue-400',     bg: 'bg-blue-50 dark:bg-blue-900/20'     },
+          { icon: Users,      label: 'sfda.recall_customers',  value: recallLoading ? dash : String(recallStats.customers),  cls: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-50 dark:bg-violet-900/20' },
+        ].map(({ icon: Icon, label, value, cls, bg }) => (
+          <div key={label} className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-5 flex flex-col gap-3">
+            <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center`}>
+              <Icon size={16} className={cls} />
+            </div>
+            <p className={`text-2xl font-bold ${cls}`}>{value}</p>
+            <p className="text-xs text-[var(--muted)] -mt-2">{t(label)}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h3 className="text-sm font-semibold text-[var(--text)]">Recall Simulation</h3>
+            <p className="text-xs text-[var(--muted)] mt-1">Last run: {simLastRun}</p>
+          </div>
+          <button onClick={onSimulate} disabled={simulating}
+            className="flex items-center gap-2 rounded-lg bg-[#3a6f8f] hover:bg-[#2e5a75] text-white px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60 shrink-0">
+            {simulating
+              ? <><RefreshCw size={14} className="animate-spin" />Running…</>
+              : <><Activity size={14} />Run Simulation</>}
+          </button>
+        </div>
+
+        {simDone && simResult && (
+          <div className="mt-5 pt-5 border-t border-[var(--border)] grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <p className="text-xs text-[var(--muted)]">Estimated Notification Time</p>
+              <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">{simResult.notificationTime}</p>
+            </div>
+            <div>
+              <p className="text-xs text-[var(--muted)]">Coverage</p>
+              <p className="text-xl font-bold text-[var(--text)] mt-1">{simResult.coverage}%</p>
+              <p className="text-xs text-[var(--muted)]">of affected batches identified</p>
+            </div>
+            <div>
+              <p className="text-xs text-[var(--muted)]">Recall Risk Score</p>
+              <span className={`inline-flex items-center gap-1.5 mt-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${simResult.riskCls}`}>
+                <AlertTriangle size={11} />{simResult.riskLevel}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6">
+        <h3 className="text-sm font-semibold text-[var(--text)] mb-4">Recall Risk Factors</h3>
+        <div className="space-y-3">
+          {riskFactors.length === 0
+            ? <p className="text-sm text-[var(--muted)]">No risk factors recorded.</p>
+            : riskFactors.map(item => (
+                <div key={item.label} className="flex items-center gap-3">
+                  <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${item.dot}`} />
+                  <span className="text-sm text-[var(--text)]">{item.label}</span>
+                  <span className="ms-auto text-xs text-[var(--muted)]">{item.level}</span>
+                </div>
+              ))
+          }
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Tab: Regulatory Reports ───────────────────────────────────────────────────
+
+function TabReports({ onDownloadReport }: TabReportsProps) {
+  const { t } = useT()
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {REPORTS.map(rpt => {
+        const Icon    = rpt.icon
+        const iconCls = REPORT_ICON_CLS[rpt.color] ?? REPORT_ICON_CLS.slate
+        return (
+          <div key={rpt.key} className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-5 flex flex-col gap-4">
+            <div className="flex items-start gap-3">
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${iconCls}`}>
+                <Icon size={18} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-[var(--text)] leading-snug">{t(`sfda.${rpt.key}`)}</p>
+                <p className="text-xs text-[var(--muted)] mt-0.5 leading-relaxed">{t(`sfda.${rpt.key}_desc`)}</p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => { void onDownloadReport(rpt.key) }}
+              title="Download as PDF"
+              className="mt-auto flex items-center justify-center gap-1.5 rounded-lg bg-[#3a6f8f] hover:bg-[#2e5a75] text-white px-3 py-1.5 text-xs font-medium transition-colors"
+            >
+              <Download size={11} />{t('sfda.reports_download')}
+            </button>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function SFDAClient() {
-  const { t, lang, dir } = useT()
+  const { t, dir } = useT()
   const role = useRole()
   const { companyId } = useAuth()
   const toast = useToast()
@@ -269,7 +900,6 @@ export default function SFDAClient() {
           setAuditError(`${error.code}: ${error.message}`)
         }
         if (data) {
-          console.log('[activity_logs] fetched', data.length, 'rows for company_id', companyId)
           setAuditLog(data.map(mapAuditRow))
         }
         setAuditLoading(false)
@@ -489,583 +1119,6 @@ export default function SFDAClient() {
     { id: 'reports',      labelKey: 'sfda.tab_reports'       },
   ]
 
-  // ── Tab: Overview ────────────────────────────────────────────────────────────
-
-  function TabOverview() {
-    const attention = liveRequirements.filter(r => r.status !== 'compliant' && r.status !== 'pending')
-    const reqCounts = {
-      compliant:     liveRequirements.filter(r => r.status === 'compliant').length,
-      non_compliant: liveRequirements.filter(r => r.status === 'non_compliant').length,
-      partial:       liveRequirements.filter(r => r.status === 'partial').length,
-      pending:       liveRequirements.filter(r => r.status === 'pending').length,
-    }
-    const readinessPct = recallStats.score
-    const riskKey = complianceScore === 0 ? 'sfda.risk_medium'
-      : complianceScore >= 80 ? 'sfda.risk_low'
-      : complianceScore >= 60 ? 'sfda.risk_medium'
-      : 'sfda.risk_high'
-    const riskCls = complianceScore === 0 ? 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
-      : complianceScore >= 80 ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
-      : complianceScore >= 60 ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
-      : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
-    const lastInspectionLabel = complianceData.qcLastDate ? fmtDate(complianceData.qcLastDate, lang) : '—'
-
-    return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6 flex flex-col items-center justify-center gap-2">
-            {complianceLoading
-              ? <div className="w-[140px] h-[140px] flex items-center justify-center text-sm text-[var(--muted)]">Loading…</div>
-              : <ScoreRing score={complianceScore} size={140} />}
-            <p className="text-sm font-medium text-[var(--muted)]">{t('sfda.score_label')}</p>
-          </div>
-
-          <div className="md:col-span-2 bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6 flex flex-col justify-between gap-5">
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-[var(--text)]">{t('sfda.readiness_label')}</span>
-                <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                  {recallLoading ? '…' : `${readinessPct}%`}
-                </span>
-              </div>
-              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
-                <div className="bg-emerald-500 h-2.5 rounded-full" style={{ width: `${readinessPct}%` }} />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-[var(--muted)]">{t('sfda.risk_label')}</span>
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold ${riskCls}`}>
-                <AlertTriangle size={14} />{t(riskKey)}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-3 border-t border-[var(--border)]">
-              {[
-                { icon: CheckCircle2, cls: 'text-emerald-500', count: reqCounts.compliant,     key: 'sfda.status_compliant'     },
-                { icon: XCircle,      cls: 'text-red-500',     count: reqCounts.non_compliant, key: 'sfda.status_non_compliant' },
-                { icon: AlertTriangle,cls: 'text-amber-500',   count: reqCounts.partial,       key: 'sfda.status_partial'       },
-                { icon: Clock,        cls: 'text-gray-400',    count: reqCounts.pending,       key: 'sfda.status_pending'       },
-              ].map(({ icon: Icon, cls, count, key }) => (
-                <div key={key} className="flex items-center gap-2 text-sm">
-                  <Icon size={14} className={`${cls} shrink-0`} />
-                  <span className="text-[var(--muted)]">{count} {t(key)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
-            { icon: ShieldAlert,  label: 'sfda.open_capas',       value: String(capaList.filter(c => c.status === 'open' || c.status === 'overdue').length), cls: 'text-blue-600 dark:text-blue-400',   bg: 'bg-blue-50 dark:bg-blue-900/20'   },
-            { icon: AlertTriangle,label: 'sfda.critical_findings', value: String(capaList.filter(c => c.severity === 'critical').length),                     cls: 'text-red-600 dark:text-red-400',     bg: 'bg-red-50 dark:bg-red-900/20'     },
-            { icon: XCircle,      label: 'sfda.failed_qc',         value: complianceLoading ? '…' : String(qcFailed),   cls: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/20' },
-            { icon: Calendar,     label: 'sfda.last_inspection',   value: complianceLoading ? '…' : lastInspectionLabel, cls: 'text-[var(--muted)]',               bg: 'bg-[var(--bg)]'                   },
-          ].map(({ icon: Icon, label, value, cls, bg }) => (
-            <div key={label} className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-5 flex flex-col gap-3">
-              <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center`}>
-                <Icon size={16} className={cls} />
-              </div>
-              <div>
-                <p className={`text-xl font-bold ${cls}`}>{value}</p>
-                <p className="text-xs text-[var(--muted)] mt-0.5">{t(label)}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {attention.length > 0 && (
-          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-[var(--border)] flex items-center gap-2">
-              <AlertTriangle size={14} className="text-amber-500" />
-              <h3 className="text-sm font-semibold text-[var(--text)]">Corrective Actions Requiring Attention</h3>
-              <span className="ms-auto text-xs text-[var(--muted)]">{attention.length}</span>
-            </div>
-            <div className="divide-y divide-[var(--border)]">
-              {attention.map(req => (
-                <div key={req.id}
-                  className="px-5 py-3 flex items-center justify-between gap-4 hover:bg-[var(--bg)] transition-colors cursor-pointer"
-                  onClick={() => { setActiveTab('requirements'); setExpandedReq(req.id) }}>
-                  <div className="flex items-center gap-3">
-                    <ChevronRight size={14} className="text-[var(--subtle)] shrink-0" />
-                    <span className="text-sm text-[var(--text)]">{t(`sfda.${req.key}`)}</span>
-                  </div>
-                  <StatusBadge status={req.status} />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  // ── Tab: Requirements ────────────────────────────────────────────────────────
-
-  function TabRequirements() {
-    return (
-      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--border)] bg-[var(--bg)]">
-                {['sfda.req_col_req','sfda.req_col_evidence','sfda.req_col_records','sfda.req_col_status','sfda.req_col_updated'].map(k => (
-                  <th key={k} className="text-start px-4 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">{t(k)}</th>
-                ))}
-                <th className="w-8 px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {liveRequirements.map((req, i) => {
-                const description = REQ_DESCRIPTIONS[req.id]
-                const isExpanded  = expandedReq === req.id
-                return (
-                  <>
-                    <tr
-                      key={req.id}
-                      onClick={() => setExpandedReq(isExpanded ? null : req.id)}
-                      className={`border-b border-[var(--border)] cursor-pointer transition-colors
-                        ${i % 2 === 0 ? 'bg-[var(--surface)]' : 'bg-[var(--bg)]'}
-                        hover:bg-[var(--s3)]`}
-                    >
-                      <td className="px-4 py-3 font-medium text-[var(--text)]">{t(`sfda.${req.key}`)}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-[var(--muted)]">{req.evidence}</td>
-                      <td className="px-4 py-3 text-[var(--text)]">{req.records.toLocaleString()}</td>
-                      <td className="px-4 py-3"><StatusBadge status={req.status} /></td>
-                      <td className="px-4 py-3 text-[var(--muted)]">{req.updated ? fmtDate(req.updated, lang) : '—'}</td>
-                      <td className="px-4 py-3 text-[var(--subtle)]">
-                        {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                      </td>
-                    </tr>
-                    {isExpanded && (
-                      <tr key={`${req.id}-detail`} className="border-b border-[var(--border)] bg-[var(--s3)]">
-                        <td colSpan={6} className="px-6 py-4">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                            <div>
-                              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--subtle)] mb-1">Description</p>
-                              <p className="text-[var(--text)] leading-relaxed">{description}</p>
-                            </div>
-                            <div className="space-y-3">
-                              <div>
-                                <p className="text-xs font-semibold uppercase tracking-wider text-[var(--subtle)] mb-1">Audit Notes</p>
-                                <p className="text-[var(--muted)] leading-relaxed italic">No audit notes recorded yet.</p>
-                              </div>
-                              <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
-                                <Calendar size={11} />
-                                Last record: {req.updated ? fmtDate(req.updated, lang) : '—'}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    )
-  }
-
-  // ── Tab: Inspection Dossier ──────────────────────────────────────────────────
-
-  function TabInspection() {
-    const contents = [
-      { label: 'Batch History Records',         detail: complianceData.batchCount > 0 ? `${complianceData.batchCount} records` : 'No records on file' },
-      { label: 'QC Inspection Reports',         detail: complianceData.qcTotal > 0 ? `${complianceData.qcTotal} reports` : 'No records on file'       },
-      { label: 'Full Traceability Chain',       detail: recallStats.downstream > 0 ? `${recallStats.coveragePct}% coverage` : 'No data'               },
-      { label: 'Recall Event Records',          detail: recallStats.affected > 0 ? `${recallStats.affected} events on record` : 'No active recalls'   },
-      { label: 'CAPA Action Register',          detail: `${capaList.length} actions`                                                                   },
-      { label: 'Tamper-Evident Audit Trail',    detail: auditLog.length > 0 ? `${auditLog.length}+ entries` : 'No entries recorded'                   },
-      { label: 'Regulatory Inspection History', detail: 'All prior visits'                                                                             },
-      { label: 'Operator Activity Log',         detail: 'Full timestamped timeline'                                                                    },
-    ]
-    return (
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-5">
-          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6">
-            <div className="flex items-start gap-3 mb-5">
-              <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
-                <Archive size={18} className="text-blue-600 dark:text-blue-400" />
-              </div>
-              <div>
-                <h2 className="text-base font-semibold text-[var(--text)]">Compile Inspection Dossier</h2>
-                <p className="text-sm text-[var(--muted)] mt-0.5">
-                  Compile all GMP compliance records into an SFDA-ready inspection dossier.
-                </p>
-              </div>
-            </div>
-
-            <div className="border-t border-[var(--border)] pt-4">
-              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--subtle)] mb-3">Dossier Contents</p>
-              <div className="space-y-2">
-                {contents.map(item => (
-                  <div key={item.label} className="flex items-center justify-between py-1">
-                    <div className="flex items-center gap-2.5">
-                      <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
-                      <span className="text-sm text-[var(--text)]">{item.label}</span>
-                    </div>
-                    <span className="text-xs text-[var(--muted)]">{item.detail}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="border-t border-[var(--border)] pt-4 mt-4 flex items-center gap-3 flex-wrap">
-              <button
-                onClick={() => { void handleExport('pdf') }}
-                disabled={generating}
-                title="Download the full inspection dossier as PDF"
-                className="flex items-center gap-2 rounded-lg bg-[#3a6f8f] hover:bg-[#2e5a75] text-white px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60"
-              >
-                {generating
-                  ? <><RefreshCw size={14} className="animate-spin" />Generating…</>
-                  : <><Download size={14} />Download Dossier</>}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-5">
-            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--subtle)] mb-4">Export Formats</p>
-            <div className="space-y-2">
-              {([
-                { type: 'pdf'   as const, icon: FileText,      label: 'Dossier PDF',      ext: '.pdf' },
-                { type: 'zip'   as const, icon: Archive,       label: 'ZIP Archive',       ext: '.zip' },
-                { type: 'audit' as const, icon: ClipboardList, label: 'GMP Audit Report', ext: '.pdf' },
-              ]).map(({ type, icon: Icon, label, ext }) => (
-                <button
-                  key={type}
-                  onClick={() => { void handleExport(type) }}
-                  disabled={generating}
-                  className="w-full flex items-center gap-3 rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm transition-colors text-[var(--text)] hover:bg-[var(--bg)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Icon size={15} className="text-[var(--muted)] shrink-0" />
-                  <span className="flex-1 text-start">{label}</span>
-                  <span className="text-[10px] font-mono text-[var(--subtle)] uppercase">{ext}</span>
-                  <Download size={13} className="text-[var(--muted)]" />
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // ── Tab: Audit Trail ─────────────────────────────────────────────────────────
-
-  function TabAudit() {
-    const FILTERS = [
-      { id: 'all',    label: 'All Events' },
-      { id: 'edit',   label: 'Edits'      },
-      { id: 'create', label: 'Creates'    },
-      { id: 'delete', label: 'Deletions'  },
-      { id: 'qc',     label: 'QC Changes' },
-      { id: 'recall', label: 'Recalls'    },
-    ]
-    const filtered = auditFilter === 'all' ? auditLog : auditLog.filter(e => e.type === auditFilter)
-
-    return (
-      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl overflow-hidden">
-        {/* Toolbar */}
-        <div className="px-5 py-3.5 border-b border-[var(--border)] flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2 overflow-x-auto">
-            <Filter size={13} className="text-[var(--muted)] shrink-0" />
-            {FILTERS.map(f => (
-              <button key={f.id} onClick={() => setAuditFilter(f.id)}
-                className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                  auditFilter === f.id
-                    ? 'bg-[#3a6f8f] text-white'
-                    : 'bg-[var(--bg)] text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--s3)]'
-                }`}>
-                {f.label}
-              </button>
-            ))}
-          </div>
-          <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 shrink-0 tracking-wide">
-            <Lock size={9} />TAMPER-EVIDENT AUDIT RECORD
-          </span>
-        </div>
-
-        {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--border)] bg-[var(--bg)]">
-                {[
-                  { label: 'Personnel',        w: 'w-48' },
-                  { label: 'Action',           w: 'w-44' },
-                  { label: 'Affected Record',  w: ''     },
-                  { label: 'Timestamp',        w: 'w-52' },
-                  { label: '',                 w: 'w-8'  },
-                ].map(({ label, w }) => (
-                  <th key={label} className={`text-start px-4 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--muted)] ${w}`}>
-                    {label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--border)]">
-              {filtered.map((entry, i) => (
-                <tr
-                  key={entry.id}
-                  className={`group transition-colors
-                    ${i % 2 === 0 ? 'bg-[var(--surface)]' : 'bg-[var(--bg)]'}
-                    hover:bg-[var(--s3)]`}
-                >
-                  {/* Actor + role */}
-                  <td className="px-4 py-4">
-                    <p className="text-sm font-medium text-[var(--text)] leading-snug">{entry.actor}</p>
-                    <p className="text-xs text-[var(--muted)] mt-0.5">{entry.role}</p>
-                  </td>
-                  {/* Action badge */}
-                  <td className="px-4 py-4">
-                    <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold ${entry.badgeCls}`}>
-                      {entry.action}
-                    </span>
-                  </td>
-                  {/* Entity */}
-                  <td className="px-4 py-4 text-sm text-[var(--muted)] max-w-[200px]">
-                    <span className="truncate block">{entry.entity}</span>
-                  </td>
-                  {/* Timestamp */}
-                  <td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap tabular-nums">
-                    {fmtAuditTime(entry.time)}
-                  </td>
-                  {/* Lock */}
-                  <td className="px-4 py-4">
-                    <span title="Immutable record"><Lock size={11} className="text-[var(--subtle)]" /></span>
-                  </td>
-                </tr>
-              ))}
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-sm text-[var(--muted)]">
-                    {auditLoading
-                      ? 'Loading audit entries…'
-                      : auditError
-                        ? <span className="text-red-500 dark:text-red-400">RLS / permission error — {auditError}</span>
-                        : !companyId
-                          ? 'Company profile not loaded — please refresh the page'
-                          : 'No audit entries recorded yet.'}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Footer */}
-        <div className="px-5 py-3 border-t border-[var(--border)] text-xs text-[var(--subtle)] flex items-center gap-1.5">
-          <Lock size={10} />
-          {filtered.length} of {auditLog.length} entries — Immutable Audit Entries · Hash-Validated Chain
-        </div>
-      </div>
-    )
-  }
-
-  // ── Tab: CAPA ────────────────────────────────────────────────────────────────
-
-  function TabCAPA() {
-    const counts = {
-      open:        capaList.filter(c => c.status === 'open').length,
-      in_progress: capaList.filter(c => c.status === 'in_progress').length,
-      closed:      capaList.filter(c => c.status === 'closed').length,
-      overdue:     capaList.filter(c => c.status === 'overdue').length,
-    }
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-2 flex-wrap">
-            {([
-              { status: 'open'        as CAPAStatus, count: counts.open,        cls: 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400'                },
-              { status: 'in_progress' as CAPAStatus, count: counts.in_progress, cls: 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'            },
-              { status: 'overdue'     as CAPAStatus, count: counts.overdue,     cls: 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'                    },
-              { status: 'closed'      as CAPAStatus, count: counts.closed,      cls: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'    },
-            ]).map(({ status, count, cls }) => (
-              <span key={status} className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${cls}`}>
-                <span className="text-sm font-bold">{count}</span>
-                <CAPAStatusBadge status={status} />
-              </span>
-            ))}
-          </div>
-          {canEditSFDA && (
-            <button onClick={() => setShowCAPAModal(true)}
-              className="flex items-center gap-2 rounded-lg bg-[#3a6f8f] hover:bg-[#2e5a75] text-white px-4 py-2 text-sm font-medium transition-colors">
-              <Plus size={14} />{t('sfda.capa_add')}
-            </button>
-          )}
-        </div>
-
-        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-[var(--border)] bg-[var(--bg)]">
-                  {['sfda.capa_col_id','sfda.capa_col_title','sfda.capa_col_severity','sfda.capa_col_due','sfda.capa_col_assigned','sfda.capa_col_status'].map(k => (
-                    <th key={k} className="text-start px-4 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">{t(k)}</th>
-                  ))}
-                  <th className="w-20 px-4 py-3" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--border)]">
-                {capaList.map((capa, i) => (
-                  <tr key={capa.id} className={`hover:bg-[var(--s3)] transition-colors ${i % 2 === 0 ? 'bg-[var(--surface)]' : 'bg-[var(--bg)]'}`}>
-                    <td className="px-4 py-3 font-mono text-xs text-[var(--muted)] whitespace-nowrap">{capa.id}</td>
-                    <td className="px-4 py-3 max-w-xs">
-                      <p className="font-medium text-[var(--text)] leading-snug">{capa.title}</p>
-                      {capa.root && <p className="text-xs text-[var(--muted)] mt-0.5 truncate">{capa.root}</p>}
-                    </td>
-                    <td className="px-4 py-3"><SeverityBadge severity={capa.severity} /></td>
-                    <td className={`px-4 py-3 whitespace-nowrap text-sm font-medium ${capa.status === 'overdue' ? 'text-red-600 dark:text-red-400' : 'text-[var(--text)]'}`}>
-                      {fmtDate(capa.due, lang)}
-                    </td>
-                    <td className="px-4 py-3 text-[var(--text)] whitespace-nowrap">{capa.assigned}</td>
-                    <td className="px-4 py-3"><CAPAStatusBadge status={capa.status} /></td>
-                    <td className="px-4 py-3">
-                      {capa.status === 'closed' && (
-                        <button
-                          onClick={() => toast.info('Verification recorded')}
-                          title="Record effectiveness verification"
-                          className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:underline transition-colors">
-                          <CheckCircle2 size={12} />{t('sfda.capa_verify')}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {capaList.length === 0 && (
-                  <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-[var(--muted)]">No CAPA actions on record.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // ── Tab: Recall Readiness ────────────────────────────────────────────────────
-
-  function TabRecall() {
-    const dash = recallLoading ? '…' : '—'
-    return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6 flex flex-col items-center justify-center gap-2">
-            <ScoreRing score={recallStats.score} size={120} />
-            <p className="text-xs font-medium text-[var(--muted)] text-center">{t('sfda.recall_score')}</p>
-          </div>
-          {[
-            { icon: Package,    label: 'sfda.recall_affected',   value: recallLoading ? dash : String(recallStats.affected),   cls: 'text-amber-600 dark:text-amber-400',   bg: 'bg-amber-50 dark:bg-amber-900/20'   },
-            { icon: TrendingUp, label: 'sfda.recall_downstream', value: recallLoading ? dash : String(recallStats.downstream), cls: 'text-blue-600 dark:text-blue-400',     bg: 'bg-blue-50 dark:bg-blue-900/20'     },
-            { icon: Users,      label: 'sfda.recall_customers',  value: recallLoading ? dash : String(recallStats.customers),  cls: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-50 dark:bg-violet-900/20' },
-          ].map(({ icon: Icon, label, value, cls, bg }) => (
-            <div key={label} className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-5 flex flex-col gap-3">
-              <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center`}>
-                <Icon size={16} className={cls} />
-              </div>
-              <p className={`text-2xl font-bold ${cls}`}>{value}</p>
-              <p className="text-xs text-[var(--muted)] -mt-2">{t(label)}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6">
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div>
-              <h3 className="text-sm font-semibold text-[var(--text)]">Recall Simulation</h3>
-              <p className="text-xs text-[var(--muted)] mt-1">
-                Last run: {simLastRun}
-              </p>
-            </div>
-            <button onClick={handleSimulate} disabled={simulating}
-              className="flex items-center gap-2 rounded-lg bg-[#3a6f8f] hover:bg-[#2e5a75] text-white px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60 shrink-0">
-              {simulating
-                ? <><RefreshCw size={14} className="animate-spin" />Running…</>
-                : <><Activity size={14} />Run Simulation</>}
-            </button>
-          </div>
-
-          {simDone && simResult && (
-            <div className="mt-5 pt-5 border-t border-[var(--border)] grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <p className="text-xs text-[var(--muted)]">Estimated Notification Time</p>
-                <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">{simResult.notificationTime}</p>
-              </div>
-              <div>
-                <p className="text-xs text-[var(--muted)]">Coverage</p>
-                <p className="text-xl font-bold text-[var(--text)] mt-1">{simResult.coverage}%</p>
-                <p className="text-xs text-[var(--muted)]">of affected batches identified</p>
-              </div>
-              <div>
-                <p className="text-xs text-[var(--muted)]">Recall Risk Score</p>
-                <span className={`inline-flex items-center gap-1.5 mt-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${simResult.riskCls}`}>
-                  <AlertTriangle size={11} />{simResult.riskLevel}
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6">
-          <h3 className="text-sm font-semibold text-[var(--text)] mb-4">Recall Risk Factors</h3>
-          <div className="space-y-3">
-            {riskFactors.length === 0
-              ? <p className="text-sm text-[var(--muted)]">No risk factors recorded.</p>
-              : riskFactors.map(item => (
-                  <div key={item.label} className="flex items-center gap-3">
-                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${item.dot}`} />
-                    <span className="text-sm text-[var(--text)]">{item.label}</span>
-                    <span className="ms-auto text-xs text-[var(--muted)]">{item.level}</span>
-                  </div>
-                ))
-            }
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // ── Tab: Regulatory Reports ──────────────────────────────────────────────────
-
-  function TabReports() {
-    return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {REPORTS.map(rpt => {
-          const Icon    = rpt.icon
-          const iconCls = REPORT_ICON_CLS[rpt.color] ?? REPORT_ICON_CLS.slate
-          return (
-            <div key={rpt.key} className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-5 flex flex-col gap-4">
-              <div className="flex items-start gap-3">
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${iconCls}`}>
-                  <Icon size={18} />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-[var(--text)] leading-snug">{t(`sfda.${rpt.key}`)}</p>
-                  <p className="text-xs text-[var(--muted)] mt-0.5 leading-relaxed">{t(`sfda.${rpt.key}_desc`)}</p>
-                </div>
-              </div>
-
-              <button
-                onClick={() => { void handleDownloadReport(rpt.key) }}
-                title="Download as PDF"
-                className="mt-auto flex items-center justify-center gap-1.5 rounded-lg bg-[#3a6f8f] hover:bg-[#2e5a75] text-white px-3 py-1.5 text-xs font-medium transition-colors"
-              >
-                <Download size={11} />{t('sfda.reports_download')}
-              </button>
-            </div>
-          )
-        })}
-      </div>
-    )
-  }
-
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
@@ -1084,14 +1137,70 @@ export default function SFDAClient() {
         ))}
       </div>
 
-      {/* Tab content */}
-      {activeTab === 'overview'     && <TabOverview />}
-      {activeTab === 'requirements' && <TabRequirements />}
-      {activeTab === 'inspection'   && <TabInspection />}
-      {activeTab === 'audit'        && <TabAudit />}
-      {activeTab === 'capa'         && <TabCAPA />}
-      {activeTab === 'recall'       && <TabRecall />}
-      {activeTab === 'reports'      && <TabReports />}
+      {/* Tab content — components defined at module scope, props passed explicitly */}
+      {activeTab === 'overview'     && (
+        <TabOverview
+          liveRequirements={liveRequirements}
+          recallStats={recallStats}
+          complianceScore={complianceScore}
+          qcFailed={qcFailed}
+          complianceData={complianceData}
+          complianceLoading={complianceLoading}
+          recallLoading={recallLoading}
+          capaList={capaList}
+          setActiveTab={setActiveTab}
+          setExpandedReq={setExpandedReq}
+        />
+      )}
+      {activeTab === 'requirements' && (
+        <TabRequirements
+          liveRequirements={liveRequirements}
+          expandedReq={expandedReq}
+          setExpandedReq={setExpandedReq}
+        />
+      )}
+      {activeTab === 'inspection'   && (
+        <TabInspection
+          complianceData={complianceData}
+          recallStats={recallStats}
+          capaList={capaList}
+          auditLog={auditLog}
+          generating={generating}
+          onExport={handleExport}
+        />
+      )}
+      {activeTab === 'audit'        && (
+        <TabAudit
+          auditLog={auditLog}
+          auditFilter={auditFilter}
+          setAuditFilter={setAuditFilter}
+          auditLoading={auditLoading}
+          auditError={auditError}
+          companyId={companyId}
+        />
+      )}
+      {activeTab === 'capa'         && (
+        <TabCAPA
+          capaList={capaList}
+          canEditSFDA={canEditSFDA}
+          setShowCAPAModal={setShowCAPAModal}
+        />
+      )}
+      {activeTab === 'recall'       && (
+        <TabRecall
+          recallStats={recallStats}
+          recallLoading={recallLoading}
+          simLastRun={simLastRun}
+          simulating={simulating}
+          simDone={simDone}
+          simResult={simResult}
+          riskFactors={riskFactors}
+          onSimulate={handleSimulate}
+        />
+      )}
+      {activeTab === 'reports'      && (
+        <TabReports onDownloadReport={handleDownloadReport} />
+      )}
 
       {/* CAPA modal */}
       {showCAPAModal && (
