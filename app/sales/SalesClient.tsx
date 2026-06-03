@@ -150,13 +150,11 @@ export default function SalesClient() {
     }
     setShowForm(false)
     toast.success(t('sales.created_toast'))
-    console.log('[logActivity] pre-call sale.created | companyId:', companyId, '| user:', user?.email)
     if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
       actionType: 'sale.created', entityType: 'sale', entityId: result.id,
       message: `${actorName(user?.email)} recorded a sale for ${form.product_name}`,
       metadata: { quantity: form.quantity, total_price: form.total_price },
     }).catch(err => console.error('[logActivity] sale.created failed:', err))
-    else console.warn('[logActivity] skipped sale.created — companyId is null')
   }
 
   async function handleDelete(id: string) {
@@ -169,6 +167,10 @@ export default function SalesClient() {
     const result = await deleteSale(id)
     if (result) {
       toast.success(t('sales.deleted_toast'))
+      if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
+        actionType: 'sale.deleted', entityType: 'sale', entityId: id,
+        message: `${actorName(user?.email)} deleted a sale record`,
+      }).catch(err => console.error('[logActivity] sale.deleted failed:', err))
     } else {
       toast.error(t('sales.error_delete'))
     }
@@ -192,13 +194,11 @@ export default function SalesClient() {
     const inserted = data?.length ?? 0
     if (inserted > 0) {
       toast.success(t(inserted !== 1 ? 'sales.import_n_plural' : 'sales.import_n', { n: fmtNum(inserted, lang) }))
-      console.log('[logActivity] pre-call sale.imported | companyId:', companyId, '| count:', inserted)
       if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
         actionType: 'sale.imported', entityType: 'sale',
         message: `${actorName(user?.email)} imported ${inserted} sale${inserted !== 1 ? 's' : ''}`,
         metadata: { count: inserted },
       }).catch(err => console.error('[logActivity] sale.imported failed:', err))
-      else console.warn('[logActivity] skipped sale.imported — companyId is null')
       refetch()
     }
     return { inserted, skipped: 0, errors: [] }

@@ -133,12 +133,10 @@ export default function ProductsClient() {
       }
       setProducts((prev) => [data, ...prev])
       toast.success(t('products.created_toast'))
-      console.log('[logActivity] pre-call product.created | companyId:', companyId, '| user:', user?.email)
       if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
         actionType: 'product.created', entityType: 'product', entityId: data.id,
         message: `${actorName(user?.email)} added product ${data.name}`,
       }).catch(err => console.error('[logActivity] product.created failed:', err))
-      else console.warn('[logActivity] skipped product.created — companyId is null')
     }
 
     setSaving(false)
@@ -161,6 +159,10 @@ export default function ProductsClient() {
     }
     setProducts((prev) => prev.filter((p) => p.id !== id))
     toast.success(t('products.deleted_toast'))
+    if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
+      actionType: 'product.deleted', entityType: 'product', entityId: id,
+      message: `${actorName(user?.email)} deleted a product`,
+    }).catch(err => console.error('[logActivity] product.deleted failed:', err))
   }
 
   async function handleProductImport(rows: Record<string, string>[]): Promise<ImportResult> {
@@ -186,13 +188,11 @@ export default function ProductsClient() {
     setProducts((prev) => [...(data ?? []), ...prev])
     if (inserted > 0) {
       toast.success(t(inserted !== 1 ? 'products.count_plural' : 'products.count', { n: fmtNum(inserted, lang) }))
-      console.log('[logActivity] pre-call product.imported | companyId:', companyId, '| count:', inserted)
       if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
         actionType: 'product.imported', entityType: 'product',
         message: `${actorName(user?.email)} imported ${inserted} product${inserted !== 1 ? 's' : ''}`,
         metadata: { count: inserted, skipped },
       }).catch(err => console.error('[logActivity] product.imported failed:', err))
-      else console.warn('[logActivity] skipped product.imported — companyId is null')
     }
     return { inserted, skipped, errors: [] }
   }

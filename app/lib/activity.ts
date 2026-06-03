@@ -6,19 +6,28 @@ import { supabase } from './supabase'
 export type ActivityActionType =
   | 'production_order.created'
   | 'production_order.updated'
+  | 'production_order.deleted'
+  | 'bill_of_materials.deleted'
   | 'qc_result.added'
+  | 'qc_result.deleted'
   | 'product.created'
   | 'product.imported'
+  | 'product.deleted'
   | 'raw_material.created'
   | 'raw_material.imported'
+  | 'raw_material.deleted'
   | 'qc_inspection.created'
   | 'qc_inspection.passed'
   | 'qc_inspection.failed'
   | 'qc_inspection.hold'
+  | 'qc_inspection.deleted'
   | 'sale.created'
   | 'sale.imported'
+  | 'sale.deleted'
   | 'invitation.created'
+  | 'invitation.cancelled'
   | 'team.role_changed'
+  | 'team.member_removed'
 
 // ── Role-based action type filter ────────────────────────────────────────────
 // Used by the dashboard feed to show only relevant activity per role.
@@ -27,26 +36,34 @@ export const ACTION_TYPES_BY_SECTION = {
   production: [
     'production_order.created',
     'production_order.updated',
+    'production_order.deleted',
+    'bill_of_materials.deleted',
     'qc_result.added',
+    'qc_result.deleted',
   ] as ActivityActionType[],
   quality: [
     'qc_inspection.created',
     'qc_inspection.passed',
     'qc_inspection.failed',
     'qc_inspection.hold',
+    'qc_inspection.deleted',
     'qc_result.added',
   ] as ActivityActionType[],
   inventory: [
     'raw_material.created',
     'raw_material.imported',
+    'raw_material.deleted',
   ] as ActivityActionType[],
   sales: [
     'sale.created',
     'sale.imported',
+    'sale.deleted',
   ] as ActivityActionType[],
   admin: [
     'invitation.created',
+    'invitation.cancelled',
     'team.role_changed',
+    'team.member_removed',
   ] as ActivityActionType[],
 }
 

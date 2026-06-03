@@ -213,13 +213,11 @@ export default function TeamClient() {
 
     setInvitedEmail(inviteEmail.trim().toLowerCase())
     setInviteEmail('')
-    console.log('[logActivity] pre-call invitation.created | companyId:', companyId, '| user:', user?.email)
     if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
       actionType: 'invitation.created', entityType: 'invitation',
       message: `${actorName(user?.email)} invited ${inviteEmail.trim().toLowerCase()} as ${inviteRole}`,
       metadata: { invited_email: inviteEmail.trim().toLowerCase(), role: inviteRole },
     }).catch(err => console.error('[logActivity] invitation.created failed:', err))
-    else console.warn('[logActivity] skipped invitation.created — companyId is null')
     loadMembers()
   }
 
@@ -249,13 +247,11 @@ export default function TeamClient() {
     if (err) { toast.error(err.message); return }
 
     toast.success(t('team.role_updated'))
-    console.log('[logActivity] pre-call team.role_changed | companyId:', companyId, '| user:', user?.email)
     if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
       actionType: 'team.role_changed', entityType: 'team_member', entityId: m.user_id,
       message: `${actorName(user?.email)} changed ${m.email}'s role to ${editRole}`,
       metadata: { old_role: m.role, new_role: editRole, member_email: m.email },
     }).catch(err => console.error('[logActivity] team.role_changed failed:', err))
-    else console.warn('[logActivity] skipped team.role_changed — companyId is null')
     setEditingId(null)
     loadMembers()
   }
@@ -272,6 +268,10 @@ export default function TeamClient() {
     const { error: err } = await supabase.rpc('remove_team_member', { p_user_id: m.user_id })
     if (err) { toast.error(err.message); return }
     toast.success(t('team.removed_toast'))
+    if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
+      actionType: 'team.member_removed', entityType: 'team_member', entityId: m.user_id,
+      message: `${actorName(user?.email)} removed ${m.email} from the team`,
+    }).catch(err => console.error('[logActivity] team.member_removed failed:', err))
     loadMembers()
   }
 
@@ -285,6 +285,10 @@ export default function TeamClient() {
     const { error: err } = await supabase.rpc('cancel_invitation', { p_invitation_id: m.invitation_id })
     if (err) { toast.error(err.message); return }
     toast.success(t('team.invited_toast'))
+    if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
+      actionType: 'invitation.cancelled', entityType: 'invitation', entityId: m.invitation_id,
+      message: `${actorName(user?.email)} cancelled the invitation for ${m.email}`,
+    }).catch(err => console.error('[logActivity] invitation.cancelled failed:', err))
     loadMembers()
   }
 

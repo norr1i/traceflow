@@ -128,12 +128,10 @@ export default function RawMaterialsClient() {
       }
       setMaterials((prev) => [data, ...prev])
       toast.success(t('materials.created_toast'))
-      console.log('[logActivity] pre-call raw_material.created | companyId:', companyId, '| user:', user?.email)
       if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
         actionType: 'raw_material.created', entityType: 'raw_material', entityId: data.id,
         message: `${actorName(user?.email)} added raw material ${data.name}`,
       }).catch(err => console.error('[logActivity] raw_material.created failed:', err))
-      else console.warn('[logActivity] skipped raw_material.created — companyId is null')
     }
 
     setSaving(false); setShowForm(false); setForm(empty)
@@ -157,6 +155,10 @@ export default function RawMaterialsClient() {
     }
     setMaterials((prev) => prev.filter((m) => m.id !== id))
     toast.success(t('materials.deleted_toast'))
+    if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
+      actionType: 'raw_material.deleted', entityType: 'raw_material', entityId: id,
+      message: `${actorName(user?.email)} deleted a raw material`,
+    }).catch(err => console.error('[logActivity] raw_material.deleted failed:', err))
   }
 
   async function handleMaterialImport(rows: Record<string, string>[]): Promise<ImportResult> {
@@ -183,13 +185,11 @@ export default function RawMaterialsClient() {
     if (inserted > 0) {
       setMaterials((prev) => [...inserted_rows, ...prev])
       toast.success(t(inserted !== 1 ? 'materials.count_plural' : 'materials.count', { n: fmtNum(inserted, lang) }))
-      console.log('[logActivity] pre-call raw_material.imported | companyId:', companyId, '| count:', inserted)
       if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
         actionType: 'raw_material.imported', entityType: 'raw_material',
         message: `${actorName(user?.email)} imported ${inserted} raw material${inserted !== 1 ? 's' : ''}`,
         metadata: { count: inserted },
       }).catch(err => console.error('[logActivity] raw_material.imported failed:', err))
-      else console.warn('[logActivity] skipped raw_material.imported — companyId is null')
     }
     return { inserted, skipped: 0, errors }
   }
