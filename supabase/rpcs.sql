@@ -58,33 +58,29 @@ BEGIN
   END IF;
 
   -- ── QC 7-day trend ──────────────────────────────────────────
-  IF cardinality(v_batch_ids) > 0 THEN
-    SELECT v_result || jsonb_build_object(
-      'qc_trend', COALESCE(jsonb_agg(
-        jsonb_build_object(
-          'date', to_char(day, 'YYYY-MM-DD'),
-          'pass', COALESCE(q.cnt_pass, 0),
-          'fail', COALESCE(q.cnt_fail, 0),
-          'hold', COALESCE(q.cnt_hold, 0)
-        ) ORDER BY day
-      ), '[]'::jsonb)
-    )
-    INTO v_result
-    FROM generate_series(v_week_start::date, CURRENT_DATE, '1 day'::interval) AS day
-    LEFT JOIN (
-      SELECT
-        date_trunc('day', inspected_at)::date             AS d,
-        COUNT(*) FILTER (WHERE status = 'pass')::int      AS cnt_pass,
-        COUNT(*) FILTER (WHERE status = 'fail')::int      AS cnt_fail,
-        COUNT(*) FILTER (WHERE status = 'hold')::int      AS cnt_hold
-      FROM batch_qc_results
-      WHERE batch_id = ANY(v_batch_ids)
-        AND inspected_at >= v_week_start
-      GROUP BY d
-    ) q ON q.d = day;
-  ELSE
-    v_result := v_result || '{"qc_trend":[]}'::jsonb;
-  END IF;
+  SELECT v_result || jsonb_build_object(
+    'qc_trend', COALESCE(jsonb_agg(
+      jsonb_build_object(
+        'date', to_char(day, 'YYYY-MM-DD'),
+        'pass', COALESCE(q.cnt_pass, 0),
+        'fail', COALESCE(q.cnt_fail, 0),
+        'hold', COALESCE(q.cnt_hold, 0)
+      ) ORDER BY day
+    ), '[]'::jsonb)
+  )
+  INTO v_result
+  FROM generate_series(v_week_start::date, CURRENT_DATE, '1 day'::interval) AS day
+  LEFT JOIN (
+    SELECT
+      inspection_date                                       AS d,
+      COUNT(*) FILTER (WHERE status = 'passed')::int      AS cnt_pass,
+      COUNT(*) FILTER (WHERE status = 'failed')::int      AS cnt_fail,
+      COUNT(*) FILTER (WHERE status = 'conditional')::int AS cnt_hold
+    FROM quality_inspections
+    WHERE company_id = p_company_id
+      AND inspection_date >= v_week_start::date
+    GROUP BY d
+  ) q ON q.d = day;
 
   -- ── Recall risk ─────────────────────────────────────────────
   IF cardinality(v_batch_ids) > 0 THEN
