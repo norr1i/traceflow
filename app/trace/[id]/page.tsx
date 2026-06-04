@@ -126,13 +126,18 @@ function logScanEvent(batchId: string) {
     /Safari\//i.test(ua) ? 'Safari'  :
     /Firefox\//i.test(ua)? 'Firefox' : 'Other'
 
-  supabase.from('scan_events').insert({
-    batch_id: batchId,
-    scanned_at: new Date().toISOString(),
-    device_type: isMobile ? 'mobile' : 'desktop',
-    browser,
-    user_agent: ua.slice(0, 300),
-  }).catch(err => console.error('[logScanEvent] insert failed:', err))
+  void supabase
+    .from('scan_events')
+    .insert({
+      batch_id: batchId,
+      scanned_at: new Date().toISOString(),
+      device_type: isMobile ? 'mobile' : 'desktop',
+      browser,
+      user_agent: ua.slice(0, 300),
+    })
+    .then(({ error }) => {
+      if (error) console.error('[logScanEvent] insert failed:', error)
+    })
 }
 
 // ── Page ───────────────────────────────────────────────────────────────────
