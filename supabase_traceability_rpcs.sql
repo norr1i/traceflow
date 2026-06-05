@@ -308,20 +308,16 @@ BEGIN
     -- ── Source 8: distribution_records ───────────────────────
     -- Outbound shipment records for this batch.
     -- IMPORTANT: batch_id is TEXT in this table — cast UUID to text.
-    -- One event per shipment row (a batch may ship in multiple lots).
+    -- Note: the production schema has id, batch_id, shipped_at,
+    -- notes, created_at, company_id — no recipient/quantity columns.
     SELECT
       'distribution.shipped',
       dr.shipped_at,
       'Shipped to Distributor',
-      'Dispatched to ' || COALESCE(dr.recipient, 'recipient')
-        || CASE WHEN dr.quantity IS NOT NULL
-                THEN ' — ' || dr.quantity::text || ' units.'
-                ELSE '.'
-           END,
+      COALESCE(dr.notes, 'Batch dispatched.'),
       'distribution_records',
       jsonb_strip_nulls(jsonb_build_object(
-        'recipient',  dr.recipient,
-        'quantity',   dr.quantity,
+        'notes',      dr.notes,
         'shipped_at', dr.shipped_at
       ))
     FROM  distribution_records dr
