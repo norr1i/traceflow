@@ -129,28 +129,28 @@ function Empty({ text }: { text: string }) {
 }
 
 // ── Scan event logging ─────────────────────────────────────────────────────
+// Uses the log_scan_event SECURITY DEFINER RPC instead of a direct insert.
+// company_id is derived server-side from the batch — never caller-supplied.
 
 function logScanEvent(batchId: string) {
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
   const isMobile = /Mobi|Android|iPhone|iPad/i.test(ua)
   const browser =
-    /Edg\//i.test(ua)    ? 'Edge'    :
-    /OPR\//i.test(ua)    ? 'Opera'   :
-    /Chrome\//i.test(ua) ? 'Chrome'  :
-    /Safari\//i.test(ua) ? 'Safari'  :
-    /Firefox\//i.test(ua)? 'Firefox' : 'Other'
+    /Edg\//i.test(ua)     ? 'Edge'    :
+    /OPR\//i.test(ua)     ? 'Opera'   :
+    /Chrome\//i.test(ua)  ? 'Chrome'  :
+    /Safari\//i.test(ua)  ? 'Safari'  :
+    /Firefox\//i.test(ua) ? 'Firefox' : 'Other'
 
   void supabase
-    .from('scan_events')
-    .insert({
-      batch_id: batchId,
-      scanned_at: new Date().toISOString(),
-      device_type: isMobile ? 'mobile' : 'desktop',
-      browser,
-      user_agent: ua.slice(0, 300),
+    .rpc('log_scan_event', {
+      p_batch_id:    batchId,
+      p_device_type: isMobile ? 'mobile' : 'desktop',
+      p_browser:     browser,
+      p_user_agent:  ua.slice(0, 300),
     })
     .then(({ error }) => {
-      if (error) console.error('[logScanEvent] insert failed:', error)
+      if (error) console.error('[logScanEvent] rpc failed:', error)
     })
 }
 
