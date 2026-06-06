@@ -2,12 +2,18 @@
 
 import { useState, useMemo, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
-import { useAuth } from '../lib/auth-context'
+import { useAuth, useRole } from '../lib/auth-context'
 import { useT, fmtNum } from '../lib/i18n'
+import { canEdit } from '../lib/permissions'
+import { useToast } from '../components/Toast'
+import { useConfirm } from '../components/ConfirmDialog'
+import { logActivity, actorName } from '../lib/activity'
+import { useRecalls, type RecallFormData, type RecallSeverity, type RecallStatus } from '../hooks/useRecalls'
 import {
   AlertTriangle, Search, Download, ChevronDown, ChevronRight,
   Package, FlaskConical, Layers, ShoppingCart, Network,
   XCircle, AlertCircle, Loader2, X, ClipboardList,
+  Plus, RefreshCw, Trash2,
 } from 'lucide-react'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -342,6 +348,275 @@ function exportToCSV(batches: RecallBatch[]) {
   URL.revokeObjectURL(url)
 }
 
+// ── Recall Registry ────────────────────────────────────────────────────────
+// Formal recall record management — separate from the impact lookup tool.
+
+const SEVERITY_BADGE: Record<RecallSeverity, string> = {
+  low:      'bg-green-100  text-green-700  dark:bg-green-900/20  dark:text-green-400',
+  medium:   'bg-amber-100  text-amber-700  dark:bg-amber-900/20  dark:text-amber-400',
+  high:     'bg-orange-100 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400',
+  critical: 'bg-red-100    text-red-700    dark:bg-red-900/20    dark:text-red-400',
+}
+
+const STATUS_BADGE: Record<RecallStatus, string> = {
+  open:        'bg-blue-100    text-blue-700    dark:bg-blue-900/20    dark:text-blue-400',
+  in_progress: 'bg-amber-100   text-amber-700   dark:bg-amber-900/20   dark:text-amber-400',
+  closed:      'bg-emerald-100 text-emerald-700  dark:bg-emerald-900/20 dark:text-emerald-400',
+}
+
+const EMPTY_RECALL: RecallFormData = {
+  title: '', reason: '', severity: 'medium', root_cause: '',
+  corrective_action: '', affected_units: '', initiated_by_name: '',
+  batch_id: null, product_id: null,
+}
+
+function RecallCreateModal({ onClose, onSave, saving }: {
+  onClose: () => void
+  onSave:  (d: RecallFormData) => Promise<void>
+  saving:  boolean
+}) {
+  const [form, setForm] = useState<RecallFormData>(EMPTY_RECALL)
+  const f = (k: keyof RecallFormData) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+      setForm(prev => ({ ...prev, [k]: e.target.value }))
+
+  const cls = 'w-full rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC] dark:bg-[#262E36]/55 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]'
+  const lbl = 'mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-lg rounded-2xl border border-white/[0.08] bg-[#F1EFEC] dark:bg-[#141e28] p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">New Recall</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"><X size={20} /></button>
+        </div>
+        <form onSubmit={async e => { e.preventDefault(); await onSave(form) }} className="space-y-4">
+          <div>
+            <label className={lbl}>Title *</label>
+            <input required value={form.title} onChange={f('title')} className={cls} placeholder="Recall title or reference" />
+          </div>
+          <div>
+            <label className={lbl}>Reason *</label>
+            <textarea required rows={2} value={form.reason} onChange={f('reason')} className={cls} placeholder="Reason for recall" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={lbl}>Severity *</label>
+              <select value={form.severity} onChange={f('severity')} className={cls}>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
+              </select>
+            </div>
+            <div>
+              <label className={lbl}>Affected Units</label>
+              <input type="number" min={0} value={form.affected_units} onChange={f('affected_units')} className={cls} placeholder="0" />
+            </div>
+          </div>
+          <div>
+            <label className={lbl}>Initiated By</label>
+            <input value={form.initiated_by_name} onChange={f('initiated_by_name')} className={cls} placeholder="Name of initiating officer" />
+          </div>
+          <div>
+            <label className={lbl}>Root Cause</label>
+            <textarea rows={2} value={form.root_cause} onChange={f('root_cause')} className={cls} placeholder="Root cause analysis" />
+          </div>
+          <div>
+            <label className={lbl}>Corrective Action</label>
+            <textarea rows={2} value={form.corrective_action} onChange={f('corrective_action')} className={cls} placeholder="Actions taken or planned" />
+          </div>
+          <div>
+            <label className={lbl}>Linked Batch ID <span className="font-normal text-gray-400">(optional UUID)</span></label>
+            <input value={form.batch_id ?? ''} onChange={f('batch_id')} className={cls} placeholder="e.g. 6db4527d-cbe8-…" />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onClose}
+              className="rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/45">
+              Cancel
+            </button>
+            <button type="submit" disabled={saving}
+              className="rounded-lg bg-[#3a6f8f] px-4 py-2 text-sm font-medium text-white hover:bg-[#2d5a74] disabled:opacity-60">
+              {saving ? 'Creating…' : 'Create Recall'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function RecallRegistry() {
+  const { user, companyId } = useAuth()
+  const role    = useRole()
+  const toast   = useToast()
+  const confirm = useConfirm()
+  const canEditRecall = canEdit(role, 'recall')
+
+  const { recalls, stats, loading, error, refresh, createRecall, updateStatus, deleteRecall } = useRecalls()
+
+  const [showCreate, setShowCreate] = useState(false)
+  const [saving,     setSaving]     = useState(false)
+
+  async function handleCreate(data: RecallFormData) {
+    setSaving(true)
+    const result = await createRecall(data)
+    setSaving(false)
+    if (!result) { toast.error('Failed to create recall'); return }
+    setShowCreate(false)
+    toast.success(`Recall ${result.recall_number ?? ''} created`)
+    if (companyId) {
+      void logActivity({
+        companyId, actorUserId: user?.id, actorEmail: user?.email,
+        actionType: 'recall.initiated', entityType: 'recall', entityId: result.id,
+        message: `${actorName(user?.email)} initiated recall: ${data.title}`,
+        metadata: { recall_number: result.recall_number, severity: data.severity },
+      })
+    }
+  }
+
+  async function handleStatusChange(id: string, current: RecallStatus) {
+    const next: RecallStatus = current === 'open' ? 'in_progress' : 'closed'
+    const ok = await updateStatus(id, next)
+    if (!ok) toast.error('Failed to update status')
+    else toast.success(next === 'closed' ? 'Recall closed' : 'Recall status updated')
+  }
+
+  async function handleDelete(id: string, num: string | null) {
+    const ok = await confirm({
+      title: 'Delete Recall', message: `Delete ${num ?? 'this recall'}?`,
+      confirmLabel: 'Delete',
+    })
+    if (!ok) return
+    const deleted = await deleteRecall(id)
+    if (deleted) toast.success('Recall deleted')
+    else         toast.error('Failed to delete recall')
+  }
+
+  return (
+    <div className="space-y-4">
+      {showCreate && (
+        <RecallCreateModal onClose={() => setShowCreate(false)} onSave={handleCreate} saving={saving} />
+      )}
+
+      {/* Stats row */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Open',        value: stats?.open        ?? '—', cls: 'text-blue-600 dark:text-blue-400'   },
+          { label: 'In Progress', value: stats?.in_progress ?? '—', cls: 'text-amber-600 dark:text-amber-400' },
+          { label: 'Critical',    value: stats?.critical_open ?? '—', cls: 'text-red-600 dark:text-red-400'   },
+          { label: 'Closed',      value: stats?.closed      ?? '—', cls: 'text-emerald-600 dark:text-emerald-400' },
+        ].map(s => (
+          <div key={s.label}
+            className="rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-4 py-3 shadow-sm">
+            <p className="text-xs text-gray-500 dark:text-gray-400">{s.label}</p>
+            <p className={`text-xl font-bold ${s.cls}`}>{loading ? '—' : s.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Toolbar */}
+      <div className="flex items-center justify-between gap-3">
+        <button onClick={refresh}
+          className="flex items-center gap-1.5 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 shadow-sm hover:bg-[#D1CFC9]/30 transition">
+          <RefreshCw size={14} />Refresh
+        </button>
+        {canEditRecall && (
+          <button onClick={() => setShowCreate(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-[#3a6f8f] px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#2d5a74] transition">
+            <Plus size={14} />New Recall
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+          <AlertTriangle size={14} />{error}
+        </div>
+      )}
+
+      {/* Table */}
+      <div className="rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 shadow-sm overflow-hidden">
+        {loading ? (
+          <div className="space-y-3 p-5">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-10 animate-pulse rounded-lg bg-gray-100 dark:bg-[#262E36]/55" />
+            ))}
+          </div>
+        ) : recalls.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
+            <AlertTriangle size={40} className="mb-3 opacity-40" />
+            <p className="text-sm font-medium">No recalls on record.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] bg-[#D1CFC9]/50 dark:bg-[#262E36]/38 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <th className="px-5 py-3 text-start">Recall #</th>
+                  <th className="px-5 py-3 text-start">Title</th>
+                  <th className="px-5 py-3 text-start">Severity</th>
+                  <th className="px-5 py-3 text-start">Status</th>
+                  <th className="px-5 py-3 text-start">Initiated</th>
+                  <th className="px-5 py-3 text-start">Affected</th>
+                  <th className="px-5 py-3" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50 dark:divide-[#B3B7BA]/[0.07]">
+                {recalls.map(recall => (
+                  <tr key={recall.id} className="hover:bg-blue-50/40 dark:hover:bg-blue-900/10 transition-colors">
+                    <td className="px-5 py-3.5 font-mono text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                      {recall.recall_number ?? `#${recall.id.slice(0, 8)}`}
+                    </td>
+                    <td className="px-5 py-3.5 max-w-xs">
+                      <p className="font-medium text-gray-900 dark:text-white leading-snug">{recall.title}</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 truncate">{recall.reason}</p>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${SEVERITY_BADGE[recall.severity]}`}>
+                        {recall.severity}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_BADGE[recall.status]}`}>
+                        {recall.status.replace('_', ' ')}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5 text-gray-600 dark:text-gray-400 whitespace-nowrap text-xs">
+                      {new Date(recall.initiated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </td>
+                    <td className="px-5 py-3.5 text-gray-700 dark:text-gray-300">
+                      {recall.affected_units != null ? recall.affected_units.toLocaleString() : '—'}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center justify-end gap-2">
+                        {canEditRecall && recall.status !== 'closed' && (
+                          <button
+                            onClick={() => handleStatusChange(recall.id, recall.status)}
+                            className="rounded-md border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/45 transition whitespace-nowrap">
+                            {recall.status === 'open' ? 'Start' : 'Close'}
+                          </button>
+                        )}
+                        {canEditRecall && (
+                          <button
+                            onClick={() => handleDelete(recall.id, recall.recall_number)}
+                            className="rounded p-1 text-gray-300 dark:text-gray-600 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-500 dark:hover:text-red-400 transition-colors">
+                            <Trash2 size={15} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function RecallClient() {
@@ -529,8 +804,31 @@ export default function RecallClient() {
     }
   }, [query, searchType, companyId])
 
+  const [view, setView] = useState<'lookup' | 'registry'>('lookup')
+
   return (
     <div className="space-y-5">
+
+      {/* ── View switcher ─────────────────────────────────────────────────── */}
+      <div className="flex gap-1 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 p-1 shadow-sm w-fit">
+        {([
+          { key: 'lookup'   as const, label: 'Impact Lookup'   },
+          { key: 'registry' as const, label: 'Recall Registry'  },
+        ]).map(v => (
+          <button key={v.key} onClick={() => setView(v.key)}
+            className={`rounded-md px-4 py-1.5 text-sm font-medium transition ${
+              view === v.key
+                ? 'bg-[#3a6f8f] text-white shadow-sm'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+            }`}>
+            {v.label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'registry' && <RecallRegistry />}
+
+      {view === 'lookup' && <>
 
       {/* ── Search panel ──────────────────────────────────────────────────── */}
       <div className="rounded-2xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 shadow-sm p-5">
@@ -828,6 +1126,8 @@ export default function RecallClient() {
           </div>
         </div>
       )}
+
+      </>}
     </div>
   )
 }
