@@ -862,6 +862,7 @@ export default function SFDAClient() {
   const [simLastRun,  setSimLastRun]  = useState('')
 
   const [capaList,      setCapaList]      = useState<CAPAItem[]>([])
+  const [capaLoading,   setCapaLoading]   = useState(false)
   const [showCAPAModal, setShowCAPAModal] = useState(false)
   const [capaForm,      setCapaForm]      = useState({
     title: '', severity: 'major' as Severity,
@@ -882,6 +883,44 @@ export default function SFDAClient() {
 
   const [complianceData,    setComplianceData]    = useState({ qcTotal: 0, qcPassed: 0, qcLastDate: null as string | null, batchCount: 0, auditCount: 0 })
   const [complianceLoading, setComplianceLoading] = useState(false)
+
+  // Load CAPAs from the capas table. Falls back gracefully if table not yet deployed.
+  useEffect(() => {
+    if (!companyId) return
+    setCapaLoading(true)
+    const today = new Date().toISOString().slice(0, 10)
+    supabase
+      .from('capas')
+      .select('id, capa_number, title, severity, root_cause, owner_name, due_date, status, closed_at')
+      .eq('company_id', companyId)
+      .order('created_at', { ascending: false })
+      .limit(100)
+      .then(({ data, error }) => {
+        if (!error && data) {
+          setCapaList(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (data as any[]).map(r => {
+              const isOverdue = r.status !== 'closed' && r.due_date && r.due_date < today
+              const sfdaStatus: CAPAStatus =
+                r.status === 'closed' ? 'closed'
+                : isOverdue           ? 'overdue'
+                : r.status === 'open' ? 'open'
+                : 'in_progress'
+              return {
+                id:       r.capa_number ?? r.id.slice(0, 12),
+                title:    r.title,
+                severity: (r.severity ?? 'major') as Severity,
+                due:      r.due_date ?? '',
+                assigned: r.owner_name ?? '—',
+                root:     r.root_cause ?? '',
+                status:   sfdaStatus,
+              } satisfies CAPAItem
+            })
+          )
+        }
+        setCapaLoading(false)
+      })
+  }, [companyId])
 
   // Fetch audit entries from public.activity_logs (company-scoped, newest first)
   useEffect(() => {
@@ -1088,9 +1127,46 @@ export default function SFDAClient() {
     toast.success('Recall simulation completed successfully')
   }
 
-  function handleAddCAPA(e: React.FormEvent) {
+  async function handleAddCAPA(e: React.FormEvent) {
     e.preventDefault()
     if (!capaForm.title.trim() || !capaForm.due || !capaForm.assigned.trim()) return
+    if (companyId) {
+      // Persist to DB; the useEffect will reload. If table not deployed yet, fall back to local state.
+      const { data, error } = await supabase
+        .from('capas')
+        .insert([{
+          company_id:        companyId,
+          title:             capaForm.title,
+          severity:          capaForm.severity,
+          root_cause:        capaForm.root || null,
+          owner_name:        capaForm.assigned,
+          due_date:          capaForm.due,
+          status:            capaForm.status === 'in_progress' ? 'investigation'
+                            : capaForm.status === 'overdue'    ? 'open'
+                            : capaForm.status,
+        }])
+        .select('id, capa_number')
+        .single()
+      if (!error && data) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const row = data as any
+        const newCapa: CAPAItem = {
+          id:       row.capa_number ?? row.id.slice(0, 12),
+          title:    capaForm.title,
+          severity: capaForm.severity,
+          due:      capaForm.due,
+          assigned: capaForm.assigned,
+          root:     capaForm.root,
+          status:   capaForm.status,
+        }
+        setCapaList(prev => [newCapa, ...prev])
+        setShowCAPAModal(false)
+        setCapaForm({ title: '', severity: 'major', due: '', assigned: '', root: '', status: 'open' })
+        toast.success('CAPA action added successfully')
+        return
+      }
+    }
+    // Fallback: local-only (capas table not yet deployed)
     const nextNum = capaList.length + 1
     const newCapa: CAPAItem = {
       id:       `CAPA-${new Date().getFullYear()}-${String(nextNum).padStart(3, '0')}`,
