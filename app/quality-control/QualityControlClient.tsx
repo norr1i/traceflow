@@ -11,7 +11,7 @@ import { logActivity, actorName } from '../lib/activity'
 import { useT, fmtNum } from '../lib/i18n'
 import {
   ShieldCheck, ShieldX, ClipboardList, AlertTriangle,
-  CheckCircle2, XCircle, ChevronDown, Search, Plus,
+  CheckCircle2, XCircle, Clock, ChevronDown, Search, Plus,
   RefreshCw, TrendingUp, Trash2, X, Lock, Unlock,
 } from 'lucide-react'
 import PaginationBar from '../components/PaginationBar'
@@ -370,7 +370,6 @@ export default function QualityControlClient() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] bg-[#D1CFC9]/50 dark:bg-[#262E36]/38 text-start text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                      <th className="px-5 py-3">{t('quality.id_col')}</th>
                       <th className="px-5 py-3">{t('quality.batch_col')}</th>
                       <th className="px-5 py-3">{t('quality.date_col')}</th>
                       <th className="px-5 py-3">{t('quality.result_col')}</th>
@@ -383,9 +382,8 @@ export default function QualityControlClient() {
                     {filtered.map((item) => (
                       <tr key={item.id} className="hover:bg-blue-50/40 dark:hover:bg-blue-900/10 transition-colors">
                         <td className="px-5 py-3.5 font-mono text-xs text-gray-500 dark:text-gray-400">
-                          #{String(item.id).slice(0, 8)}
+                          ···{String(item.batch_id ?? '').slice(-6)}
                         </td>
-                        <td className="px-5 py-3.5 font-medium text-gray-800 dark:text-gray-200">{item.batch_id}</td>
                         <td className="px-5 py-3.5 text-gray-700 dark:text-gray-300">
                           {item.inspection_date
                             ? new Date(item.inspection_date).toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' })
@@ -397,10 +395,20 @@ export default function QualityControlClient() {
                               <CheckCircle2 size={12} />
                               {t('quality.passed_label')}
                             </span>
+                          ) : item.status === 'pending' ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 dark:bg-amber-900/20 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:text-amber-400 ring-1 ring-amber-200 dark:ring-amber-800">
+                              <Clock size={12} />
+                              {t('quality.pending')}
+                            </span>
+                          ) : item.status === 'conditional' ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 dark:bg-blue-900/20 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-400 ring-1 ring-blue-200 dark:ring-blue-800">
+                              <AlertTriangle size={12} />
+                              {t('quality.conditional')}
+                            </span>
                           ) : (
                             <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 dark:bg-red-900/20 px-2.5 py-1 text-xs font-semibold text-red-700 dark:text-red-400 ring-1 ring-red-200 dark:ring-red-800">
                               <XCircle size={12} />
-                              {item.status === 'pending' ? t('quality.pending') : item.status === 'conditional' ? t('quality.conditional') : t('quality.failed_label')}
+                              {t('quality.failed_label')}
                             </span>
                           )}
                         </td>
@@ -443,7 +451,6 @@ export default function QualityControlClient() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] bg-[#D1CFC9]/50 dark:bg-[#262E36]/38 text-start text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                      <th className="px-5 py-3">{t('quality.defect_id')}</th>
                       <th className="px-5 py-3">{t('quality.defect_type')}</th>
                       <th className="px-5 py-3">{t('quality.severity_col')}</th>
                       <th className="px-5 py-3">{t('quality.description_col')}</th>
@@ -459,9 +466,6 @@ export default function QualityControlClient() {
                       )
                       .map((defect) => (
                         <tr key={defect.id} className="hover:bg-red-50/30 dark:hover:bg-red-900/10 transition-colors">
-                          <td className="px-5 py-3.5 font-mono text-xs text-gray-500 dark:text-gray-400">
-                            #{String(defect.id).slice(0, 8)}
-                          </td>
                           <td className="px-5 py-3.5 font-medium text-gray-800 dark:text-gray-200">
                             {defect.defect_type || '—'}
                           </td>

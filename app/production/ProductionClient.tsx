@@ -361,7 +361,9 @@ export default function ProductionClient() {
                 </div>
                 <div className="w-full text-center">
                   <p className="text-sm font-semibold text-gray-900 dark:text-white">{qrOrder.products?.name ?? '—'}</p>
-                  <p className="mt-0.5 font-mono text-xs text-gray-400">{qrOrder.id}</p>
+                  <p className="mt-0.5 text-xs text-gray-400">
+                    {t('production.batch_ref')} ···{qrOrder.id.slice(-8)}
+                  </p>
                 </div>
                 <div className="flex w-full gap-2">
                   <button onClick={handleCopyLink}
@@ -393,7 +395,7 @@ export default function ProductionClient() {
             <div className="flex items-start justify-between border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] px-6 py-4">
               <div>
                 <h2 className="text-base font-semibold text-gray-900 dark:text-white">{t('production.bom_title')}</h2>
-                <p className="mt-0.5 text-xs text-gray-400">{materialsOrder.products?.name} · {materialsOrder.id.slice(0, 8)}</p>
+                <p className="mt-0.5 text-xs text-gray-400">{materialsOrder.products?.name} · {new Date(materialsOrder.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</p>
               </div>
               <button onClick={() => { setMaterialsOrder(null); setBomEntries([]) }} className="ml-4 mt-0.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
                 <X size={20} />
@@ -481,7 +483,7 @@ export default function ProductionClient() {
             <div className="flex items-start justify-between border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] px-6 py-4">
               <div>
                 <h2 className="text-base font-semibold text-gray-900 dark:text-white">{t('production.qc_title')}</h2>
-                <p className="mt-0.5 text-xs text-gray-400">{qcOrder.products?.name} · {qcOrder.id.slice(0, 8)}</p>
+                <p className="mt-0.5 text-xs text-gray-400">{qcOrder.products?.name} · {new Date(qcOrder.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</p>
               </div>
               <button onClick={() => { setQcOrder(null); setQcEntries([]) }} className="ml-4 mt-0.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
                 <X size={20} />

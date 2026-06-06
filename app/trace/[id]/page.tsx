@@ -287,7 +287,8 @@ export default function PublicTracePage() {
           {order.completed_at && <Row label="Completed" value={fmt(order.completed_at)} />}
           <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-gray-50 dark:bg-gray-700/40 px-3 py-2">
             <QrCode size={12} className="shrink-0 text-gray-400" />
-            <span className="font-mono text-[10px] text-gray-400 break-all">{order.id}</span>
+            <span className="text-[10px] text-gray-400 mr-1.5">Batch Reference</span>
+            <span className="font-mono text-[10px] text-gray-400 break-all">···{order.id.slice(-12)}</span>
           </div>
         </Section>
 

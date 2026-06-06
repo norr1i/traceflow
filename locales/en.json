@@ -217,6 +217,7 @@
     "deleted_toast": "Order deleted",
     "error_create": "Failed to create order",
     "error_update": "Failed to update order",
+    "batch_ref": "Batch Ref",
     "batch_qr": "Batch QR Code",
     "copy_link": "Copy link",
     "download": "Download",
@@ -494,6 +495,8 @@
     "failed_qc_sub": "failed QC batches",
     "distributed": "distributed",
     "distinct_products": "distinct products with sales",
+    "avg_order_value": "Avg. Order Value",
+    "per_completed_order": "per completed order",
     "section": {
       "qc_trend": "QC Trend — Last 7 Days",
       "qc_trend_sub": "Daily pass / fail / hold",

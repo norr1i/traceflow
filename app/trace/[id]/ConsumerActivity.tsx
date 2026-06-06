@@ -53,6 +53,18 @@ function estimateUniqueConsumers(records: ScanRecord[]): number {
   return uas.size > 0 ? uas.size : records.length
 }
 
+function repeatConsumerRate(records: ScanRecord[]): string {
+  const uaCounts = new Map<string, number>()
+  for (const r of records) {
+    if (!r.userAgent) continue
+    uaCounts.set(r.userAgent, (uaCounts.get(r.userAgent) ?? 0) + 1)
+  }
+  const unique = uaCounts.size
+  if (unique < 2) return '—'
+  const repeaters = [...uaCounts.values()].filter(c => c > 1).length
+  return `${Math.round((repeaters / unique) * 100)}%`
+}
+
 function buildTrendData(records: ScanRecord[], days: 7 | 30) {
   const buckets = new Map<string, number>()
   const now = new Date()
@@ -266,25 +278,26 @@ export function ConsumerActivity({ events }: { events: JourneyEvent[] }) {
     )
   }
 
-  const firstScan   = records[total - 1]
-  const lastScan    = records[0]
-  const uniqueEst   = estimateUniqueConsumers(records)
-  const daySpan     = Math.max(1, Math.round(
+  const firstScan    = records[total - 1]
+  const lastScan     = records[0]
+  const uniqueEst    = estimateUniqueConsumers(records)
+  const repeatRate   = repeatConsumerRate(records)
+  const daySpan      = Math.max(1, Math.round(
     (new Date(lastScan.timestamp).getTime() - new Date(firstScan.timestamp).getTime()) / 86_400_000,
   ))
-  const velocity    = total > 1 ? `${(total / daySpan).toFixed(1)}/day` : '—'
+  const velocity     = total > 1 ? `${(total / daySpan).toFixed(1)}/day` : '—'
 
   return (
     <div className="space-y-5">
 
       {/* KPI grid: 3×2 */}
       <div className="grid grid-cols-3 gap-2.5">
-        <KpiCard label="Total Scans"      value={total}                        icon={ScanLine}    accent="blue"    />
-        <KpiCard label="Est. Unique"      value={uniqueEst}                    icon={Users}       accent="default" />
-        <KpiCard label="Auth. Rate"       value="100%"                         icon={ShieldCheck} accent="green"   />
-        <KpiCard label="First Scan"       value={fmtDate(firstScan.timestamp)} icon={Clock}       accent="default" />
-        <KpiCard label="Last Scan"        value={fmtDate(lastScan.timestamp)}  icon={QrCode}      accent="default" />
-        <KpiCard label="Scan Velocity"    value={velocity}                     icon={TrendingUp}  accent="amber"   />
+        <KpiCard label="Total Scans"       value={total}                        icon={ScanLine}    accent="blue"    />
+        <KpiCard label="Est. Unique"       value={uniqueEst}                    icon={Users}       accent="default" />
+        <KpiCard label="Repeat Rate"       value={repeatRate}                   icon={TrendingUp}  accent="amber"   />
+        <KpiCard label="First Scan"        value={fmtDate(firstScan.timestamp)} icon={Clock}       accent="default" />
+        <KpiCard label="Last Scan"         value={fmtDate(lastScan.timestamp)}  icon={QrCode}      accent="default" />
+        <KpiCard label="Scan Velocity"     value={velocity}                     icon={ShieldCheck} accent="green"   />
       </div>
 
       {/* Scan trend chart with 7d/30d toggle */}

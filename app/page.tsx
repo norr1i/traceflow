@@ -18,7 +18,7 @@ import {
   Smartphone, Monitor, CheckCircle2, Clock, ShieldCheck,
   XCircle, RefreshCw, LayoutDashboard,
   TrendingUp, ShoppingCart, Boxes, Package, AlertCircle,
-  FileWarning, Activity,
+  FileWarning, Activity, ChevronRight,
 } from 'lucide-react'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -143,6 +143,36 @@ function Skeleton() {
         <SkeletonBlock h="h-60" />
       </div>
     </div>
+  )
+}
+
+// ── Collapsible section wrapper ────────────────────────────────────────────
+
+function CollapsibleSection({
+  label,
+  defaultOpen = false,
+  children,
+}: {
+  label:       string
+  defaultOpen?: boolean
+  children:    React.ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <section>
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="mb-3 flex w-full items-center justify-between rounded-xl border border-gray-200 dark:border-white/[0.07] bg-white/60 dark:bg-white/[0.02] px-4 py-2.5 text-left text-[12.5px] font-semibold text-gray-600 dark:text-[#A8B3C0] hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-colors"
+      >
+        <span>{label}</span>
+        <ChevronRight
+          size={14}
+          className={`text-gray-400 transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
+        />
+      </button>
+      {open && children}
+    </section>
   )
 }
 
@@ -477,20 +507,19 @@ export default function DashboardPage() {
           subtitle={t('dashboard.from_completed')}
           accent="green" icon={TrendingUp}
         />,
-        <StatCard key="recall"
-          title={t('dashboard.recall_risk')}
-          value={fmtNum(recallRisk.failedQcCount, lang)}
-          subtitle={recallRisk.failedWithSales > 0
-            ? `${fmtNum(recallRisk.failedWithSales, lang)} ${t('dashboard.distributed')}`
-            : t('dashboard.failed_qc_sub')}
-          accent={recallRisk.failedQcCount > 0 ? 'red' : 'green'}
-          icon={recallRisk.failedQcCount > 0 ? AlertTriangle : CheckCircle2}
+        <StatCard key="avgorder"
+          title={t('dashboard.avg_order_value')}
+          value={totalSalesCount > 0
+            ? fmtRevenue(Math.round(totalSalesRevenue / totalSalesCount))
+            : '—'}
+          subtitle={t('dashboard.per_completed_order')}
+          accent="blue" icon={TrendingUp}
         />,
         <StatCard key="products"
           title={t('dashboard.products_sold')}
           value={fmtNum(topProducts.length, lang)}
           subtitle={t('dashboard.distinct_products')}
-          accent="blue" icon={Package}
+          accent="purple" icon={Package}
         />,
       ]
     }
@@ -711,7 +740,8 @@ export default function DashboardPage() {
 
       {/* ── Recent QC + Most scanned ──────────────────────────────────────── */}
       {(showQuality || showTracing) && (
-        <section className={`grid gap-4 ${showQuality && showTracing ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+        <CollapsibleSection label="Recent Inspections &amp; Scan Data">
+          <section className={`grid gap-4 ${showQuality && showTracing ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
           {showQuality && (
             <SectionCard title={t('dashboard.section.recent_qc')} subtitle={t('dashboard.section.recent_qc_sub')}>
               {recentQc.length === 0 ? (
@@ -753,12 +783,14 @@ export default function DashboardPage() {
               )}
             </SectionCard>
           )}
-        </section>
+          </section>
+        </CollapsibleSection>
       )}
 
       {/* ── Failed QC + Recent scans ──────────────────────────────────────── */}
       {(showProduction || showTracing) && (
-        <section className={`grid gap-4 ${showProduction && showTracing ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+        <CollapsibleSection label="Failed Batches &amp; Recent Scan Events">
+          <section className={`grid gap-4 ${showProduction && showTracing ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
           {showProduction && (
             <SectionCard title={t('dashboard.section.failed_qc')} subtitle={t('dashboard.section.failed_qc_sub')}>
               {failedBatches.length === 0 ? (
@@ -818,7 +850,8 @@ export default function DashboardPage() {
               )}
             </SectionCard>
           )}
-        </section>
+          </section>
+        </CollapsibleSection>
       )}
 
       {/* ── Operations: recent production orders ─────────────────────────── */}
@@ -1003,40 +1036,42 @@ export default function DashboardPage() {
 
       {/* ── Activity feed + Last-updated meta ─────────────────────────────── */}
       {feedEntries.length > 0 && (
-        <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <div className="lg:col-span-2">
-            <SectionCard title={t('dashboard.section.activity')} subtitle={t('dashboard.section.activity_sub')}>
-              <ActivityTimeline entries={feedEntries} />
-            </SectionCard>
-          </div>
-          <div className="flex flex-col gap-4">
-            <div className="glass-card rounded-xl px-5 py-4 space-y-3.5">
-              <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-gray-400 dark:text-[#4A5568]">
-                {t('dashboard.system_status')}
-              </p>
-              <div className="flex items-center gap-2.5">
-                <span className="relative flex h-2 w-2 shrink-0">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-                </span>
-                <span className="text-[12.5px] text-gray-700 dark:text-[#C4CAD6]">{t('dashboard.all_operational')}</span>
-              </div>
-              {lastUpdated && (
-                <p className="text-[10.5px] text-gray-400 dark:text-[#4A5568]">
-                  {t('dashboard.updated_ago', { time: timeAgo(lastUpdated.toISOString(), t, lang) })}
-                </p>
-              )}
-              <button
-                onClick={() => load(true)}
-                disabled={refreshing}
-                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-gray-50 dark:bg-white/[0.04] px-3 py-2 text-[11.5px] font-medium text-gray-500 dark:text-[#5A6478] hover:bg-gray-100 dark:hover:bg-white/[0.07] disabled:opacity-40 transition-colors"
-              >
-                <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} />
-                {t('dashboard.refresh_data')}
-              </button>
+        <CollapsibleSection label="Activity Log &amp; System Status">
+          <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              <SectionCard title={t('dashboard.section.activity')} subtitle={t('dashboard.section.activity_sub')}>
+                <ActivityTimeline entries={feedEntries} />
+              </SectionCard>
             </div>
-          </div>
-        </section>
+            <div className="flex flex-col gap-4">
+              <div className="glass-card rounded-xl px-5 py-4 space-y-3.5">
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-gray-400 dark:text-[#4A5568]">
+                  {t('dashboard.system_status')}
+                </p>
+                <div className="flex items-center gap-2.5">
+                  <span className="relative flex h-2 w-2 shrink-0">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                  </span>
+                  <span className="text-[12.5px] text-gray-700 dark:text-[#C4CAD6]">{t('dashboard.all_operational')}</span>
+                </div>
+                {lastUpdated && (
+                  <p className="text-[10.5px] text-gray-400 dark:text-[#4A5568]">
+                    {t('dashboard.updated_ago', { time: timeAgo(lastUpdated.toISOString(), t, lang) })}
+                  </p>
+                )}
+                <button
+                  onClick={() => load(true)}
+                  disabled={refreshing}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/[0.08] bg-gray-50 dark:bg-white/[0.04] px-3 py-2 text-[11.5px] font-medium text-gray-500 dark:text-[#5A6478] hover:bg-gray-100 dark:hover:bg-white/[0.07] disabled:opacity-40 transition-colors"
+                >
+                  <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} />
+                  {t('dashboard.refresh_data')}
+                </button>
+              </div>
+            </div>
+          </section>
+        </CollapsibleSection>
       )}
 
     </div>
