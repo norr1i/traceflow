@@ -9,10 +9,10 @@ export type Role =
 
 // Pages each restricted role may visit (exact match or prefix)
 const ROLE_PATHS: Partial<Record<Role, string[]>> = {
-  inspector:   ['/', '/production', '/quality-control', '/sfda'],
-  operations:  ['/', '/production'],
+  inspector:   ['/', '/production', '/quality-control', '/sfda', '/capa', '/recall'],
+  operations:  ['/', '/production', '/recall', '/capa'],
   warehouse:   ['/', '/raw-materials'],
-  qc_inspector:['/', '/production', '/quality-control', '/sfda'],
+  qc_inspector:['/', '/production', '/quality-control', '/sfda', '/capa', '/recall'],
   sales:       ['/', '/sales', '/products'],
 }
 

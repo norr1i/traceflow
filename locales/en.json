@@ -7,6 +7,7 @@
     "quality": "Quality",
     "sales": "Sales",
     "recall": "Recall",
+    "capa": "CAPA",
     "team": "Team",
     "sfda": "SFDA Compliance"
   },
@@ -24,6 +25,7 @@
     "/quality-control": "Quality Control",
     "/sales": "Sales",
     "/recall": "Recall Center",
+    "/capa": "CAPA Management",
     "/team": "Team Management",
     "/sfda": "SFDA Compliance"
   },
@@ -32,6 +34,7 @@
     "/raw-materials": "Track inventory levels and reorder points.",
     "/production": "Manage and track all production runs.",
     "/recall": "Search any lot number, batch ID, or SKU to trace affected batches, QC results, and downstream shipments.",
+    "/capa": "Corrective and Preventive Actions — track root causes, corrective actions, and closure verification.",
     "/sfda": "Inspection readiness, CAPA management, and regulatory compliance tracking."
   },
   "topbar": {

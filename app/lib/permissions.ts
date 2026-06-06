@@ -26,6 +26,7 @@ export type Permission =
   | 'view:quality-control'
   | 'view:sales'
   | 'view:recall'
+  | 'view:capa'
   | 'view:team'
 
   // Dashboard widget groups
@@ -49,6 +50,8 @@ export type Permission =
   // Compliance
   | 'view:sfda'
   | 'edit:sfda'
+  | 'edit:capa'
+  | 'edit:recall'
 
   // Administrative
   | 'manage:team'   // invite, remove, change roles (except promoting to admin)
@@ -71,9 +74,9 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   admin: [
     // Full sidebar access
     'view:dashboard', 'view:products', 'view:raw-materials', 'view:production',
-    'view:quality-control', 'view:sales', 'view:recall', 'view:team',
+    'view:quality-control', 'view:sales', 'view:recall', 'view:capa', 'view:team',
     // Compliance
-    'view:sfda', 'edit:sfda',
+    'view:sfda', 'edit:sfda', 'edit:capa', 'edit:recall',
     // Full dashboard surface
     'view:dashboard.production', 'view:dashboard.quality', 'view:dashboard.tracing',
     'view:dashboard.inventory', 'view:dashboard.sales',
@@ -86,9 +89,9 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   manager: [
     // Full sidebar access
     'view:dashboard', 'view:products', 'view:raw-materials', 'view:production',
-    'view:quality-control', 'view:sales', 'view:recall', 'view:team',
+    'view:quality-control', 'view:sales', 'view:recall', 'view:capa', 'view:team',
     // Compliance
-    'view:sfda', 'edit:sfda',
+    'view:sfda', 'edit:sfda', 'edit:capa', 'edit:recall',
     // Full dashboard surface
     'view:dashboard.production', 'view:dashboard.quality', 'view:dashboard.tracing',
     'view:dashboard.inventory', 'view:dashboard.sales',
@@ -98,8 +101,8 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   ],
 
   operations: [
-    // Sidebar: dashboard + production
-    'view:dashboard', 'view:production',
+    // Sidebar: dashboard + production + recall (read) + CAPA (read)
+    'view:dashboard', 'view:production', 'view:recall', 'view:capa',
     // Dashboard: full production pipeline + scan tracing activity
     'view:dashboard.production', 'view:dashboard.tracing',
     // Write: production orders
@@ -107,23 +110,23 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   ],
 
   qc_inspector: [
-    // Sidebar: dashboard + QC + production (read-only for batch context)
-    'view:dashboard', 'view:quality-control', 'view:production',
+    // Sidebar: dashboard + QC + production (read-only) + CAPA (read + edit) + recall (read)
+    'view:dashboard', 'view:quality-control', 'view:production', 'view:capa', 'view:recall',
     // Compliance (read-only)
     'view:sfda',
     // Dashboard: QC metrics + scan tracing for inspected batches
     'view:dashboard.quality', 'view:dashboard.tracing',
-    // Write: quality inspections and defects
-    'edit:quality-control',
+    // Write: quality inspections, defects, CAPAs
+    'edit:quality-control', 'edit:capa',
   ],
 
   // Legacy alias — identical to qc_inspector
   inspector: [
-    'view:dashboard', 'view:quality-control', 'view:production',
+    'view:dashboard', 'view:quality-control', 'view:production', 'view:capa', 'view:recall',
     // Compliance (read-only)
     'view:sfda',
     'view:dashboard.quality', 'view:dashboard.tracing',
-    'edit:quality-control',
+    'edit:quality-control', 'edit:capa',
   ],
 
   sales: [

@@ -28,6 +28,15 @@ export type ActivityActionType =
   | 'invitation.cancelled'
   | 'team.role_changed'
   | 'team.member_removed'
+  | 'capa.opened'
+  | 'capa.updated'
+  | 'capa.verified'
+  | 'capa.closed'
+  | 'capa.deleted'
+  | 'recall.initiated'
+  | 'recall.updated'
+  | 'recall.closed'
+  | 'recall.deleted'
 
 // ── Role-based action type filter ────────────────────────────────────────────
 // Used by the dashboard feed to show only relevant activity per role.

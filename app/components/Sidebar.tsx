@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Package,
   ClipboardList, ShieldCheck, ShoppingCart,
-  Menu, X, Boxes, AlertTriangle, Users, ShieldAlert,
+  Menu, X, Boxes, AlertTriangle, Users, ShieldAlert, FileWarning,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '../lib/auth-context'
@@ -41,6 +41,7 @@ const NAV_GROUPS: { labelKey: string; items: NavItem[] }[] = [
     labelKey: 'nav_group.system',
     items: [
       { labelKey: 'nav.recall', href: '/recall', icon: AlertTriangle, permission: 'view:recall' },
+      { labelKey: 'nav.capa',   href: '/capa',   icon: FileWarning,   permission: 'view:capa'   },
       { labelKey: 'nav.team',   href: '/team',   icon: Users,         permission: 'view:team'   },
     ],
   },
