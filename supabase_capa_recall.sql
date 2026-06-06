@@ -18,7 +18,18 @@
 --   Supabase Dashboard → SQL Editor → New Query → paste → Run
 -- ============================================================
 
--- ── 0. inspector_name column on quality_inspections ──────────────────────
+-- ── 0a. set_updated_at helper (idempotent — already exists if schema was
+--        applied via supabase_schema.sql, safe to re-create either way) ──
+
+CREATE OR REPLACE FUNCTION public.set_updated_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$;
+
+-- ── 0b. inspector_name column on quality_inspections ─────────────────────
 -- Adds a human-readable name alongside the existing inspector_id field.
 
 ALTER TABLE quality_inspections
