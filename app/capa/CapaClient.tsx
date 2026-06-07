@@ -52,14 +52,13 @@ function PriorityBadge({ severity }: { severity: 'minor' | 'major' | 'critical' 
   )
 }
 
-function KpiCard({ label, value, sub, color }: {
-  label: string; value: number | string; sub?: string; color: string
+function KpiCard({ label, value, color }: {
+  label: string; value: number | string; color: string
 }) {
   return (
-    <div className="rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 p-5 shadow-sm">
-      <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">{label}</p>
-      <p className={`mt-2 text-3xl font-bold tabular-nums leading-none ${color}`}>{value}</p>
-      {sub && <p className="mt-1.5 text-xs text-gray-400 dark:text-gray-500">{sub}</p>}
+    <div className="rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-4 py-3 shadow-sm">
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">{label}</p>
+      <p className={`mt-1 text-2xl font-bold tabular-nums leading-none ${color}`}>{value}</p>
     </div>
   )
 }
@@ -330,16 +329,18 @@ export default function CapaClient() {
       )}
 
       {/* KPI cards */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-3 xl:grid-cols-5">
-        <KpiCard label="Open"             value={loading ? '—' : (stats?.open ?? 0)}             color="text-blue-600 dark:text-blue-400" />
-        <KpiCard label="Investigation"    value={loading ? '—' : (stats?.investigation ?? 0)}    color="text-amber-600 dark:text-amber-400" />
-        <KpiCard label="Corrective Action"value={loading ? '—' : (stats?.corrective_action ?? 0)}color="text-orange-600 dark:text-orange-400" />
-        <KpiCard label="Verification"     value={loading ? '—' : (stats?.verification ?? 0)}     color="text-violet-600 dark:text-violet-400" />
+      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <KpiCard label="Open"        value={loading ? '—' : (stats?.open ?? 0)}  color="text-blue-600 dark:text-blue-400" />
+        <KpiCard
+          label="In Progress"
+          value={loading ? '—' : ((stats?.investigation ?? 0) + (stats?.corrective_action ?? 0) + (stats?.verification ?? 0))}
+          color="text-amber-600 dark:text-amber-400"
+        />
+        <KpiCard label="Closed"      value={loading ? '—' : (stats?.closed ?? 0)} color="text-emerald-600 dark:text-emerald-400" />
         <KpiCard
           label="Overdue"
           value={loading ? '—' : (stats?.overdue ?? 0)}
           color={(stats?.overdue ?? 0) > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'}
-          sub={(stats?.closed ?? 0) > 0 ? `${stats?.closed} closed` : undefined}
         />
       </div>
 
@@ -391,7 +392,7 @@ export default function CapaClient() {
               <thead>
                 <tr className="border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] bg-[#D1CFC9]/50 dark:bg-[#262E36]/38 text-[11px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">
                   <th className="px-4 py-3.5 text-start whitespace-nowrap">CAPA #</th>
-                  <th className="px-4 py-3.5 text-start">Title / Root Cause</th>
+                  <th className="px-4 py-3.5 text-start">Title</th>
                   <th className="px-4 py-3.5 text-start whitespace-nowrap">Priority</th>
                   <th className="px-4 py-3.5 text-start whitespace-nowrap">Owner</th>
                   <th className="px-4 py-3.5 text-start whitespace-nowrap">Due Date</th>
@@ -411,12 +412,9 @@ export default function CapaClient() {
                         {capa.capa_number ?? `#${capa.id.slice(0, 8)}`}
                       </td>
 
-                      {/* Title + root cause preview */}
-                      <td className="px-4 py-4 max-w-[200px]">
+                      {/* Title */}
+                      <td className="px-4 py-4 max-w-[260px]">
                         <p className="text-sm font-medium text-gray-900 dark:text-gray-100 leading-tight truncate">{capa.title}</p>
-                        {capa.root_cause && (
-                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 truncate">{capa.root_cause}</p>
-                        )}
                       </td>
 
                       {/* Priority */}
@@ -449,9 +447,11 @@ export default function CapaClient() {
                               disabled={advancing === capa.id}
                               onClick={() => handleAdvance(capa.id, capa.status)}
                               title={advanceLabel}
-                              className="flex items-center gap-1 rounded-md border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/45 disabled:opacity-50 transition whitespace-nowrap">
-                              <ArrowRight size={11} />
-                              {advancing === capa.id ? '…' : advanceLabel}
+                              aria-label={advanceLabel}
+                              className="rounded-md border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] p-1.5 text-gray-500 dark:text-gray-400 hover:bg-[#3a6f8f]/10 hover:text-[#3a6f8f] dark:hover:text-[#7ab3d0] disabled:opacity-40 transition">
+                              {advancing === capa.id
+                                ? <RefreshCw size={13} className="animate-spin" />
+                                : <ArrowRight size={13} />}
                             </button>
                           )}
                           {canEditCapa && (
