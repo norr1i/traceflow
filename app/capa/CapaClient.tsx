@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   FileWarning, Plus, RefreshCw, Search, AlertTriangle,
-  Trash2, X, ArrowRight,
+  X, ArrowRight, MoreHorizontal, Eye, Pencil, Trash2,
 } from 'lucide-react'
-import { useCapas, NEXT_STATUS, ADVANCE_LABEL, type CapaStatus, type CapaFormData } from '../hooks/useCapas'
+import { useCapas, NEXT_STATUS, ADVANCE_LABEL, type CapaStatus, type CapaFormData, type Capa } from '../hooks/useCapas'
 import { useAuth, useRole } from '../lib/auth-context'
 import { canEdit } from '../lib/permissions'
 import { useToast } from '../components/Toast'
@@ -63,8 +63,6 @@ function KpiCard({ label, value, color }: {
   )
 }
 
-// ── Empty state ──────────────────────────────────────────────────────────────
-
 function EmptyState({ message }: { message: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
@@ -74,6 +72,161 @@ function EmptyState({ message }: { message: string }) {
   )
 }
 
+// ── Three-dot row menu ────────────────────────────────────────────────────────
+
+function RowMenu({ onView, onEdit, onDelete, editable }: {
+  onView:    () => void
+  onEdit:    () => void
+  onDelete:  () => void
+  editable:  boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const item = 'flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors'
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="rounded-md p-1.5 text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-[#262E36]/55 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+        aria-label="Row actions"
+      >
+        <MoreHorizontal size={15} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full z-20 mt-1 w-36 overflow-hidden rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.15] bg-white dark:bg-[#1a2530] py-1 shadow-xl">
+          <button onClick={() => { onView(); setOpen(false) }}
+            className={`${item} text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-[#262E36]/55`}>
+            <Eye size={13} className="shrink-0 text-gray-400" />View
+          </button>
+
+          {editable && (
+            <button onClick={() => { onEdit(); setOpen(false) }}
+              className={`${item} text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-[#262E36]/55`}>
+              <Pencil size={13} className="shrink-0 text-gray-400" />Edit
+            </button>
+          )}
+
+          {editable && (
+            <>
+              <div className="my-1 border-t border-gray-100 dark:border-[#B3B7BA]/[0.10]" />
+              <button onClick={() => { onDelete(); setOpen(false) }}
+                className={`${item} text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20`}>
+                <Trash2 size={13} className="shrink-0" />Delete
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── CAPA detail modal (read-only) ─────────────────────────────────────────────
+
+function CapaDetailModal({ capa, onClose }: { capa: Capa; onClose: () => void }) {
+  const fmt = (d: string | null) =>
+    d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+  const fmtDt = (d: string | null) =>
+    d ? new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null
+
+  const sectionLabel = 'mb-1 text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500'
+  const sectionText  = 'text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line leading-relaxed'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-xl rounded-2xl border border-white/[0.08] bg-[#F1EFEC] dark:bg-[#141e28] p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+
+        {/* Header */}
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <p className="mb-1 font-mono text-xs font-semibold text-[#3a6f8f] dark:text-[#7ab3d0]">
+              {capa.capa_number ?? `#${capa.id.slice(0, 8)}`}
+            </p>
+            <h2 className="text-base font-semibold leading-snug text-gray-900 dark:text-white">
+              {capa.title}
+            </h2>
+          </div>
+          <button onClick={onClose} className="shrink-0 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Status pills */}
+        <div className="mb-5 flex flex-wrap gap-2">
+          <StatusBadge status={capa.status} />
+          <PriorityBadge severity={capa.severity} />
+          {capa.owner_name && (
+            <span className="inline-flex items-center rounded-full border border-[#B3B7BA]/40 px-2.5 py-0.5 text-xs text-gray-600 dark:text-gray-300">
+              {capa.owner_name}
+            </span>
+          )}
+          {capa.due_date && (
+            <span className="inline-flex items-center rounded-full border border-[#B3B7BA]/40 px-2.5 py-0.5 text-xs text-gray-500 dark:text-gray-400">
+              Due {fmt(capa.due_date)}
+            </span>
+          )}
+        </div>
+
+        {/* Detail sections */}
+        <div className="space-y-4">
+          {capa.root_cause && (
+            <div>
+              <p className={sectionLabel}>Root Cause</p>
+              <p className={sectionText}>{capa.root_cause}</p>
+            </div>
+          )}
+          {capa.corrective_action && (
+            <div>
+              <p className={sectionLabel}>Corrective Action</p>
+              <p className={sectionText}>{capa.corrective_action}</p>
+            </div>
+          )}
+          {capa.preventive_action && (
+            <div>
+              <p className={sectionLabel}>Preventive Action</p>
+              <p className={sectionText}>{capa.preventive_action}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Timestamps */}
+        <div className="mt-5 border-t border-gray-100 dark:border-[#B3B7BA]/[0.10] pt-4 grid grid-cols-2 gap-y-1.5 gap-x-4 text-xs text-gray-400 dark:text-gray-500">
+          {fmtDt(capa.created_at)         && <span>Opened: {fmtDt(capa.created_at)}</span>}
+          {fmtDt(capa.investigation_at)   && <span>Investigation: {fmtDt(capa.investigation_at)}</span>}
+          {fmtDt(capa.corrective_action_at) && <span>Corrective Action: {fmtDt(capa.corrective_action_at)}</span>}
+          {fmtDt(capa.verification_at)    && <span>Verification: {fmtDt(capa.verification_at)}</span>}
+          {fmtDt(capa.closed_at)          && <span>Closed: {fmtDt(capa.closed_at)}</span>}
+          {fmtDt(capa.updated_at)         && <span>Last Updated: {fmtDt(capa.updated_at)}</span>}
+        </div>
+
+        <div className="mt-5 flex justify-end">
+          <button onClick={onClose}
+            className="rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/45">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Shared form fields (create & edit) ────────────────────────────────────────
+
+const fieldCls = 'w-full rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC] dark:bg-[#262E36]/55 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]'
+const labelCls = 'mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300'
+
 // ── Create CAPA modal ─────────────────────────────────────────────────────────
 
 const EMPTY_FORM: CapaFormData = {
@@ -82,23 +235,15 @@ const EMPTY_FORM: CapaFormData = {
   recall_id: null, inspection_id: null, batch_id: null,
 }
 
-function CreateModal({
-  onClose,
-  onSave,
-  saving,
-}: {
+function CreateModal({ onClose, onSave, saving }: {
   onClose: () => void
   onSave:  (data: CapaFormData) => Promise<void>
   saving:  boolean
 }) {
   const [form, setForm] = useState<CapaFormData>(EMPTY_FORM)
-  const f = (k: keyof CapaFormData) => (
+  const f = (k: keyof CapaFormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
       setForm(prev => ({ ...prev, [k]: e.target.value || null }))
-  )
-
-  const fieldCls = 'w-full rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC] dark:bg-[#262E36]/55 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]'
-  const labelCls = 'mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -110,18 +255,13 @@ function CreateModal({
           </button>
         </div>
 
-        <form
-          onSubmit={async e => { e.preventDefault(); await onSave(form) }}
-          className="space-y-4"
-        >
-          {/* Title */}
+        <form onSubmit={async e => { e.preventDefault(); await onSave(form) }} className="space-y-4">
           <div>
             <label className={labelCls}>Title *</label>
             <input required value={form.title ?? ''} onChange={f('title')} className={fieldCls}
               placeholder="Describe the finding or issue" />
           </div>
 
-          {/* Severity + Owner + Due date */}
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className={labelCls}>Severity</label>
@@ -138,35 +278,32 @@ function CreateModal({
             </div>
             <div>
               <label className={labelCls}>Due Date *</label>
-              <input required type="date" value={form.due_date ?? ''} onChange={f('due_date')}
-                className={fieldCls} />
+              <input required type="date" value={form.due_date ?? ''} onChange={f('due_date')} className={fieldCls} />
             </div>
           </div>
 
-          {/* Root Cause */}
           <div>
             <label className={labelCls}>Root Cause</label>
             <textarea rows={2} value={form.root_cause ?? ''} onChange={f('root_cause')}
               className={fieldCls} placeholder="Identify the root cause" />
           </div>
 
-          {/* Corrective Action */}
           <div>
             <label className={labelCls}>Corrective Action</label>
             <textarea rows={2} value={form.corrective_action ?? ''} onChange={f('corrective_action')}
               className={fieldCls} placeholder="Immediate actions to correct the issue" />
           </div>
 
-          {/* Preventive Action */}
           <div>
             <label className={labelCls}>Preventive Action</label>
             <textarea rows={2} value={form.preventive_action ?? ''} onChange={f('preventive_action')}
               className={fieldCls} placeholder="Actions to prevent recurrence" />
           </div>
 
-          {/* Linked Batch (optional) */}
           <div>
-            <label className={labelCls}>Linked Batch ID <span className="text-gray-400 font-normal">(optional UUID)</span></label>
+            <label className={labelCls}>
+              Linked Batch ID <span className="text-gray-400 font-normal">(optional UUID)</span>
+            </label>
             <input value={form.batch_id ?? ''} onChange={f('batch_id')} className={fieldCls}
               placeholder="e.g. 6db4527d-cbe8-…" />
           </div>
@@ -179,6 +316,101 @@ function CreateModal({
             <button type="submit" disabled={saving}
               className="rounded-lg bg-[#3a6f8f] px-4 py-2 text-sm font-medium text-white hover:bg-[#2d5a74] disabled:opacity-60">
               {saving ? 'Creating…' : 'Create CAPA'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ── Edit CAPA modal ───────────────────────────────────────────────────────────
+
+function EditModal({ capa, onClose, onSave, saving }: {
+  capa:    Capa
+  onClose: () => void
+  onSave:  (data: CapaFormData) => Promise<void>
+  saving:  boolean
+}) {
+  const [form, setForm] = useState<CapaFormData>({
+    title:             capa.title,
+    severity:          capa.severity,
+    root_cause:        capa.root_cause        ?? '',
+    corrective_action: capa.corrective_action ?? '',
+    preventive_action: capa.preventive_action ?? '',
+    owner_name:        capa.owner_name        ?? '',
+    due_date:          capa.due_date          ?? '',
+    status:            capa.status,
+    recall_id:         capa.recall_id,
+    inspection_id:     capa.inspection_id,
+    batch_id:          capa.batch_id,
+  })
+
+  const f = (k: keyof CapaFormData) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+      setForm(prev => ({ ...prev, [k]: e.target.value || null }))
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-lg rounded-2xl border border-white/[0.08] bg-[#F1EFEC] dark:bg-[#141e28] p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Edit CAPA</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+            <X size={20} />
+          </button>
+        </div>
+        <p className="mb-4 font-mono text-xs text-[#3a6f8f] dark:text-[#7ab3d0]">
+          {capa.capa_number ?? `#${capa.id.slice(0, 8)}`}
+        </p>
+
+        <form onSubmit={async e => { e.preventDefault(); await onSave(form) }} className="space-y-4">
+          <div>
+            <label className={labelCls}>Title *</label>
+            <input required value={form.title ?? ''} onChange={f('title')} className={fieldCls} />
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className={labelCls}>Severity</label>
+              <select value={form.severity} onChange={f('severity')} className={fieldCls}>
+                <option value="minor">Minor</option>
+                <option value="major">Major</option>
+                <option value="critical">Critical</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Owner *</label>
+              <input required value={form.owner_name ?? ''} onChange={f('owner_name')} className={fieldCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Due Date *</label>
+              <input required type="date" value={form.due_date ?? ''} onChange={f('due_date')} className={fieldCls} />
+            </div>
+          </div>
+
+          <div>
+            <label className={labelCls}>Root Cause</label>
+            <textarea rows={2} value={form.root_cause ?? ''} onChange={f('root_cause')} className={fieldCls} />
+          </div>
+
+          <div>
+            <label className={labelCls}>Corrective Action</label>
+            <textarea rows={2} value={form.corrective_action ?? ''} onChange={f('corrective_action')} className={fieldCls} />
+          </div>
+
+          <div>
+            <label className={labelCls}>Preventive Action</label>
+            <textarea rows={2} value={form.preventive_action ?? ''} onChange={f('preventive_action')} className={fieldCls} />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onClose}
+              className="rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/45">
+              Cancel
+            </button>
+            <button type="submit" disabled={saving}
+              className="rounded-lg bg-[#3a6f8f] px-4 py-2 text-sm font-medium text-white hover:bg-[#2d5a74] disabled:opacity-60">
+              {saving ? 'Saving…' : 'Save Changes'}
             </button>
           </div>
         </form>
@@ -201,12 +433,14 @@ export default function CapaClient() {
   const {
     capas, stats, loading, error, refresh,
     page, totalCount, totalPages, goToPage,
-    createCapa, advanceStatus, deleteCapa,
+    createCapa, advanceStatus, updateCapa, deleteCapa,
   } = useCapas()
 
   const [search,     setSearch]     = useState('')
   const [filterTab,  setFilterTab]  = useState<FilterTab>('all')
   const [showCreate, setShowCreate] = useState(false)
+  const [viewCapa,   setViewCapa]   = useState<Capa | null>(null)
+  const [editCapa,   setEditCapa]   = useState<Capa | null>(null)
   const [saving,     setSaving]     = useState(false)
   const [advancing,  setAdvancing]  = useState<string | null>(null)
 
@@ -221,15 +455,15 @@ export default function CapaClient() {
       c.capa_number?.toLowerCase().includes(search.toLowerCase()) ||
       c.owner_name?.toLowerCase().includes(search.toLowerCase())
 
-    const overdue = c.status !== 'closed' && !!c.due_date && c.due_date < today
+    const overdue    = c.status !== 'closed' && !!c.due_date && c.due_date < today
     const inProgress = ['investigation', 'corrective_action', 'verification'].includes(c.status)
 
     const matchFilter =
-      filterTab === 'all'         ? true
-      : filterTab === 'open'      ? c.status === 'open'
+      filterTab === 'all'          ? true
+      : filterTab === 'open'       ? c.status === 'open'
       : filterTab === 'in_progress'? inProgress
-      : filterTab === 'overdue'   ? overdue
-      : filterTab === 'closed'    ? c.status === 'closed'
+      : filterTab === 'overdue'    ? overdue
+      : filterTab === 'closed'     ? c.status === 'closed'
       : true
 
     return matchSearch && matchFilter
@@ -252,6 +486,16 @@ export default function CapaClient() {
         metadata: { capa_number: result.capa_number, owner: data.owner_name },
       })
     }
+  }
+
+  async function handleEdit(data: CapaFormData) {
+    if (!editCapa) return
+    setSaving(true)
+    const ok = await updateCapa(editCapa.id, data)
+    setSaving(false)
+    if (!ok) { toast.error('Failed to update CAPA'); return }
+    setEditCapa(null)
+    toast.success('CAPA updated')
   }
 
   async function handleAdvance(id: string, current: CapaStatus) {
@@ -304,16 +548,27 @@ export default function CapaClient() {
     else         toast.error('Failed to delete CAPA')
   }
 
+  // ── Derived KPI values ────────────────────────────────────────────────────
+
+  const inProgressCount = !loading
+    ? (stats?.investigation ?? 0) + (stats?.corrective_action ?? 0) + (stats?.verification ?? 0)
+    : null
+  const openIsZero = !loading && (stats?.open ?? 0) === 0
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex-1 overflow-y-auto bg-[var(--bg)] p-6">
+
+      {/* Modals */}
       {showCreate && (
-        <CreateModal
-          onClose={() => setShowCreate(false)}
-          onSave={handleCreate}
-          saving={saving}
-        />
+        <CreateModal onClose={() => setShowCreate(false)} onSave={handleCreate} saving={saving} />
+      )}
+      {viewCapa && (
+        <CapaDetailModal capa={viewCapa} onClose={() => setViewCapa(null)} />
+      )}
+      {editCapa && (
+        <EditModal capa={editCapa} onClose={() => setEditCapa(null)} onSave={handleEdit} saving={saving} />
       )}
 
       {/* Page header */}
@@ -345,15 +600,28 @@ export default function CapaClient() {
         </div>
       )}
 
-      {/* KPI cards */}
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard label="Open"        value={loading ? '—' : (stats?.open ?? 0)}  color="text-blue-600 dark:text-blue-400" />
+      {/* KPI cards — 5 cards */}
+      <div className="mb-5 grid gap-3 sm:grid-cols-3 xl:grid-cols-5">
+        <KpiCard
+          label="Total"
+          value={loading ? '—' : totalCount}
+          color="text-gray-800 dark:text-gray-100"
+        />
+        <KpiCard
+          label="Open"
+          value={loading ? '—' : (stats?.open ?? 0)}
+          color={openIsZero ? 'text-gray-300 dark:text-gray-600' : 'text-blue-600 dark:text-blue-400'}
+        />
         <KpiCard
           label="In Progress"
-          value={loading ? '—' : ((stats?.investigation ?? 0) + (stats?.corrective_action ?? 0) + (stats?.verification ?? 0))}
+          value={loading ? '—' : (inProgressCount ?? '—')}
           color="text-amber-600 dark:text-amber-400"
         />
-        <KpiCard label="Closed"      value={loading ? '—' : (stats?.closed ?? 0)} color="text-emerald-600 dark:text-emerald-400" />
+        <KpiCard
+          label="Closed"
+          value={loading ? '—' : (stats?.closed ?? 0)}
+          color="text-emerald-600 dark:text-emerald-400"
+        />
         <KpiCard
           label="Overdue"
           value={loading ? '—' : (stats?.overdue ?? 0)}
@@ -364,11 +632,11 @@ export default function CapaClient() {
       {/* Filter tabs */}
       <div className="mb-4 flex gap-1 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 p-1 shadow-sm w-fit">
         {([
-          { key: 'all' as FilterTab,        label: 'All' },
-          { key: 'open' as FilterTab,       label: 'Open' },
-          { key: 'in_progress' as FilterTab,label: 'In Progress' },
-          { key: 'overdue' as FilterTab,    label: 'Overdue' },
-          { key: 'closed' as FilterTab,     label: 'Closed' },
+          { key: 'all'         as FilterTab, label: 'All' },
+          { key: 'open'        as FilterTab, label: 'Open' },
+          { key: 'in_progress' as FilterTab, label: 'In Progress' },
+          { key: 'overdue'     as FilterTab, label: 'Overdue' },
+          { key: 'closed'      as FilterTab, label: 'Closed' },
         ]).map(tab => (
           <button key={tab.key} onClick={() => setFilterTab(tab.key)}
             className={`rounded-md px-4 py-1.5 text-sm font-medium transition ${
@@ -422,16 +690,24 @@ export default function CapaClient() {
                   const nextStatus   = NEXT_STATUS[capa.status]
                   const advanceLabel = ADVANCE_LABEL[capa.status]
                   return (
-                    <tr key={capa.id} className="hover:bg-[#3a6f8f]/5 dark:hover:bg-[#3a6f8f]/10 transition-colors">
+                    <tr key={capa.id}
+                      className="hover:bg-[#3a6f8f]/[0.07] dark:hover:bg-[#3a6f8f]/[0.13] transition-colors">
 
-                      {/* CAPA # */}
-                      <td className="px-4 py-4 font-mono text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                        {capa.capa_number ?? `#${capa.id.slice(0, 8)}`}
+                      {/* CAPA # — clickable, prominent */}
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <button
+                          onClick={() => setViewCapa(capa)}
+                          className="font-mono text-xs font-semibold text-[#3a6f8f] dark:text-[#7ab3d0] hover:underline underline-offset-2"
+                        >
+                          {capa.capa_number ?? `#${capa.id.slice(0, 8)}`}
+                        </button>
                       </td>
 
                       {/* Title */}
                       <td className="px-4 py-4 max-w-[260px]">
-                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100 leading-tight truncate">{capa.title}</p>
+                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100 leading-tight truncate">
+                          {capa.title}
+                        </p>
                       </td>
 
                       {/* Priority */}
@@ -459,25 +735,28 @@ export default function CapaClient() {
                       {/* Actions */}
                       <td className="px-4 py-4">
                         <div className="flex items-center justify-end gap-2">
+
+                          {/* Advance button — visible text */}
                           {canEditCapa && nextStatus && advanceLabel && (
                             <button
                               disabled={advancing === capa.id}
                               onClick={() => handleAdvance(capa.id, capa.status)}
                               title={advanceLabel}
-                              aria-label={advanceLabel}
-                              className="rounded-md border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] p-1.5 text-gray-500 dark:text-gray-400 hover:bg-[#3a6f8f]/10 hover:text-[#3a6f8f] dark:hover:text-[#7ab3d0] disabled:opacity-40 transition">
+                              className="flex items-center gap-1 rounded-md border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.15] bg-white/60 dark:bg-[#262E36]/30 px-2.5 py-1 text-xs font-medium text-gray-700 dark:text-gray-200 hover:border-[#3a6f8f]/50 hover:bg-[#3a6f8f]/10 hover:text-[#3a6f8f] dark:hover:text-[#7ab3d0] disabled:opacity-40 transition whitespace-nowrap"
+                            >
                               {advancing === capa.id
-                                ? <RefreshCw size={13} className="animate-spin" />
-                                : <ArrowRight size={13} />}
+                                ? <><RefreshCw size={11} className="animate-spin" /><span>…</span></>
+                                : <><ArrowRight size={11} /><span>Advance</span></>}
                             </button>
                           )}
-                          {canEditCapa && (
-                            <button
-                              onClick={() => handleDelete(capa.id, capa.capa_number)}
-                              className="rounded p-1 text-gray-300 dark:text-gray-600 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-500 dark:hover:text-red-400 transition-colors">
-                              <Trash2 size={15} />
-                            </button>
-                          )}
+
+                          {/* Three-dot menu */}
+                          <RowMenu
+                            editable={canEditCapa}
+                            onView={()   => setViewCapa(capa)}
+                            onEdit={()   => setEditCapa(capa)}
+                            onDelete={()  => handleDelete(capa.id, capa.capa_number)}
+                          />
                         </div>
                       </td>
                     </tr>
