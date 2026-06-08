@@ -135,14 +135,43 @@ function RowMenu({ onView, onEdit, onDelete, editable }: {
 
 // ── CAPA detail modal (read-only) ─────────────────────────────────────────────
 
+// Stage order used to gate timeline entries
+const STATUS_STAGE: Record<CapaStatus, number> = {
+  open: 0, investigation: 1, corrective_action: 2, verification: 3, closed: 4,
+}
+
 function CapaDetailModal({ capa, onClose }: { capa: Capa; onClose: () => void }) {
   const fmt = (d: string | null) =>
     d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
-  const fmtDt = (d: string | null) =>
-    d ? new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null
 
-  const sectionLabel = 'mb-1 text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500'
-  const sectionText  = 'text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line leading-relaxed'
+  // "31 May 2026 · 09:32"
+  const fmtAudit = (d: string | null): string | null => {
+    if (!d) return null
+    const dt   = new Date(d)
+    const date = dt.toLocaleDateString('en-GB',  { day: '2-digit', month: 'short', year: 'numeric' })
+    const time = dt.toLocaleTimeString('en-GB',  { hour: '2-digit', minute: '2-digit' })
+    return `${date} · ${time}`
+  }
+
+  const sl = 'mb-1 text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500'
+  const st = 'text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line leading-relaxed'
+
+  // Root cause label depends on how far the CAPA has progressed
+  const findingsLabel =
+    capa.status === 'open' || capa.status === 'investigation'
+      ? 'Current Findings'
+      : 'Root Cause'
+
+  // Timeline: only show events up to and including the current status stage
+  const currentStage = STATUS_STAGE[capa.status]
+  const timelineEntries: Array<{ label: string; ts: string | null; stage: number }> = [
+    { label: 'Opened',                  ts: capa.created_at,            stage: 0 },
+    { label: 'Investigation Started',   ts: capa.investigation_at,      stage: 1 },
+    { label: 'Corrective Action',       ts: capa.corrective_action_at,  stage: 2 },
+    { label: 'Verification',            ts: capa.verification_at,       stage: 3 },
+    { label: 'Closed',                  ts: capa.closed_at,             stage: 4 },
+  ]
+  const visibleTimeline = timelineEntries.filter(e => e.stage <= currentStage && e.ts !== null)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -183,33 +212,56 @@ function CapaDetailModal({ capa, onClose }: { capa: Capa; onClose: () => void })
         <div className="space-y-4">
           {capa.root_cause && (
             <div>
-              <p className={sectionLabel}>Root Cause</p>
-              <p className={sectionText}>{capa.root_cause}</p>
+              <p className={sl}>{findingsLabel}</p>
+              <p className={st}>{capa.root_cause}</p>
             </div>
           )}
           {capa.corrective_action && (
             <div>
-              <p className={sectionLabel}>Corrective Action</p>
-              <p className={sectionText}>{capa.corrective_action}</p>
+              <p className={sl}>Corrective Action</p>
+              <p className={st}>{capa.corrective_action}</p>
             </div>
           )}
           {capa.preventive_action && (
             <div>
-              <p className={sectionLabel}>Preventive Action</p>
-              <p className={sectionText}>{capa.preventive_action}</p>
+              <p className={sl}>Preventive Action</p>
+              <p className={st}>{capa.preventive_action}</p>
             </div>
           )}
         </div>
 
-        {/* Timestamps */}
-        <div className="mt-5 border-t border-gray-100 dark:border-[#B3B7BA]/[0.10] pt-4 grid grid-cols-2 gap-y-1.5 gap-x-4 text-xs text-gray-400 dark:text-gray-500">
-          {fmtDt(capa.created_at)         && <span>Opened: {fmtDt(capa.created_at)}</span>}
-          {fmtDt(capa.investigation_at)   && <span>Investigation: {fmtDt(capa.investigation_at)}</span>}
-          {fmtDt(capa.corrective_action_at) && <span>Corrective Action: {fmtDt(capa.corrective_action_at)}</span>}
-          {fmtDt(capa.verification_at)    && <span>Verification: {fmtDt(capa.verification_at)}</span>}
-          {fmtDt(capa.closed_at)          && <span>Closed: {fmtDt(capa.closed_at)}</span>}
-          {fmtDt(capa.updated_at)         && <span>Last Updated: {fmtDt(capa.updated_at)}</span>}
-        </div>
+        {/* Audit trail timeline */}
+        {visibleTimeline.length > 0 && (
+          <div className="mt-5 border-t border-gray-100 dark:border-[#B3B7BA]/[0.10] pt-4">
+            <p className={sl}>Audit Trail</p>
+            <ol className="mt-3 space-y-0">
+              {visibleTimeline.map((entry, idx) => {
+                const isLast    = idx === visibleTimeline.length - 1
+                const dotCls    = isLast
+                  ? 'bg-[#3a6f8f] dark:bg-[#7ab3d0]'
+                  : 'bg-gray-300 dark:bg-gray-600'
+                return (
+                  <li key={entry.label} className="flex gap-3">
+                    {/* Dot + connector line */}
+                    <div className="flex flex-col items-center pt-0.5">
+                      <div className={`h-2 w-2 shrink-0 rounded-full ${dotCls}`} />
+                      {!isLast && (
+                        <div className="mt-1 w-px flex-1 bg-gray-200 dark:bg-[#B3B7BA]/[0.15]" style={{ minHeight: '1.5rem' }} />
+                      )}
+                    </div>
+                    {/* Entry text */}
+                    <div className={isLast ? 'pb-0' : 'pb-3'}>
+                      <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">{entry.label}</p>
+                      <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500 tabular-nums">
+                        {fmtAudit(entry.ts)}
+                      </p>
+                    </div>
+                  </li>
+                )
+              })}
+            </ol>
+          </div>
+        )}
 
         <div className="mt-5 flex justify-end">
           <button onClick={onClose}
