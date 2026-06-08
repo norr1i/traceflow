@@ -6,9 +6,9 @@ import Link from 'next/link'
 import { supabase } from '../../lib/supabase'
 import { classifyEvent } from '../../trace/[id]/eventCategories'
 import {
-  ChevronLeft, Package, Layers, ShieldCheck, Truck, ClipboardList,
+  ChevronLeft, Package, Layers, ShieldCheck, Truck,
   FileWarning, AlertTriangle, Activity, Loader2, User, Calendar,
-  Hash, GitBranch, CheckCircle2,
+  Hash, Building2, Network,
 } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -54,6 +54,24 @@ type JourneyEvent = {
   source_table:    string
   metadata:        Record<string, unknown> | null
 }
+type EnrichedMaterial = {
+  id:            string
+  material_name: string
+  lot_number:    string | null
+  quantity:      number
+  unit:          string
+  supplier_name: string | null
+}
+type AffectedBatch = {
+  production_order_id: string
+  product_name:        string
+  status:              string
+  created_at:          string
+}
+type MaterialImpact = {
+  material_name:    string
+  affected_batches: AffectedBatch[]
+}
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -74,18 +92,6 @@ function extractActor(meta: Record<string, unknown> | null): string | null {
     if (typeof meta[k] === 'string' && meta[k]) return meta[k] as string
   }
   return null
-}
-function computeCompletion(events: JourneyEvent[], order: TraceOrder, salesLen: number): number {
-  if (order.status === 'cancelled') return 0
-  const groups = new Set(events.map(e => classifyEvent(e.event_type).stageGroup))
-  let pct = 0
-  if (groups.has('materials'))                     pct += 20
-  if (groups.has('production'))                    pct += 30
-  if (groups.has('quality'))                       pct += 25
-  if (groups.has('distribution') || salesLen > 0) pct += 25
-  if (pct === 0 && order.status === 'in_progress') pct = 15
-  if (pct === 0 && order.status === 'completed')   pct = 80
-  return Math.min(pct, 100)
 }
 
 // ── Badge maps ────────────────────────────────────────────────────────────────
@@ -116,10 +122,10 @@ const QC_LABEL: Record<string, string> = {
 // ── Stage flow ────────────────────────────────────────────────────────────────
 
 const STAGES = [
-  { key: 'materials',    label: 'Raw Materials',    dot: 'bg-orange-400', text: 'text-orange-500 dark:text-orange-400' },
-  { key: 'production',   label: 'Production',       dot: 'bg-blue-500',   text: 'text-blue-600 dark:text-blue-400'    },
-  { key: 'quality',      label: 'Quality Control',  dot: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
-  { key: 'distribution', label: 'Distribution',     dot: 'bg-teal-500',   text: 'text-teal-600 dark:text-teal-400'   },
+  { key: 'materials',    label: 'Raw Materials',   dot: 'bg-orange-400', text: 'text-orange-500 dark:text-orange-400' },
+  { key: 'production',   label: 'Production',      dot: 'bg-blue-500',   text: 'text-blue-600 dark:text-blue-400'    },
+  { key: 'quality',      label: 'Quality Control', dot: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
+  { key: 'distribution', label: 'Distribution',    dot: 'bg-teal-500',   text: 'text-teal-600 dark:text-teal-400'   },
 ] as const
 
 function StageFlow({ events }: { events: JourneyEvent[] }) {
@@ -206,7 +212,7 @@ function TimelineSkeleton() {
   )
 }
 
-// ── Health panel ──────────────────────────────────────────────────────────────
+// ── Health panel (compact — Journey Health only) ───────────────────────────────
 
 function HealthRow({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
   return (
@@ -218,16 +224,13 @@ function HealthRow({ label, value, valueClass }: { label: string; value: string;
 }
 
 function HealthPanel({
-  order, qcResults, events, sales, capaCount, recallCount,
+  order, qcResults, capaCount, recallCount,
 }: {
   order:       TraceOrder
   qcResults:   TraceQc[]
-  events:      JourneyEvent[]
-  sales:       TraceSale[]
   capaCount:   number
   recallCount: number
 }) {
-  const completion = computeCompletion(events, order, sales.length)
   const latestQc   = qcResults[0] ?? null
   const openIssues = qcResults.filter(r => r.status === 'fail').length
   const stageLabel = ORDER_LABEL[order.status] ?? order.status.replace(/_/g, ' ')
@@ -235,65 +238,25 @@ function HealthPanel({
   const qcTextCls  = latestQc ? QC_TEXT[latestQc.status] : 'text-gray-400 dark:text-gray-500'
 
   return (
-    <div className="space-y-4">
-      {/* Completion */}
-      <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Journey Completion</span>
-          <span className="text-lg font-bold text-gray-900 dark:text-white">{completion}%</span>
-        </div>
-        <div className="h-2 w-full rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-700 ${completion === 100 ? 'bg-emerald-500' : completion >= 50 ? 'bg-blue-500' : 'bg-amber-400'}`}
-            style={{ width: `${completion}%` }}
-          />
-        </div>
-        {completion === 100 && (
-          <p className="mt-2 flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-            <CheckCircle2 size={11} />Complete lifecycle recorded
-          </p>
-        )}
-      </div>
-
-      {/* Health rows */}
-      <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Journey Health</p>
-        <HealthRow label="Current Stage"  value={stageLabel} />
-        <HealthRow label="Quality Status" value={qcLabel} valueClass={qcTextCls} />
-        <HealthRow
-          label="Open Issues"
-          value={openIssues > 0 ? `${openIssues} failed QC` : 'None'}
-          valueClass={openIssues > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}
-        />
-        <HealthRow
-          label="CAPAs Linked"
-          value={String(capaCount)}
-          valueClass={capaCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400 dark:text-gray-500'}
-        />
-        <HealthRow
-          label="Recalls Linked"
-          value={String(recallCount)}
-          valueClass={recallCount > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'}
-        />
-      </div>
-
-      {/* Navigate */}
-      <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Navigate To</p>
-        <div className="space-y-0.5">
-          {[
-            { label: 'Production Orders',  href: '/production',      icon: ClipboardList },
-            { label: 'Quality Control',    href: '/quality-control', icon: ShieldCheck   },
-            { label: 'CAPA Center',        href: '/capa',            icon: FileWarning   },
-            { label: 'Recall Center',      href: '/recall',          icon: AlertTriangle },
-          ].map(({ label, href, icon: Icon }) => (
-            <a key={href} href={href}
-              className="flex items-center justify-between rounded-lg px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/40 hover:text-gray-900 dark:hover:text-white transition-colors group">
-              <span className="flex items-center gap-2"><Icon size={13} className="shrink-0" />{label}</span>
-            </a>
-          ))}
-        </div>
-      </div>
+    <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
+      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Journey Health</p>
+      <HealthRow label="Current Stage"  value={stageLabel} />
+      <HealthRow label="Quality Status" value={qcLabel} valueClass={qcTextCls} />
+      <HealthRow
+        label="Open Issues"
+        value={openIssues > 0 ? `${openIssues} failed QC` : 'None'}
+        valueClass={openIssues > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}
+      />
+      <HealthRow
+        label="CAPAs Linked"
+        value={String(capaCount)}
+        valueClass={capaCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400 dark:text-gray-500'}
+      />
+      <HealthRow
+        label="Recalls Linked"
+        value={String(recallCount)}
+        valueClass={recallCount > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'}
+      />
     </div>
   )
 }
@@ -325,10 +288,10 @@ function BatchHeader({ order, qcResults, materials, sales }: {
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[
-          { icon: Calendar,    label: 'Production Date', value: fmtDate(order.created_at) },
-          { icon: Hash,        label: 'Batch Quantity',  value: `${order.quantity.toLocaleString()} units` },
-          { icon: Layers,      label: 'Raw Materials',   value: String(materials.length) },
-          { icon: Truck,       label: 'Distribution',    value: `${sales.length} ${sales.length === 1 ? 'shipment' : 'shipments'}` },
+          { icon: Calendar, label: 'Production Date', value: fmtDate(order.created_at) },
+          { icon: Hash,     label: 'Batch Quantity',  value: `${order.quantity.toLocaleString()} units` },
+          { icon: Layers,   label: 'Raw Materials',   value: String(materials.length) },
+          { icon: Truck,    label: 'Distribution',    value: `${sales.length} ${sales.length === 1 ? 'shipment' : 'shipments'}` },
         ].map(({ icon: Icon, label, value }) => (
           <div key={label} className="rounded-xl bg-gray-50 dark:bg-gray-700/40 px-3 py-2.5">
             <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1">
@@ -350,19 +313,29 @@ function BatchHeader({ order, qcResults, materials, sales }: {
 
 // ── Traceability summary ──────────────────────────────────────────────────────
 
-function TraceabilitySummary({ qcResults, materials, sales, events }: {
-  qcResults: TraceQc[]; materials: TraceMaterial[]; sales: TraceSale[]; events: JourneyEvent[]
+function TraceabilitySummary({
+  materials, qcResults, capaCount, recallCount, enrichedMaterials,
+}: {
+  materials:         TraceMaterial[]
+  qcResults:         TraceQc[]
+  capaCount:         number
+  recallCount:       number
+  enrichedMaterials: EnrichedMaterial[]
 }) {
-  const groups = new Set(events.map(e => classifyEvent(e.event_type).stageGroup))
+  const supplierCount = new Set(
+    enrichedMaterials.map(m => m.supplier_name).filter((s): s is string => Boolean(s))
+  ).size
+
   const items = [
-    { icon: Layers,      label: 'Raw Materials',  value: materials.length,  color: 'text-orange-600 dark:text-orange-400' },
-    { icon: ShieldCheck, label: 'QC Inspections', value: qcResults.length,  color: 'text-emerald-600 dark:text-emerald-400' },
-    { icon: Truck,       label: 'Distributions',  value: sales.length,      color: 'text-teal-600 dark:text-teal-400' },
-    { icon: Activity,    label: 'Journey Events', value: events.length,     color: 'text-blue-600 dark:text-blue-400' },
-    { icon: GitBranch,   label: 'Stages Covered', value: groups.size,       color: 'text-violet-600 dark:text-violet-400' },
+    { icon: Layers,        label: 'Raw Materials', value: materials.length,  color: 'text-orange-600 dark:text-orange-400' },
+    { icon: Building2,     label: 'Suppliers',     value: supplierCount,      color: 'text-blue-600 dark:text-blue-400'    },
+    { icon: ShieldCheck,   label: 'QC Records',    value: qcResults.length,  color: 'text-emerald-600 dark:text-emerald-400' },
+    { icon: FileWarning,   label: 'CAPAs',         value: capaCount,         color: 'text-amber-600 dark:text-amber-400'  },
+    { icon: AlertTriangle, label: 'Recalls',       value: recallCount,       color: 'text-red-600 dark:text-red-400'      },
   ] as const
+
   return (
-    <div className="mb-5 grid grid-cols-3 gap-2 sm:grid-cols-5">
+    <div className="mb-5 grid grid-cols-5 gap-2">
       {items.map(({ icon: Icon, label, value, color }) => (
         <div key={label} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2.5 text-center shadow-sm">
           <div className="flex justify-center mb-1"><Icon size={14} className={color} /></div>
@@ -374,46 +347,258 @@ function TraceabilitySummary({ qcResults, materials, sales, events }: {
   )
 }
 
+// ── Materials used ────────────────────────────────────────────────────────────
+
+function MaterialsUsed({ materials }: { materials: EnrichedMaterial[] }) {
+  if (materials.length === 0) return null
+  return (
+    <div className="mt-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2.5 border-b border-gray-100 dark:border-gray-700 px-4 py-3">
+        <Layers size={15} className="text-orange-500 dark:text-orange-400" />
+        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Materials Used</h2>
+        <span className="ml-auto rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-xs font-medium text-gray-500 dark:text-gray-400">
+          {materials.length} {materials.length === 1 ? 'material' : 'materials'}
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-100 dark:border-gray-700/60">
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Material</th>
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Lot Number</th>
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Supplier</th>
+              <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Quantity</th>
+            </tr>
+          </thead>
+          <tbody>
+            {materials.map((m, i) => (
+              <tr
+                key={m.id}
+                className={`${i < materials.length - 1 ? 'border-b border-gray-100 dark:border-gray-700/40' : ''} hover:bg-gray-50 dark:hover:bg-gray-700/20 transition-colors`}
+              >
+                <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{m.material_name}</td>
+                <td className="px-4 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">
+                  {m.lot_number ?? <span className="text-gray-300 dark:text-gray-600">—</span>}
+                </td>
+                <td className="px-4 py-3">
+                  {m.supplier_name ? (
+                    <span className="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
+                      <Building2 size={10} className="text-blue-400" />{m.supplier_name}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-gray-300 dark:text-gray-600">Unknown</span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums text-xs text-gray-600 dark:text-gray-400">
+                  {m.quantity.toLocaleString()} {m.unit}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ── Impact analysis ───────────────────────────────────────────────────────────
+
+function ImpactAnalysis({
+  impacts, loading,
+}: {
+  impacts: MaterialImpact[]
+  loading: boolean
+}) {
+  const totalAffected = impacts.reduce((n, m) => n + m.affected_batches.length, 0)
+
+  return (
+    <div className="mt-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2.5 border-b border-gray-100 dark:border-gray-700 px-4 py-3">
+        <Network size={15} className="text-violet-500 dark:text-violet-400" />
+        <div>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Impact Analysis</h2>
+          <p className="text-[10px] text-gray-400 dark:text-gray-500">If a material is defective, which batches are affected?</p>
+        </div>
+        {!loading && totalAffected > 0 && (
+          <span className="ml-auto rounded-full bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-400">
+            {totalAffected} batch{totalAffected !== 1 ? 'es' : ''} at risk
+          </span>
+        )}
+        {!loading && totalAffected === 0 && (
+          <span className="ml-auto rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+            Isolated
+          </span>
+        )}
+      </div>
+
+      <div className="px-4 py-4">
+        {loading ? (
+          <div className="space-y-3">
+            {[70, 50, 80].map((w, i) => (
+              <div key={i} className="h-12 rounded-xl bg-gray-100 dark:bg-gray-700 animate-pulse" style={{ width: `${w}%` }} />
+            ))}
+          </div>
+        ) : impacts.length === 0 ? (
+          <div className="py-6 text-center">
+            <Network size={28} className="mx-auto mb-2 text-gray-200 dark:text-gray-700" />
+            <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">No cross-batch exposure</p>
+            <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
+              Materials in this batch are not shared with other recorded batches.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {impacts.map(impact => (
+              <div key={impact.material_name}>
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800/40 px-2.5 py-1 text-xs font-semibold text-orange-700 dark:text-orange-400">
+                    <Layers size={11} />{impact.material_name}
+                  </span>
+                  <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                    ↓ {impact.affected_batches.length} other {impact.affected_batches.length === 1 ? 'batch' : 'batches'}
+                  </span>
+                </div>
+                <div className="space-y-1.5 pl-2">
+                  {impact.affected_batches.map(batch => (
+                    <a
+                      key={batch.production_order_id}
+                      href={`/product-journey/${batch.production_order_id}`}
+                      className="flex items-center justify-between rounded-xl border border-gray-100 dark:border-gray-700/60 bg-gray-50 dark:bg-gray-700/30 px-3 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700/60 hover:border-gray-200 dark:hover:border-gray-600 transition-colors group"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate group-hover:text-[#3a6f8f] dark:group-hover:text-[#7ab3d0] transition-colors">
+                          {batch.product_name}
+                        </p>
+                        <p className="font-mono text-[10px] text-gray-400 dark:text-gray-500">
+                          ···{batch.production_order_id.slice(-10)} · {fmtDate(batch.created_at)}
+                        </p>
+                      </div>
+                      <span className={`ml-3 shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${ORDER_BADGE[batch.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                        {ORDER_LABEL[batch.status] ?? batch.status}
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function ProductJourneyDetailClient() {
   const { id } = useParams<{ id: string }>()
 
-  const [traceData,   setTraceData]   = useState<TraceData | null>(null)
-  const [journey,     setJourney]     = useState<JourneyEvent[]>([])
-  const [loading,     setLoading]     = useState(true)
-  const [notFound,    setNotFound]    = useState(false)
-  const [capaCount,   setCapaCount]   = useState(0)
-  const [recallCount, setRecallCount] = useState(0)
+  const [traceData,          setTraceData]          = useState<TraceData | null>(null)
+  const [journey,            setJourney]            = useState<JourneyEvent[]>([])
+  const [loading,            setLoading]            = useState(true)
+  const [notFound,           setNotFound]           = useState(false)
+  const [capaCount,          setCapaCount]          = useState(0)
+  const [recallCount,        setRecallCount]        = useState(0)
+  const [enrichedMaterials,  setEnrichedMaterials]  = useState<EnrichedMaterial[]>([])
+  const [impactData,         setImpactData]         = useState<MaterialImpact[]>([])
+  const [impactLoading,      setImpactLoading]      = useState(true)
 
   useEffect(() => {
     if (!id) return
     setLoading(true)
+    setImpactLoading(true)
 
     Promise.all([
       supabase.rpc('get_batch_trace',   { p_batch_id: id }).single(),
       supabase.rpc('get_batch_journey', { p_batch_id: id }).single(),
-      supabase.from('capas').select('id', { count: 'exact', head: true }).eq('batch_id', id),
+      supabase.from('capas').select('id',   { count: 'exact', head: true }).eq('batch_id', id),
       supabase.from('recalls').select('id', { count: 'exact', head: true }).eq('batch_id', id),
-    ]).then(([traceRes, journeyRes, capaRes, recallRes]) => {
+      supabase
+        .from('bill_of_materials')
+        .select('id, material_name, lot_number, quantity, unit, raw_material_lots(id, suppliers(name))')
+        .eq('production_order_id', id),
+    ]).then(async ([traceRes, journeyRes, capaRes, recallRes, bomRes]) => {
       if (traceRes.error || !traceRes.data) {
         setNotFound(true)
         setLoading(false)
+        setImpactLoading(false)
         return
       }
+
       setTraceData(traceRes.data as TraceData)
 
       const jd = journeyRes.data as { timeline?: JourneyEvent[] } | null
       if (jd?.timeline && Array.isArray(jd.timeline)) {
-        const sorted = [...jd.timeline].sort(
-          (a, b) => new Date(a.event_timestamp).getTime() - new Date(b.event_timestamp).getTime(),
+        setJourney(
+          [...jd.timeline].sort(
+            (a, b) => new Date(a.event_timestamp).getTime() - new Date(b.event_timestamp).getTime(),
+          ),
         )
-        setJourney(sorted)
       }
 
       setCapaCount(capaRes.count ?? 0)
       setRecallCount(recallRes.count ?? 0)
+
+      // Parse enriched BOM rows
+      const rawBom = (bomRes.data ?? []) as any[]
+      const materials: EnrichedMaterial[] = rawBom.map(row => {
+        const lots     = Array.isArray(row.raw_material_lots) ? row.raw_material_lots[0] : row.raw_material_lots
+        const supplier = lots ? (Array.isArray(lots.suppliers) ? lots.suppliers[0] : lots.suppliers) : null
+        return {
+          id:            row.id,
+          material_name: row.material_name,
+          lot_number:    row.lot_number ?? null,
+          quantity:      row.quantity,
+          unit:          row.unit,
+          supplier_name: supplier?.name ?? null,
+        }
+      })
+      setEnrichedMaterials(materials)
       setLoading(false)
+
+      // Impact analysis — runs after main data is ready
+      const materialNames = [...new Set(materials.map(m => m.material_name))]
+      if (materialNames.length === 0) {
+        setImpactLoading(false)
+        return
+      }
+
+      const { data: impactRows } = await supabase
+        .from('bill_of_materials')
+        .select('production_order_id, material_name, production_orders(id, status, created_at, products(name, sku))')
+        .in('material_name', materialNames)
+        .neq('production_order_id', id)
+        .limit(200)
+
+      if (impactRows) {
+        const byMaterial: Record<string, AffectedBatch[]> = {}
+        for (const row of impactRows as any[]) {
+          const po   = Array.isArray(row.production_orders) ? row.production_orders[0] : row.production_orders
+          if (!po) continue
+          const prod = Array.isArray(po.products) ? po.products[0] : po.products
+          const batch: AffectedBatch = {
+            production_order_id: row.production_order_id,
+            product_name:        prod?.name ?? 'Unknown',
+            status:              po.status,
+            created_at:          po.created_at,
+          }
+          if (!byMaterial[row.material_name]) byMaterial[row.material_name] = []
+          if (!byMaterial[row.material_name].some(b => b.production_order_id === batch.production_order_id)) {
+            byMaterial[row.material_name].push(batch)
+          }
+        }
+
+        setImpactData(
+          Object.entries(byMaterial).map(([material_name, affected_batches]) => ({
+            material_name,
+            affected_batches: affected_batches.sort(
+              (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+            ),
+          })),
+        )
+      }
+
+      setImpactLoading(false)
     })
   }, [id])
 
@@ -425,14 +610,12 @@ export default function ProductJourneyDetailClient() {
         </div>
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
           <div className="lg:col-span-8 space-y-4">
-            {[120, 80, 400].map((h, i) => (
+            {[120, 60, 400].map((h, i) => (
               <div key={i} className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 animate-pulse" style={{ height: h }} />
             ))}
           </div>
-          <div className="lg:col-span-4 space-y-4">
-            {[100, 200, 180].map((h, i) => (
-              <div key={i} className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 animate-pulse" style={{ height: h }} />
-            ))}
+          <div className="lg:col-span-4">
+            <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 animate-pulse" style={{ height: 220 }} />
           </div>
         </div>
       </div>
@@ -486,11 +669,13 @@ export default function ProductJourneyDetailClient() {
             materials={traceData.materials}
             sales={traceData.sales}
           />
+
           <TraceabilitySummary
-            qcResults={traceData.qc_results}
             materials={traceData.materials}
-            sales={traceData.sales}
-            events={journey}
+            qcResults={traceData.qc_results}
+            capaCount={capaCount}
+            recallCount={recallCount}
+            enrichedMaterials={enrichedMaterials}
           />
 
           {/* Timeline */}
@@ -527,6 +712,9 @@ export default function ProductJourneyDetailClient() {
               )}
             </div>
           </div>
+
+          <MaterialsUsed materials={enrichedMaterials} />
+          <ImpactAnalysis impacts={impactData} loading={impactLoading} />
         </div>
 
         {/* Right: health panel */}
@@ -534,8 +722,6 @@ export default function ProductJourneyDetailClient() {
           <HealthPanel
             order={traceData.order}
             qcResults={traceData.qc_results}
-            events={journey}
-            sales={traceData.sales}
             capaCount={capaCount}
             recallCount={recallCount}
           />
