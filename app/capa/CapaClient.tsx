@@ -626,7 +626,7 @@ export default function CapaClient() {
       {/* Page header */}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">CAPA Management</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">CAPA Center</h1>
           <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
             Corrective and Preventive Actions — track root causes to closure
           </p>
@@ -652,18 +652,20 @@ export default function CapaClient() {
         </div>
       )}
 
-      {/* KPI cards — 5 cards */}
-      <div className="mb-5 grid gap-3 sm:grid-cols-3 xl:grid-cols-5">
+      {/* KPI cards — 4 core cards; Open only when non-zero */}
+      <div className={`mb-5 grid gap-3 ${!loading && openIsZero ? 'sm:grid-cols-2 xl:grid-cols-4' : 'sm:grid-cols-3 xl:grid-cols-5'}`}>
         <KpiCard
           label="Total"
           value={loading ? '—' : totalCount}
           color="text-gray-800 dark:text-gray-100"
         />
-        <KpiCard
-          label="Open"
-          value={loading ? '—' : (stats?.open ?? 0)}
-          color={openIsZero ? 'text-gray-300 dark:text-gray-600' : 'text-blue-600 dark:text-blue-400'}
-        />
+        {(!loading && !openIsZero) && (
+          <KpiCard
+            label="Open"
+            value={stats?.open ?? 0}
+            color="text-blue-600 dark:text-blue-400"
+          />
+        )}
         <KpiCard
           label="In Progress"
           value={loading ? '—' : (inProgressCount ?? '—')}
@@ -798,7 +800,7 @@ export default function CapaClient() {
                             >
                               {advancing === capa.id
                                 ? <><RefreshCw size={11} className="animate-spin" /><span>…</span></>
-                                : <><ArrowRight size={11} /><span>Advance</span></>}
+                                : <><ArrowRight size={11} /><span>Next Stage</span></>}
                             </button>
                           )}
 
