@@ -9,7 +9,8 @@
     "recall": "Recall",
     "capa": "CAPA",
     "team": "Team",
-    "sfda": "SFDA Compliance"
+    "sfda": "SFDA Compliance",
+    "journey": "Product Journey"
   },
   "nav_group": {
     "overview": "Overview",
@@ -27,7 +28,8 @@
     "/recall": "Recall Center",
     "/capa": "CAPA Management",
     "/team": "Team Management",
-    "/sfda": "SFDA Compliance"
+    "/sfda": "SFDA Compliance",
+    "/product-journey": "Product Journey"
   },
   "page_subtitle": {
     "/products": "Manage your product catalog.",
