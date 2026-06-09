@@ -61,6 +61,8 @@ type EnrichedMaterial = {
   quantity:      number
   unit:          string
   supplier_name: string | null
+  received_at:   string | null
+  lot_status:    string | null
 }
 type AffectedBatch = {
   production_order_id: string
@@ -121,8 +123,31 @@ function synthesizeEvents(
   sales:      TraceSale[],
   capas:      CapaRecord[],
   recalls:    RecallRecord[],
+  materials:  EnrichedMaterial[],
 ): JourneyEvent[] {
   const out: JourneyEvent[] = []
+
+  // Raw Material Received — only for BOM rows linked to a raw_material_lot
+  // with a recorded received_at timestamp.
+  for (const mat of materials) {
+    if (!mat.received_at) continue
+    const parts = [
+      mat.lot_number ? `Lot ${mat.lot_number}` : null,
+      mat.supplier_name ? `Supplier: ${mat.supplier_name}` : null,
+    ].filter(Boolean)
+    out.push({
+      event_type:      'raw_material.received',
+      event_timestamp: mat.received_at,
+      title:           `Raw Material Received — ${mat.material_name}`,
+      description:     parts.length ? parts.join(' · ') : null,
+      source_table:    'raw_material_lots',
+      metadata:        {
+        material_name: mat.material_name,
+        lot_number:    mat.lot_number,
+        supplier_name: mat.supplier_name,
+      },
+    })
+  }
 
   if (order.started_at) {
     out.push({
@@ -370,48 +395,51 @@ function SnapshotRow({ label, value, valueCls }: { label: string; value: string;
   )
 }
 
-function BatchSnapshot({ order, qcResults, sales, journey }: {
-  order:     TraceOrder
-  qcResults: TraceQc[]
-  sales:     TraceSale[]
-  journey:   JourneyEvent[]
+function BatchSnapshot({ order, qcResults, sales, journey, capaCount, recallCount }: {
+  order:       TraceOrder
+  qcResults:   TraceQc[]
+  sales:       TraceSale[]
+  journey:     JourneyEvent[]
+  capaCount:   number
+  recallCount: number
 }) {
   const latestQc = [...qcResults].sort(
     (a, b) => new Date(b.inspected_at).getTime() - new Date(a.inspected_at).getTime(),
   )[0] ?? null
 
-  const production = order.completed_at ? 'Completed'
-    : order.started_at                  ? 'In Progress'
-    : 'Pending'
-  const productionCls = order.completed_at ? 'text-emerald-600 dark:text-emerald-400'
-    : order.started_at                     ? 'text-blue-600 dark:text-blue-400'
-    : 'text-gray-400 dark:text-gray-500'
-
-  const shipValue = sales.length > 0
-    ? `${sales.length} ${sales.length === 1 ? 'shipment' : 'shipments'}`
-    : 'Not shipped'
-  const shipCls = sales.length > 0 ? 'text-teal-600 dark:text-teal-400' : 'text-gray-400 dark:text-gray-500'
+  // Current Stage — lifecycle position derived from real data.
+  const { stageLabel, stageCls } = (() => {
+    if (recallCount > 0)           return { stageLabel: 'Recall In Progress',      stageCls: 'text-red-600 dark:text-red-400'     }
+    if (sales.length > 0)          return { stageLabel: 'Distributed',             stageCls: 'text-teal-600 dark:text-teal-400'   }
+    if (latestQc?.status === 'pass') return { stageLabel: 'QC Passed',             stageCls: 'text-emerald-600 dark:text-emerald-400' }
+    if (latestQc?.status === 'fail') return { stageLabel: 'QC Failed',             stageCls: 'text-red-600 dark:text-red-400'     }
+    if (latestQc?.status === 'hold') return { stageLabel: 'QC On Hold',            stageCls: 'text-amber-600 dark:text-amber-400' }
+    if (order.completed_at)        return { stageLabel: 'Production Completed',    stageCls: 'text-emerald-600 dark:text-emerald-400' }
+    if (order.started_at)          return { stageLabel: 'In Production',           stageCls: 'text-blue-600 dark:text-blue-400'   }
+    return                                { stageLabel: 'Order Created',           stageCls: 'text-gray-500 dark:text-gray-400'   }
+  })()
 
   const lastTs = [...journey].sort(
     (a, b) => new Date(b.event_timestamp).getTime() - new Date(a.event_timestamp).getTime(),
   )[0]?.event_timestamp ?? null
 
+  type Row = { label: string; value: string; valueCls: string }
+  const rows: Row[] = [
+    { label: 'Current Stage', value: stageLabel, valueCls: stageCls },
+    ...(latestQc ? [{ label: 'Quality Status', value: QC_LABEL[latestQc.status], valueCls: QC_TEXT[latestQc.status] }] : []),
+    ...(lastTs   ? [{ label: 'Last Activity',  value: fmtDateTime(lastTs),       valueCls: 'text-gray-500 dark:text-gray-400' }] : []),
+    ...(capaCount   > 0 ? [{ label: 'Linked CAPAs',   value: String(capaCount),   valueCls: 'text-amber-600 dark:text-amber-400' }] : []),
+    ...(recallCount > 0 ? [{ label: 'Linked Recalls',  value: String(recallCount), valueCls: 'text-red-600 dark:text-red-400'   }] : []),
+  ]
+
+  if (rows.length === 0) return null
+
   return (
     <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
       <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Batch Snapshot</p>
-      <SnapshotRow
-        label="Status"
-        value={STATUS_DISPLAY[order.status] ?? order.status.replace(/_/g, ' ')}
-        valueCls={STATUS_VALUE_CLS[order.status]}
-      />
-      <SnapshotRow label="Production" value={production} valueCls={productionCls} />
-      {latestQc && (
-        <SnapshotRow label="Quality" value={QC_LABEL[latestQc.status]} valueCls={QC_TEXT[latestQc.status]} />
-      )}
-      <SnapshotRow label="Shipment" value={shipValue} valueCls={shipCls} />
-      {lastTs && (
-        <SnapshotRow label="Last Activity" value={fmtDateTime(lastTs)} valueCls="text-gray-500 dark:text-gray-400" />
-      )}
+      {rows.map(r => (
+        <SnapshotRow key={r.label} label={r.label} value={r.value} valueCls={r.valueCls} />
+      ))}
     </div>
   )
 }
@@ -726,7 +754,7 @@ export default function ProductJourneyDetailClient() {
       supabase.from('recalls').select('id, title, status, created_at, closed_at').eq('batch_id', id),
       supabase
         .from('bill_of_materials')
-        .select('id, material_name, lot_number, quantity, unit, raw_material_lots(id, suppliers(name))')
+        .select('id, material_name, lot_number, quantity, unit, raw_material_lots(id, lot_number, received_at, status, suppliers(name))')
         .eq('production_order_id', id),
     ]).then(async ([traceRes, journeyRes, capaRes, recallRes, bomRes]) => {
       if (traceRes.error || !traceRes.data) {
@@ -744,15 +772,7 @@ export default function ProductJourneyDetailClient() {
       setCapaRecords(capas)
       setRecallRecords(recalls)
 
-      const jd = journeyRes.data as { timeline?: JourneyEvent[] } | null
-      const rpcEvents: JourneyEvent[] = (jd?.timeline && Array.isArray(jd.timeline))
-        ? [...jd.timeline].sort((a, b) => new Date(a.event_timestamp).getTime() - new Date(b.event_timestamp).getTime())
-        : []
-
-      const synth  = synthesizeEvents(trace.order, trace.qc_results, trace.sales, capas, recalls)
-      const merged = mergeJourneyEvents(rpcEvents, synth)
-      setJourney(merged)
-
+      // Parse BOM first so raw material received events can be synthesized.
       const rawBom = (bomRes.data ?? []) as any[]
       const materials: EnrichedMaterial[] = rawBom.map(row => {
         const lots     = Array.isArray(row.raw_material_lots) ? row.raw_material_lots[0] : row.raw_material_lots
@@ -764,9 +784,20 @@ export default function ProductJourneyDetailClient() {
           quantity:      row.quantity,
           unit:          row.unit,
           supplier_name: supplier?.name ?? null,
+          received_at:   lots?.received_at ?? null,
+          lot_status:    lots?.status     ?? null,
         }
       })
       setEnrichedMaterials(materials)
+
+      const jd = journeyRes.data as { timeline?: JourneyEvent[] } | null
+      const rpcEvents: JourneyEvent[] = (jd?.timeline && Array.isArray(jd.timeline))
+        ? [...jd.timeline].sort((a, b) => new Date(a.event_timestamp).getTime() - new Date(b.event_timestamp).getTime())
+        : []
+
+      const synth  = synthesizeEvents(trace.order, trace.qc_results, trace.sales, capas, recalls, materials)
+      const merged = mergeJourneyEvents(rpcEvents, synth)
+      setJourney(merged)
       setLoading(false)
 
       const materialNames = [...new Set(materials.map(m => m.material_name))]
@@ -818,16 +849,23 @@ export default function ProductJourneyDetailClient() {
     return (
       <div className="px-6 py-5">
         <div className="mb-5 h-4 w-32 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" />
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-          <div className="lg:col-span-8 space-y-4">
-            {[140, 60, 420].map((h, i) => (
-              <div key={i} className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 animate-pulse" style={{ height: h }} />
-            ))}
-          </div>
-          <div className="lg:col-span-4 space-y-4">
-            {[160, 140].map((h, i) => (
-              <div key={i} className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 animate-pulse" style={{ height: h }} />
-            ))}
+        <div className="space-y-4">
+          {/* header + summary + timeline */}
+          {[140, 56, 480].map((h, i) => (
+            <div key={i} className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 animate-pulse" style={{ height: h }} />
+          ))}
+          {/* secondary grid */}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+            <div className="lg:col-span-8 space-y-4">
+              {[200, 160].map((h, i) => (
+                <div key={i} className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 animate-pulse" style={{ height: h }} />
+              ))}
+            </div>
+            <div className="lg:col-span-4 space-y-4">
+              {[160, 120].map((h, i) => (
+                <div key={i} className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 animate-pulse" style={{ height: h }} />
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -878,122 +916,122 @@ export default function ProductJourneyDetailClient() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* Left: main content */}
+      {/* Batch header — product identity */}
+      <BatchHeader
+        order={traceData.order}
+        qcResults={traceData.qc_results}
+        materials={traceData.materials}
+        sales={traceData.sales}
+      />
+
+      <TraceabilitySummary
+        materials={traceData.materials}
+        qcResults={traceData.qc_results}
+        capaCount={capaCount}
+        recallCount={recallCount}
+      />
+
+      {/* Timeline — primary feature, full width */}
+      <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
+        <div className="flex items-center gap-2.5 border-b border-gray-100 dark:border-gray-700 px-4 py-3">
+          <Activity size={15} className="text-gray-400 dark:text-gray-500" />
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Product Journey Timeline</h2>
+          {businessEvents.length > 0 && (
+            <span className="ml-auto rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-xs font-medium text-gray-500 dark:text-gray-400">
+              {businessEvents.length} events
+            </span>
+          )}
+        </div>
+        <div className="px-4 py-4">
+          {businessEvents.length === 0 ? (
+            <>
+              <div className="py-8 text-center">
+                <Activity size={32} className="mx-auto mb-3 text-gray-200 dark:text-gray-700" />
+                <p className="text-sm text-gray-400 dark:text-gray-500">No operational events recorded yet</p>
+                {sysEvents.length > 0 && (
+                  <p className="mt-1 text-xs text-gray-300 dark:text-gray-600">
+                    {sysEvents.length} system event{sysEvents.length !== 1 ? 's' : ''} hidden below
+                  </p>
+                )}
+              </div>
+              {sysEvents.length > 0 && (
+                <>
+                  <button
+                    onClick={() => setShowSysEvents(v => !v)}
+                    className="mt-1 flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
+                  >
+                    {showSysEvents ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                    {showSysEvents ? 'Hide' : 'Show'} {sysEvents.length} system event{sysEvents.length !== 1 ? 's' : ''}
+                  </button>
+                  {showSysEvents && (
+                    <div className="mt-2">
+                      {sysEvents.map((event, i) => (
+                        <TimelineEvent
+                          key={`sys-${event.event_type}-${event.event_timestamp}-${i}`}
+                          event={event}
+                          isLast={i === sysEvents.length - 1}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <StageFlow events={businessEvents} />
+
+              {businessEvents.map((event, i) => (
+                <TimelineEvent
+                  key={`${event.event_type}-${event.event_timestamp}-${i}`}
+                  event={event}
+                  isLast={i === businessEvents.length - 1 && (!showSysEvents || sysEvents.length === 0)}
+                />
+              ))}
+
+              {sysEvents.length > 0 && (
+                <>
+                  <button
+                    onClick={() => setShowSysEvents(v => !v)}
+                    className="mt-2 flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
+                  >
+                    {showSysEvents ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                    {showSysEvents ? 'Hide' : 'Show'} {sysEvents.length} system event{sysEvents.length !== 1 ? 's' : ''}
+                  </button>
+                  {showSysEvents && (
+                    <div className="mt-2">
+                      {sysEvents.map((event, i) => (
+                        <TimelineEvent
+                          key={`sys-${event.event_type}-${event.event_timestamp}-${i}`}
+                          event={event}
+                          isLast={i === sysEvents.length - 1}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Secondary: materials + impact (left) / snapshot + affected records (right) */}
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="lg:col-span-8">
-          <BatchHeader
-            order={traceData.order}
-            qcResults={traceData.qc_results}
-            materials={traceData.materials}
-            sales={traceData.sales}
-          />
-
-          <TraceabilitySummary
-            materials={traceData.materials}
-            qcResults={traceData.qc_results}
-            capaCount={capaCount}
-            recallCount={recallCount}
-          />
-
-          {/* Timeline */}
-          <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
-            <div className="flex items-center gap-2.5 border-b border-gray-100 dark:border-gray-700 px-4 py-3">
-              <Activity size={15} className="text-gray-400 dark:text-gray-500" />
-              <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Product Journey Timeline</h2>
-              {businessEvents.length > 0 && (
-                <span className="ml-auto rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {businessEvents.length} events
-                </span>
-              )}
-            </div>
-            <div className="px-4 py-4">
-              {businessEvents.length === 0 ? (
-                <>
-                  <div className="py-8 text-center">
-                    <Activity size={32} className="mx-auto mb-3 text-gray-200 dark:text-gray-700" />
-                    <p className="text-sm text-gray-400 dark:text-gray-500">No operational events recorded yet</p>
-                    {sysEvents.length > 0 && (
-                      <p className="mt-1 text-xs text-gray-300 dark:text-gray-600">
-                        {sysEvents.length} system event{sysEvents.length !== 1 ? 's' : ''} hidden below
-                      </p>
-                    )}
-                  </div>
-                  {sysEvents.length > 0 && (
-                    <>
-                      <button
-                        onClick={() => setShowSysEvents(v => !v)}
-                        className="mt-1 flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
-                      >
-                        {showSysEvents ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                        {showSysEvents ? 'Hide' : 'Show'} {sysEvents.length} system event{sysEvents.length !== 1 ? 's' : ''}
-                      </button>
-                      {showSysEvents && (
-                        <div className="mt-2">
-                          {sysEvents.map((event, i) => (
-                            <TimelineEvent
-                              key={`sys-${event.event_type}-${event.event_timestamp}-${i}`}
-                              event={event}
-                              isLast={i === sysEvents.length - 1}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </>
-              ) : (
-                <>
-                  <StageFlow events={businessEvents} />
-
-                  {businessEvents.map((event, i) => (
-                    <TimelineEvent
-                      key={`${event.event_type}-${event.event_timestamp}-${i}`}
-                      event={event}
-                      isLast={i === businessEvents.length - 1 && (!showSysEvents || sysEvents.length === 0)}
-                    />
-                  ))}
-
-                  {sysEvents.length > 0 && (
-                    <>
-                      <button
-                        onClick={() => setShowSysEvents(v => !v)}
-                        className="mt-2 flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
-                      >
-                        {showSysEvents ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                        {showSysEvents ? 'Hide' : 'Show'} {sysEvents.length} system event{sysEvents.length !== 1 ? 's' : ''}
-                      </button>
-
-                      {showSysEvents && (
-                        <div className="mt-2">
-                          {sysEvents.map((event, i) => (
-                            <TimelineEvent
-                              key={`sys-${event.event_type}-${event.event_timestamp}-${i}`}
-                              event={event}
-                              isLast={i === sysEvents.length - 1}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-
           <MaterialsUsed materials={enrichedMaterials} />
           {enrichedMaterials.length > 0 && (
             <ImpactAnalysis impacts={impactData} loading={impactLoading} />
           )}
         </div>
-
-        {/* Right: snapshot + affected records */}
         <div className="lg:col-span-4">
           <BatchSnapshot
             order={traceData.order}
             qcResults={traceData.qc_results}
             sales={traceData.sales}
             journey={journey}
+            capaCount={capaCount}
+            recallCount={recallCount}
           />
           <AffectedRecords
             qcCount={traceData.qc_results.length}
