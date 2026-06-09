@@ -292,23 +292,25 @@ function StageFlow({ events }: { events: JourneyEvent[] }) {
   const present = new Set(events.map(e => classifyEvent(e.event_type).stageGroup))
   const hasCompliance = present.has('compliance')
 
-  // Find the most advanced stage reached
+  // Only show stages that have at least one supporting event — never render
+  // a placeholder stage that has no recorded business data.
+  const visibleStages = STAGE_FLOW.filter(({ key }) => present.has(key))
+
+  // Most advanced stage reached (absolute index in STAGE_FLOW, not visibleStages)
   let currentIdx = -1
   for (let i = STAGE_FLOW.length - 1; i >= 0; i--) {
     if (present.has(STAGE_FLOW[i].key)) { currentIdx = i; break }
   }
-  // Distribution reached = all stages done, show all green
-  const allDone = currentIdx === STAGE_FLOW.length - 1
+  const allDone = present.has('distribution')
+
+  if (visibleStages.length === 0) return null
 
   return (
     <div className="mb-5 flex flex-wrap items-center gap-1.5">
-      {STAGE_FLOW.map(({ key, label }, i) => {
-        // A stage is green only when it both precedes the active stage AND
-        // has at least one event in the timeline. Without this check a stage
-        // like "Raw Materials" would turn green as soon as production starts,
-        // even if no material events were recorded.
-        const hasStagEvents = present.has(STAGE_FLOW[i].key)
-        const isCompleted = (allDone ? i <= currentIdx : i < currentIdx) && hasStagEvents
+      {visibleStages.map(({ key, label }, vi) => {
+        const i = STAGE_FLOW.findIndex(s => s.key === key)
+        // All visible stages have events; isCompleted only depends on position.
+        const isCompleted = allDone ? i <= currentIdx : i < currentIdx
         const isCurrent   = !allDone && i === currentIdx
 
         const pill = isCompleted
@@ -318,7 +320,7 @@ function StageFlow({ events }: { events: JourneyEvent[] }) {
           : 'border-dashed border-gray-200 dark:border-gray-700 bg-transparent opacity-40'
         const dot  = isCompleted ? 'bg-emerald-400' : isCurrent ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
         const text = isCompleted ? 'text-emerald-600 dark:text-emerald-400' : isCurrent ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'
-        const arrow = i < currentIdx ? 'text-emerald-300 dark:text-emerald-700' : 'text-gray-300 dark:text-gray-600'
+        const arrow = isCompleted ? 'text-emerald-300 dark:text-emerald-700' : 'text-gray-300 dark:text-gray-600'
 
         return (
           <Fragment key={key}>
@@ -326,7 +328,7 @@ function StageFlow({ events }: { events: JourneyEvent[] }) {
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
               <span className={`text-[10px] font-bold uppercase tracking-wider ${text}`}>{label}</span>
             </div>
-            {i < STAGE_FLOW.length - 1 && (
+            {vi < visibleStages.length - 1 && (
               <span className={`text-[10px] select-none ${arrow}`}>→</span>
             )}
           </Fragment>
@@ -498,23 +500,30 @@ function BatchHeader({ order, qcResults, materials, sales }: {
         </div>
       </div>
 
-      {/* Metadata — inline key/value pairs */}
-      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
-        <span className="inline-flex items-center gap-1">
-          <Calendar size={10} className="text-gray-400" />{fmtDate(order.created_at)}
+      {/* Metadata — inline key/value pairs with dot separators */}
+      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-gray-600 dark:text-gray-400">
+        <span className="inline-flex items-center gap-1.5">
+          <Calendar size={11} className="shrink-0 text-gray-400" />{fmtDate(order.created_at)}
         </span>
         {!!order.quantity && (
-          <span className="inline-flex items-center gap-1">
-            <Hash size={10} className="text-gray-400" />{order.quantity.toLocaleString()} units
-          </span>
+          <>
+            <span className="select-none text-gray-300 dark:text-gray-600">·</span>
+            <span className="inline-flex items-center gap-1.5">
+              <Hash size={11} className="shrink-0 text-gray-400" />{order.quantity.toLocaleString()} units
+            </span>
+          </>
         )}
         {materials.length > 0 && (
-          <span className="inline-flex items-center gap-1">
-            <Layers size={10} className="text-gray-400" />{materials.length} {materials.length === 1 ? 'material' : 'materials'}
-          </span>
+          <>
+            <span className="select-none text-gray-300 dark:text-gray-600">·</span>
+            <span className="inline-flex items-center gap-1.5">
+              <Layers size={11} className="shrink-0 text-gray-400" />{materials.length} {materials.length === 1 ? 'material' : 'materials'}
+            </span>
+          </>
         )}
-        <span className="inline-flex items-center gap-1">
-          <Truck size={10} className="text-gray-400" />
+        <span className="select-none text-gray-300 dark:text-gray-600">·</span>
+        <span className="inline-flex items-center gap-1.5">
+          <Truck size={11} className="shrink-0 text-gray-400" />
           {sales.length > 0 ? `${sales.length} ${sales.length === 1 ? 'shipment' : 'shipments'}` : 'Not shipped yet'}
         </span>
       </div>
@@ -916,20 +925,15 @@ export default function ProductJourneyDetailClient() {
               <div className="py-8 text-center">
                 <Activity size={32} className="mx-auto mb-3 text-gray-200 dark:text-gray-700" />
                 <p className="text-sm text-gray-400 dark:text-gray-500">No operational events recorded yet</p>
-                {sysEvents.length > 0 && (
-                  <p className="mt-1 text-xs text-gray-300 dark:text-gray-600">
-                    {sysEvents.length} system event{sysEvents.length !== 1 ? 's' : ''} hidden below
-                  </p>
-                )}
               </div>
               {sysEvents.length > 0 && (
                 <>
                   <button
                     onClick={() => setShowSysEvents(v => !v)}
-                    className="mt-1 flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
+                    className="mt-1 flex w-full items-center justify-between rounded-lg border border-dashed border-gray-200 dark:border-gray-700 px-3 py-2 text-xs font-medium text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700/30 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                   >
+                    <span>System Events ({sysEvents.length})</span>
                     {showSysEvents ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                    {showSysEvents ? 'Hide' : 'Show'} {sysEvents.length} system event{sysEvents.length !== 1 ? 's' : ''}
                   </button>
                   {showSysEvents && (
                     <div className="mt-2">
@@ -953,18 +957,26 @@ export default function ProductJourneyDetailClient() {
                 <TimelineEvent
                   key={`${event.event_type}-${event.event_timestamp}-${i}`}
                   event={event}
-                  isLast={i === businessEvents.length - 1 && (!showSysEvents || sysEvents.length === 0)}
+                  isLast={i === businessEvents.length - 1 && sysEvents.length === 0}
                 />
               ))}
+
+              {businessEvents.length === 1 && sysEvents.length === 0 && (
+                <div className="mt-4 rounded-xl border border-dashed border-blue-200 dark:border-blue-800/40 bg-blue-50/40 dark:bg-blue-900/10 px-4 py-3.5">
+                  <p className="text-xs leading-relaxed text-blue-600/80 dark:text-blue-400/80">
+                    Production has started. Additional lifecycle events will appear as the batch progresses.
+                  </p>
+                </div>
+              )}
 
               {sysEvents.length > 0 && (
                 <>
                   <button
                     onClick={() => setShowSysEvents(v => !v)}
-                    className="mt-2 flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
+                    className="mt-3 flex w-full items-center justify-between rounded-lg border border-dashed border-gray-200 dark:border-gray-700 px-3 py-2 text-xs font-medium text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700/30 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                   >
+                    <span>System Events ({sysEvents.length})</span>
                     {showSysEvents ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                    {showSysEvents ? 'Hide' : 'Show'} {sysEvents.length} system event{sysEvents.length !== 1 ? 's' : ''}
                   </button>
                   {showSysEvents && (
                     <div className="mt-2">
