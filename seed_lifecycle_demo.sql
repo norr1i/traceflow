@@ -251,7 +251,11 @@ BEGIN
   -- Raw Material → Production → QC Pass → Distribution → QR Scans
   -- ══════════════════════════════════════════════════════════════
 
+  -- Set all three story anchors here so batch_journey_events inserts
+  -- below have valid timestamps even though the story blocks follow later.
   t1 := t_base + interval '5 days';
+  t2 := t_base + interval '25 days';
+  t3 := t_base + interval '42 days';
 
   -- production_orders: id UUID, product_id UUID, company_id UUID
   INSERT INTO production_orders
@@ -370,6 +374,9 @@ BEGIN
     (cid, batch_01, 'raw_material.received', t_base, 'warehouse@company.sa', 'raw_material',
      '{"title":"Raw Materials Received","description":"SS316 lot LOT-2025-SS316-0891 (500 kg) received from Gulf Steel Industries. Mill cert EN 10204 3.1 attached. Stored in quarantine pending incoming QC."}'::jsonb, t_base),
 
+    (cid, batch_01, 'incoming_qc.approved', t_base+interval '1 day', 'qa@company.sa', 'raw_material',
+     '{"title":"Incoming QC Approved","description":"LOT-2025-SS316-0891 passed incoming inspection. Hardness 187 HB confirmed (spec 150–200 HB). Chemical cert reviewed. Lot approved and transferred to approved stock."}'::jsonb, t_base+interval '1 day'),
+
     (cid, batch_01, 'raw_material.released', t1, 'qa@company.sa', 'raw_material',
      '{"title":"Raw Material Released for Production","description":"LOT-2025-SS316-0891 passed incoming inspection. Hardness 187 HB confirmed (spec 150–200 HB). 87.5 kg allocated to Ball Valve order. Cleared for production."}'::jsonb, t1),
 
@@ -393,8 +400,11 @@ BEGIN
     (cid, batch_02, 'raw_material.received', t2-interval '2 days', 'warehouse@company.sa', 'raw_material',
      '{"title":"Raw Materials Received","description":"Chrome rod LOT-2025-CRROD-0115 (300 kg) from Yanbu Precision Engineering. Carbon steel LOT-2025-CS235-0442 (800 kg) from Gulf Steel Industries. Both delivered — incoming QC pending."}'::jsonb, t2-interval '2 days'),
 
+    (cid, batch_02, 'incoming_qc.conditional', t2-interval '1 day', 'qa@company.sa', 'raw_material',
+     '{"title":"Incoming QC — Conditional Release","description":"LOT-2025-CS235-0442 (Carbon steel): PASS. LOT-2025-CRROD-0115 (Chrome rod): CoC reviewed — hardness deferred to in-process Rockwell check per revised QCP-011. Both lots released conditionally for production start."}'::jsonb, t2-interval '1 day'),
+
     (cid, batch_02, 'raw_material.released', t2, 'qa@company.sa', 'raw_material',
-     '{"title":"Raw Materials Released — Conditional","description":"LOT-2025-CS235-0442 (Carbon steel) passed incoming inspection. LOT-2025-CRROD-0115 (Chrome rod): CoC reviewed — hardness deferred to in-process Rockwell check per revised QCP-011. Materials released conditionally for production start."}'::jsonb, t2)
+     '{"title":"Raw Materials Released for Production","description":"45 kg chrome rod and 120 kg carbon steel allocated to Hydraulic Cylinder batch HPC-50-200-2025-080. Conditional release — in-process hardness check required before machining."}'::jsonb, t2)
   ON CONFLICT DO NOTHING;
 
   -- Story 3 — Safety Relief Valve: full lifecycle including recall
@@ -404,8 +414,11 @@ BEGIN
     (cid, batch_03, 'raw_material.received', t3-interval '1 day', 'warehouse@company.sa', 'raw_material',
      '{"title":"Raw Materials Received","description":"Carbon steel LOT-2025-CS235-0442 (62 kg), SS316 LOT-2025-SS316-0891 (18 kg), and NBR sheet LOT-2025-NBR-0223 (3 sheets) received. Spring assemblies from SHV-Springs also received — material cert on file."}'::jsonb, t3-interval '1 day'),
 
+    (cid, batch_03, 'incoming_qc.approved', t3, 'qa@company.sa', 'raw_material',
+     '{"title":"Incoming QC Approved","description":"All incoming lots passed visual and dimensional inspection. Mill certs reviewed. Spring assembly CoC declares Inconel 625 — XRF/PMI not performed at this stage. All lots approved for production."}'::jsonb, t3),
+
     (cid, batch_03, 'raw_material.released', t3, 'qa@company.sa', 'raw_material',
-     '{"title":"Raw Materials Released for Production","description":"All incoming lots passed visual and dimensional inspection. Mill certs verified. Spring cert reviewed — Inconel 625 declared (not XRF/PMI verified at this stage). All materials released for production."}'::jsonb, t3),
+     '{"title":"Raw Materials Released for Production","description":"Carbon steel, SS316, NBR sheet, and spring assemblies allocated to Safety Relief Valve batch VSR-05-010-2025-150. All cleared for production floor."}'::jsonb, t3),
 
     (cid, batch_03, 'distribution.delivered', t3+interval '11 days', 'logistics@company.sa', 'sales',
      '{"title":"Shipment Delivered — Tasnee Petrochemicals","description":"60 units confirmed received at Jubail. DN-TAS-2025-0388 delivery note signed. Units installed in process safety system."}'::jsonb, t3+interval '11 days'),

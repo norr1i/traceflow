@@ -152,6 +152,17 @@ function synthesizeEvents(
     })
   }
 
+  // Production Order Created — always synthesised; deduplicates with any
+  // matching batch_journey_events row via the event_type|timestamp key.
+  out.push({
+    event_type:      'production.created',
+    event_timestamp: order.created_at,
+    title:           'Production Order Created',
+    description:     `Production order placed for ${order.quantity.toLocaleString()} units.`,
+    source_table:    'production_orders',
+    metadata:        null,
+  })
+
   if (order.started_at) {
     out.push({
       event_type:      'production.started',
