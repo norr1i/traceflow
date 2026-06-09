@@ -8,7 +8,7 @@ import { classifyEvent } from '../../trace/[id]/eventCategories'
 import {
   ChevronLeft, Package, Layers, ShieldCheck, Truck,
   FileWarning, AlertTriangle, Activity, Loader2, User, Calendar,
-  Hash, Building2, Network,
+  Hash, Building2, Network, Copy, Check, ChevronDown, ChevronUp,
 } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -73,7 +73,7 @@ type MaterialImpact = {
   affected_batches: AffectedBatch[]
 }
 
-// ── Formatters ────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -92,6 +92,11 @@ function extractActor(meta: Record<string, unknown> | null): string | null {
     if (typeof meta[k] === 'string' && meta[k]) return meta[k] as string
   }
   return null
+}
+
+// System events are low-signal for business users and collapsed by default.
+function isSystemEvent(e: JourneyEvent): boolean {
+  return e.source_table === 'scan_events' || e.event_type.startsWith('qr.')
 }
 
 // ── Badge maps ────────────────────────────────────────────────────────────────
@@ -212,7 +217,7 @@ function TimelineSkeleton() {
   )
 }
 
-// ── Health panel (compact — Journey Health only) ───────────────────────────────
+// ── Journey Health panel ──────────────────────────────────────────────────────
 
 function HealthRow({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
   return (
@@ -223,14 +228,7 @@ function HealthRow({ label, value, valueClass }: { label: string; value: string;
   )
 }
 
-function HealthPanel({
-  order, qcResults, capaCount, recallCount,
-}: {
-  order:       TraceOrder
-  qcResults:   TraceQc[]
-  capaCount:   number
-  recallCount: number
-}) {
+function HealthPanel({ order, qcResults }: { order: TraceOrder; qcResults: TraceQc[] }) {
   const latestQc   = qcResults[0] ?? null
   const openIssues = qcResults.filter(r => r.status === 'fail').length
   const stageLabel = ORDER_LABEL[order.status] ?? order.status.replace(/_/g, ' ')
@@ -247,16 +245,48 @@ function HealthPanel({
         value={openIssues > 0 ? `${openIssues} failed QC` : 'None'}
         valueClass={openIssues > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}
       />
-      <HealthRow
-        label="CAPAs Linked"
-        value={String(capaCount)}
-        valueClass={capaCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400 dark:text-gray-500'}
-      />
-      <HealthRow
-        label="Recalls Linked"
-        value={String(recallCount)}
-        valueClass={recallCount > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'}
-      />
+    </div>
+  )
+}
+
+// ── Affected records card ─────────────────────────────────────────────────────
+
+function AffectedRecords({
+  qcCount, capaCount, recallCount, shipments,
+}: {
+  qcCount:     number
+  capaCount:   number
+  recallCount: number
+  shipments:   number
+}) {
+  const rows = [
+    { label: 'QC Records', value: qcCount,     href: '/quality-control', color: 'text-emerald-700 dark:text-emerald-400', bg: 'bg-emerald-100 dark:bg-emerald-900/30' },
+    { label: 'CAPAs',      value: capaCount,   href: '/capa',            color: 'text-amber-700 dark:text-amber-400',    bg: 'bg-amber-100 dark:bg-amber-900/30'    },
+    { label: 'Recalls',    value: recallCount, href: '/recall',          color: 'text-red-700 dark:text-red-400',        bg: 'bg-red-100 dark:bg-red-900/30'        },
+    { label: 'Shipments',  value: shipments,   href: '/sales',           color: 'text-teal-700 dark:text-teal-400',      bg: 'bg-teal-100 dark:bg-teal-900/30'      },
+  ].filter(r => r.value > 0)
+
+  if (rows.length === 0) return null
+
+  return (
+    <div className="mt-4 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
+      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Affected Records</p>
+      <div className="space-y-1">
+        {rows.map(({ label, value, href, color, bg }) => (
+          <a
+            key={label}
+            href={href}
+            className="flex items-center justify-between rounded-lg px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors group"
+          >
+            <span className="text-sm text-gray-600 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">
+              {label}
+            </span>
+            <span className={`rounded-full px-2 py-0.5 text-xs font-bold tabular-nums ${bg} ${color}`}>
+              {value}
+            </span>
+          </a>
+        ))}
+      </div>
     </div>
   )
 }
@@ -266,7 +296,16 @@ function HealthPanel({
 function BatchHeader({ order, qcResults, materials, sales }: {
   order: TraceOrder; qcResults: TraceQc[]; materials: TraceMaterial[]; sales: TraceSale[]
 }) {
+  const [copied, setCopied] = useState(false)
   const latestQc = qcResults[0] ?? null
+
+  function handleCopy() {
+    navigator.clipboard.writeText(order.id).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
   return (
     <div className="mb-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
@@ -302,42 +341,51 @@ function BatchHeader({ order, qcResults, materials, sales }: {
         ))}
       </div>
 
-      <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-gray-50 dark:bg-gray-700/40 px-3 py-2">
-        <Hash size={11} className="shrink-0 text-gray-400" />
-        <span className="text-[10px] text-gray-400 mr-1.5">Batch Reference</span>
-        <span className="font-mono text-[10px] text-gray-500 dark:text-gray-400 break-all">···{order.id.slice(-16)}</span>
+      {/* Batch ID with copy */}
+      <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-gray-50 dark:bg-gray-700/40 px-3 py-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Hash size={11} className="shrink-0 text-gray-400" />
+          <span className="text-[10px] text-gray-400">Batch ID</span>
+          <span className="font-mono text-[10px] text-gray-500 dark:text-gray-400 truncate">···{order.id.slice(-12)}</span>
+        </div>
+        <button
+          onClick={handleCopy}
+          className="shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+          title="Copy full batch ID"
+        >
+          {copied
+            ? <><Check size={10} className="text-emerald-500" />Copied</>
+            : <><Copy size={10} />Copy</>
+          }
+        </button>
       </div>
     </div>
   )
 }
 
-// ── Traceability summary ──────────────────────────────────────────────────────
+// ── Traceability summary — conditional, no zero cards ────────────────────────
 
 function TraceabilitySummary({
-  materials, qcResults, capaCount, recallCount, enrichedMaterials,
+  materials, qcResults, capaCount, recallCount,
 }: {
-  materials:         TraceMaterial[]
-  qcResults:         TraceQc[]
-  capaCount:         number
-  recallCount:       number
-  enrichedMaterials: EnrichedMaterial[]
+  materials:   TraceMaterial[]
+  qcResults:   TraceQc[]
+  capaCount:   number
+  recallCount: number
 }) {
-  const supplierCount = new Set(
-    enrichedMaterials.map(m => m.supplier_name).filter((s): s is string => Boolean(s))
-  ).size
-
   const items = [
-    { icon: Layers,        label: 'Raw Materials', value: materials.length,  color: 'text-orange-600 dark:text-orange-400' },
-    { icon: Building2,     label: 'Suppliers',     value: supplierCount,      color: 'text-blue-600 dark:text-blue-400'    },
-    { icon: ShieldCheck,   label: 'QC Records',    value: qcResults.length,  color: 'text-emerald-600 dark:text-emerald-400' },
-    { icon: FileWarning,   label: 'CAPAs',         value: capaCount,         color: 'text-amber-600 dark:text-amber-400'  },
-    { icon: AlertTriangle, label: 'Recalls',       value: recallCount,       color: 'text-red-600 dark:text-red-400'      },
-  ] as const
+    { icon: Layers,        label: 'Raw Materials', value: materials.length, color: 'text-orange-600 dark:text-orange-400' },
+    { icon: ShieldCheck,   label: 'QC Records',    value: qcResults.length, color: 'text-emerald-600 dark:text-emerald-400' },
+    { icon: FileWarning,   label: 'CAPAs',         value: capaCount,        color: 'text-amber-600 dark:text-amber-400'  },
+    { icon: AlertTriangle, label: 'Recalls',       value: recallCount,      color: 'text-red-600 dark:text-red-400'      },
+  ].filter(i => i.value > 0)
+
+  if (items.length === 0) return null
 
   return (
-    <div className="mb-5 grid grid-cols-5 gap-2">
+    <div className="mb-5 flex flex-wrap gap-2">
       {items.map(({ icon: Icon, label, value, color }) => (
-        <div key={label} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2.5 text-center shadow-sm">
+        <div key={label} className="min-w-[80px] flex-1 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2.5 text-center shadow-sm">
           <div className="flex justify-center mb-1"><Icon size={14} className={color} /></div>
           <p className={`text-xl font-bold leading-tight ${color}`}>{value}</p>
           <p className="text-[10px] font-medium text-gray-400 dark:text-gray-500 mt-0.5 leading-tight">{label}</p>
@@ -386,7 +434,7 @@ function MaterialsUsed({ materials }: { materials: EnrichedMaterial[] }) {
                       <Building2 size={10} className="text-blue-400" />{m.supplier_name}
                     </span>
                   ) : (
-                    <span className="text-xs text-gray-300 dark:text-gray-600">Unknown</span>
+                    <span className="text-xs text-gray-300 dark:text-gray-600">—</span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-right tabular-nums text-xs text-gray-600 dark:text-gray-400">
@@ -403,12 +451,7 @@ function MaterialsUsed({ materials }: { materials: EnrichedMaterial[] }) {
 
 // ── Impact analysis ───────────────────────────────────────────────────────────
 
-function ImpactAnalysis({
-  impacts, loading,
-}: {
-  impacts: MaterialImpact[]
-  loading: boolean
-}) {
+function ImpactAnalysis({ impacts, loading }: { impacts: MaterialImpact[]; loading: boolean }) {
   const totalAffected = impacts.reduce((n, m) => n + m.affected_batches.length, 0)
 
   return (
@@ -493,15 +536,16 @@ function ImpactAnalysis({
 export default function ProductJourneyDetailClient() {
   const { id } = useParams<{ id: string }>()
 
-  const [traceData,          setTraceData]          = useState<TraceData | null>(null)
-  const [journey,            setJourney]            = useState<JourneyEvent[]>([])
-  const [loading,            setLoading]            = useState(true)
-  const [notFound,           setNotFound]           = useState(false)
-  const [capaCount,          setCapaCount]          = useState(0)
-  const [recallCount,        setRecallCount]        = useState(0)
-  const [enrichedMaterials,  setEnrichedMaterials]  = useState<EnrichedMaterial[]>([])
-  const [impactData,         setImpactData]         = useState<MaterialImpact[]>([])
-  const [impactLoading,      setImpactLoading]      = useState(true)
+  const [traceData,         setTraceData]         = useState<TraceData | null>(null)
+  const [journey,           setJourney]           = useState<JourneyEvent[]>([])
+  const [loading,           setLoading]           = useState(true)
+  const [notFound,          setNotFound]          = useState(false)
+  const [capaCount,         setCapaCount]         = useState(0)
+  const [recallCount,       setRecallCount]       = useState(0)
+  const [enrichedMaterials, setEnrichedMaterials] = useState<EnrichedMaterial[]>([])
+  const [impactData,        setImpactData]        = useState<MaterialImpact[]>([])
+  const [impactLoading,     setImpactLoading]     = useState(true)
+  const [showSysEvents,     setShowSysEvents]     = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -539,7 +583,6 @@ export default function ProductJourneyDetailClient() {
       setCapaCount(capaRes.count ?? 0)
       setRecallCount(recallRes.count ?? 0)
 
-      // Parse enriched BOM rows
       const rawBom = (bomRes.data ?? []) as any[]
       const materials: EnrichedMaterial[] = rawBom.map(row => {
         const lots     = Array.isArray(row.raw_material_lots) ? row.raw_material_lots[0] : row.raw_material_lots
@@ -556,7 +599,6 @@ export default function ProductJourneyDetailClient() {
       setEnrichedMaterials(materials)
       setLoading(false)
 
-      // Impact analysis — runs after main data is ready
       const materialNames = [...new Set(materials.map(m => m.material_name))]
       if (materialNames.length === 0) {
         setImpactLoading(false)
@@ -605,17 +647,17 @@ export default function ProductJourneyDetailClient() {
   if (loading) {
     return (
       <div className="px-6 py-5">
-        <div className="mb-5 flex items-center gap-2">
-          <div className="h-4 w-32 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" />
-        </div>
+        <div className="mb-5 h-4 w-32 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" />
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
           <div className="lg:col-span-8 space-y-4">
-            {[120, 60, 400].map((h, i) => (
+            {[140, 60, 420].map((h, i) => (
               <div key={i} className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 animate-pulse" style={{ height: h }} />
             ))}
           </div>
-          <div className="lg:col-span-4">
-            <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 animate-pulse" style={{ height: 220 }} />
+          <div className="lg:col-span-4 space-y-4">
+            {[160, 140].map((h, i) => (
+              <div key={i} className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 animate-pulse" style={{ height: h }} />
+            ))}
           </div>
         </div>
       </div>
@@ -640,6 +682,9 @@ export default function ProductJourneyDetailClient() {
     )
   }
 
+  const businessEvents = journey.filter(e => !isSystemEvent(e))
+  const sysEvents      = journey.filter(e => isSystemEvent(e))
+
   return (
     <div className="px-6 py-5">
       {/* Breadcrumb */}
@@ -655,11 +700,11 @@ export default function ProductJourneyDetailClient() {
       <div className="mb-5">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Product Journey</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          End-to-end traceability for <span className="font-medium text-gray-700 dark:text-gray-300">{traceData.order.product_name}</span>
+          End-to-end traceability for{' '}
+          <span className="font-medium text-gray-700 dark:text-gray-300">{traceData.order.product_name}</span>
         </p>
       </div>
 
-      {/* Two-column layout */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* Left: main content */}
         <div className="lg:col-span-8">
@@ -675,7 +720,6 @@ export default function ProductJourneyDetailClient() {
             qcResults={traceData.qc_results}
             capaCount={capaCount}
             recallCount={recallCount}
-            enrichedMaterials={enrichedMaterials}
           />
 
           {/* Timeline */}
@@ -683,9 +727,9 @@ export default function ProductJourneyDetailClient() {
             <div className="flex items-center gap-2.5 border-b border-gray-100 dark:border-gray-700 px-4 py-3">
               <Activity size={15} className="text-gray-400 dark:text-gray-500" />
               <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Product Journey Timeline</h2>
-              {journey.length > 0 && (
+              {businessEvents.length > 0 && (
                 <span className="ml-auto rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {journey.length} events
+                  {businessEvents.length} events
                 </span>
               )}
             </div>
@@ -701,13 +745,38 @@ export default function ProductJourneyDetailClient() {
               ) : (
                 <>
                   <StageFlow events={journey} />
-                  {journey.map((event, i) => (
+
+                  {businessEvents.map((event, i) => (
                     <TimelineEvent
                       key={`${event.event_type}-${event.event_timestamp}-${i}`}
                       event={event}
-                      isLast={i === journey.length - 1}
+                      isLast={i === businessEvents.length - 1 && (!showSysEvents || sysEvents.length === 0)}
                     />
                   ))}
+
+                  {sysEvents.length > 0 && (
+                    <>
+                      <button
+                        onClick={() => setShowSysEvents(v => !v)}
+                        className="mt-2 flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
+                      >
+                        {showSysEvents ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                        {showSysEvents ? 'Hide' : 'Show'} {sysEvents.length} system event{sysEvents.length !== 1 ? 's' : ''}
+                      </button>
+
+                      {showSysEvents && (
+                        <div className="mt-2">
+                          {sysEvents.map((event, i) => (
+                            <TimelineEvent
+                              key={`sys-${event.event_type}-${event.event_timestamp}-${i}`}
+                              event={event}
+                              isLast={i === sysEvents.length - 1}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </>
               )}
             </div>
@@ -717,13 +786,14 @@ export default function ProductJourneyDetailClient() {
           <ImpactAnalysis impacts={impactData} loading={impactLoading} />
         </div>
 
-        {/* Right: health panel */}
+        {/* Right: health + affected records */}
         <div className="lg:col-span-4">
-          <HealthPanel
-            order={traceData.order}
-            qcResults={traceData.qc_results}
+          <HealthPanel order={traceData.order} qcResults={traceData.qc_results} />
+          <AffectedRecords
+            qcCount={traceData.qc_results.length}
             capaCount={capaCount}
             recallCount={recallCount}
+            shipments={traceData.sales.length}
           />
         </div>
       </div>
