@@ -116,53 +116,24 @@ function isSystemEvent(e: JourneyEvent): boolean {
   return e.source_table === 'scan_events' || e.event_type.startsWith('qr.')
 }
 
-// Derive business events from real relational data so the timeline is
-// populated even when the journey RPC only emits "production.created".
+// Synthesise events for data sources the RPC does not cover:
+// CAPA records, recall records, and sales-based shipments (fallback
+// for batches that have no distribution_records rows).
+//
+// The RPC already handles: production_orders, bill_of_materials,
+// batch_qc_results, quality_inspections, distribution_records, scan_events,
+// and batch_journey_events. Synthesising those here would produce duplicates.
 function synthesizeEvents(
-  order:      TraceOrder,
-  qcResults:  TraceQc[],
-  sales:      TraceSale[],
-  capas:      CapaRecord[],
-  recalls:    RecallRecord[],
-  materials:  EnrichedMaterial[],
+  order:   TraceOrder,
+  sales:   TraceSale[],
+  capas:   CapaRecord[],
+  recalls: RecallRecord[],
 ): JourneyEvent[] {
   const out: JourneyEvent[] = []
 
-  // Raw Material Received — use lot received_at when the BOM row is linked to a
-  // raw_material_lot; fall back to the BOM row's own created_at so every
-  // material produces an event regardless of whether the lot FK is set.
-  for (const mat of materials) {
-    const ts = mat.received_at ?? mat.bom_created_at
-    if (!ts) continue
-    const parts = [
-      mat.lot_number    ? `Lot ${mat.lot_number}`         : null,
-      mat.supplier_name ? `Supplier: ${mat.supplier_name}` : null,
-    ].filter(Boolean)
-    out.push({
-      event_type:      'raw_material.received',
-      event_timestamp: ts,
-      title:           `Raw Material Received — ${mat.material_name}`,
-      description:     parts.length ? parts.join(' · ') : null,
-      source_table:    'raw_material_lots',
-      metadata:        {
-        material_name: mat.material_name,
-        lot_number:    mat.lot_number,
-        supplier_name: mat.supplier_name,
-      },
-    })
-  }
-
-  // Production Order Created — always synthesised; deduplicates with any
-  // matching batch_journey_events row via the event_type|timestamp key.
-  out.push({
-    event_type:      'production.created',
-    event_timestamp: order.created_at,
-    title:           'Production Order Created',
-    description:     `Production order placed for ${order.quantity.toLocaleString()} units.`,
-    source_table:    'production_orders',
-    metadata:        null,
-  })
-
+  // production.started / production.completed deduplicate with the RPC
+  // via matching event_type + timestamp[:16]. They are kept here as a
+  // fallback for when the journey RPC returns an empty timeline.
   if (order.started_at) {
     out.push({
       event_type:      'production.started',
@@ -185,19 +156,8 @@ function synthesizeEvents(
     })
   }
 
-  const QC_TYPE  = { pass: 'qc_inspection.passed', fail: 'qc_inspection.failed', hold: 'qc_inspection.hold' } as const
-  const QC_TITLE = { pass: 'QC Inspection Passed', fail: 'QC Inspection Failed', hold: 'QC Inspection On Hold' } as const
-  for (const qc of qcResults) {
-    out.push({
-      event_type:      QC_TYPE[qc.status]  ?? 'qc_inspection.passed',
-      event_timestamp: qc.inspected_at,
-      title:           QC_TITLE[qc.status] ?? 'QC Inspection',
-      description:     qc.notes ?? `Inspection completed by ${qc.inspector_name}.`,
-      source_table:    'quality_checks',
-      metadata:        { inspector_name: qc.inspector_name },
-    })
-  }
-
+  // distribution.shipped from sales: deduplicates with distribution_records
+  // events from the RPC when timestamps match; acts as fallback otherwise.
   for (const sale of sales) {
     out.push({
       event_type:      'distribution.shipped',
@@ -267,6 +227,33 @@ function mergeJourneyEvents(rpc: JourneyEvent[], synth: JourneyEvent[]): Journey
   )
 }
 
+// The RPC pulls QC events from two tables: batch_qc_results (event_type
+// 'qc.pass/fail/hold') and quality_inspections ('qc_inspection.passed/…').
+// Both represent the same physical inspection. Collapse them to one event
+// per day per outcome, preferring the batch_qc_results version which carries
+// the full inspection notes.
+function deduplicateSameDayQc(events: JourneyEvent[]): JourneyEvent[] {
+  const outcome = (type: string): string | null => {
+    if (type === 'qc.pass'  || type.endsWith('.passed')) return 'pass'
+    if (type === 'qc.fail'  || type.endsWith('.failed')) return 'fail'
+    if (type === 'qc.hold'  || type.endsWith('.hold'))   return 'hold'
+    return null
+  }
+  const best = new Map<string, JourneyEvent>()
+  const rest: JourneyEvent[] = []
+  for (const e of events) {
+    const o = outcome(e.event_type)
+    if (!o) { rest.push(e); continue }
+    const dk = `${e.event_timestamp.substring(0, 10)}|${o}`
+    const existing = best.get(dk)
+    // batch_qc_results events have richer notes; prefer them
+    if (!existing || e.source_table === 'batch_qc_results') best.set(dk, e)
+  }
+  return [...rest, ...Array.from(best.values())].sort(
+    (a, b) => new Date(a.event_timestamp).getTime() - new Date(b.event_timestamp).getTime(),
+  )
+}
+
 // ── Badge maps ────────────────────────────────────────────────────────────────
 
 const ORDER_BADGE: Record<string, string> = {
@@ -316,9 +303,13 @@ function StageFlow({ events }: { events: JourneyEvent[] }) {
   return (
     <div className="mb-5 flex flex-wrap items-center gap-1.5">
       {STAGE_FLOW.map(({ key, label }, i) => {
-        const isCompleted = allDone ? i <= currentIdx : i < currentIdx
+        // A stage is green only when it both precedes the active stage AND
+        // has at least one event in the timeline. Without this check a stage
+        // like "Raw Materials" would turn green as soon as production starts,
+        // even if no material events were recorded.
+        const hasStagEvents = present.has(STAGE_FLOW[i].key)
+        const isCompleted = (allDone ? i <= currentIdx : i < currentIdx) && hasStagEvents
         const isCurrent   = !allDone && i === currentIdx
-        const isFuture    = i > currentIdx
 
         const pill = isCompleted
           ? 'border-emerald-200 dark:border-emerald-700/60 bg-emerald-50 dark:bg-emerald-900/20'
@@ -786,8 +777,8 @@ export default function ProductJourneyDetailClient() {
         ? [...jd.timeline].sort((a, b) => new Date(a.event_timestamp).getTime() - new Date(b.event_timestamp).getTime())
         : []
 
-      const synth  = synthesizeEvents(trace.order, trace.qc_results, trace.sales, capas, recalls, materials)
-      const merged = mergeJourneyEvents(rpcEvents, synth)
+      const synth  = synthesizeEvents(trace.order, trace.sales, capas, recalls)
+      const merged = deduplicateSameDayQc(mergeJourneyEvents(rpcEvents, synth))
       setJourney(merged)
       setLoading(false)
 

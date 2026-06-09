@@ -1,5 +1,5 @@
 import {
-  PackagePlus,
+  ClipboardList,
   Play,
   CheckCircle2,
   Layers,
@@ -94,7 +94,7 @@ const C = {
     iconBg:       'bg-blue-50 dark:bg-blue-900/30',
     iconColor:    'text-blue-500 dark:text-blue-400',
     badgeClass:   'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-    Icon: PackagePlus,
+    Icon: ClipboardList,
   },
   productionStarted: {
     key:          'production_started',
@@ -222,6 +222,7 @@ const C = {
 // ── Exact event-type → category map ────────────────────────────────────────
 
 const EXACT: Record<string, EventCategory> = {
+  'production.order_created': C.productionCreated,
   'production.created':       C.productionCreated,
   'production.started':       C.productionStarted,
   'production.completed':     C.productionCompleted,
