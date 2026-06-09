@@ -232,19 +232,17 @@ function HealthPanel({ order, qcResults }: { order: TraceOrder; qcResults: Trace
   const latestQc   = qcResults[0] ?? null
   const openIssues = qcResults.filter(r => r.status === 'fail').length
   const stageLabel = ORDER_LABEL[order.status] ?? order.status.replace(/_/g, ' ')
-  const qcLabel    = latestQc ? QC_LABEL[latestQc.status] : 'No inspections'
-  const qcTextCls  = latestQc ? QC_TEXT[latestQc.status] : 'text-gray-400 dark:text-gray-500'
 
   return (
     <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
       <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Journey Health</p>
-      <HealthRow label="Current Stage"  value={stageLabel} />
-      <HealthRow label="Quality Status" value={qcLabel} valueClass={qcTextCls} />
-      <HealthRow
-        label="Open Issues"
-        value={openIssues > 0 ? `${openIssues} failed QC` : 'None'}
-        valueClass={openIssues > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}
-      />
+      <HealthRow label="Current Stage" value={stageLabel} />
+      {latestQc && (
+        <HealthRow label="Quality Status" value={QC_LABEL[latestQc.status]} valueClass={QC_TEXT[latestQc.status]} />
+      )}
+      {openIssues > 0 && (
+        <HealthRow label="Open Issues" value={`${openIssues} failed QC`} valueClass="text-red-600 dark:text-red-400" />
+      )}
     </div>
   )
 }
@@ -326,12 +324,12 @@ function BatchHeader({ order, qcResults, materials, sales }: {
       </div>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {[
-          { icon: Calendar, label: 'Production Date', value: fmtDate(order.created_at) },
-          { icon: Hash,     label: 'Batch Quantity',  value: `${order.quantity.toLocaleString()} units` },
-          { icon: Layers,   label: 'Raw Materials',   value: String(materials.length) },
-          { icon: Truck,    label: 'Distribution',    value: `${sales.length} ${sales.length === 1 ? 'shipment' : 'shipments'}` },
-        ].map(({ icon: Icon, label, value }) => (
+        {([
+          { icon: Calendar, label: 'Production Date', value: fmtDate(order.created_at), show: true },
+          { icon: Hash,     label: 'Batch Quantity',  value: order.quantity ? `${order.quantity.toLocaleString()} units` : '', show: !!order.quantity },
+          { icon: Layers,   label: 'Raw Materials',   value: String(materials.length), show: materials.length > 0 },
+          { icon: Truck,    label: 'Distribution',    value: sales.length > 0 ? `${sales.length} ${sales.length === 1 ? 'shipment' : 'shipments'}` : 'Not shipped yet', show: true },
+        ] as const).filter(c => c.show).map(({ icon: Icon, label, value }) => (
           <div key={label} className="rounded-xl bg-gray-50 dark:bg-gray-700/40 px-3 py-2.5">
             <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1">
               <Icon size={9} />{label}
@@ -734,17 +732,43 @@ export default function ProductJourneyDetailClient() {
               )}
             </div>
             <div className="px-4 py-4">
-              {journey.length === 0 ? (
-                <div className="py-8 text-center">
-                  <Activity size={32} className="mx-auto mb-3 text-gray-200 dark:text-gray-700" />
-                  <p className="text-sm text-gray-400 dark:text-gray-500">No journey events recorded for this batch.</p>
-                  <p className="mt-1 text-xs text-gray-300 dark:text-gray-600">
-                    Events appear as production, QC, and distribution activities are recorded.
-                  </p>
-                </div>
+              {businessEvents.length === 0 ? (
+                <>
+                  <div className="py-8 text-center">
+                    <Activity size={32} className="mx-auto mb-3 text-gray-200 dark:text-gray-700" />
+                    <p className="text-sm text-gray-400 dark:text-gray-500">No operational events recorded yet</p>
+                    {sysEvents.length > 0 && (
+                      <p className="mt-1 text-xs text-gray-300 dark:text-gray-600">
+                        {sysEvents.length} system event{sysEvents.length !== 1 ? 's' : ''} hidden below
+                      </p>
+                    )}
+                  </div>
+                  {sysEvents.length > 0 && (
+                    <>
+                      <button
+                        onClick={() => setShowSysEvents(v => !v)}
+                        className="mt-1 flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
+                      >
+                        {showSysEvents ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                        {showSysEvents ? 'Hide' : 'Show'} {sysEvents.length} system event{sysEvents.length !== 1 ? 's' : ''}
+                      </button>
+                      {showSysEvents && (
+                        <div className="mt-2">
+                          {sysEvents.map((event, i) => (
+                            <TimelineEvent
+                              key={`sys-${event.event_type}-${event.event_timestamp}-${i}`}
+                              event={event}
+                              isLast={i === sysEvents.length - 1}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
               ) : (
                 <>
-                  <StageFlow events={journey} />
+                  <StageFlow events={businessEvents} />
 
                   {businessEvents.map((event, i) => (
                     <TimelineEvent
@@ -783,7 +807,9 @@ export default function ProductJourneyDetailClient() {
           </div>
 
           <MaterialsUsed materials={enrichedMaterials} />
-          <ImpactAnalysis impacts={impactData} loading={impactLoading} />
+          {enrichedMaterials.length > 0 && (
+            <ImpactAnalysis impacts={impactData} loading={impactLoading} />
+          )}
         </div>
 
         {/* Right: health + affected records */}
