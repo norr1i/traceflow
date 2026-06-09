@@ -63,6 +63,7 @@ type EnrichedMaterial = {
   supplier_name: string | null
   received_at:   string | null
   lot_status:    string | null
+  bom_created_at: string | null
 }
 type AffectedBatch = {
   production_order_id: string
@@ -127,17 +128,19 @@ function synthesizeEvents(
 ): JourneyEvent[] {
   const out: JourneyEvent[] = []
 
-  // Raw Material Received — only for BOM rows linked to a raw_material_lot
-  // with a recorded received_at timestamp.
+  // Raw Material Received — use lot received_at when the BOM row is linked to a
+  // raw_material_lot; fall back to the BOM row's own created_at so every
+  // material produces an event regardless of whether the lot FK is set.
   for (const mat of materials) {
-    if (!mat.received_at) continue
+    const ts = mat.received_at ?? mat.bom_created_at
+    if (!ts) continue
     const parts = [
-      mat.lot_number ? `Lot ${mat.lot_number}` : null,
+      mat.lot_number    ? `Lot ${mat.lot_number}`         : null,
       mat.supplier_name ? `Supplier: ${mat.supplier_name}` : null,
     ].filter(Boolean)
     out.push({
       event_type:      'raw_material.received',
-      event_timestamp: mat.received_at,
+      event_timestamp: ts,
       title:           `Raw Material Received — ${mat.material_name}`,
       description:     parts.length ? parts.join(' · ') : null,
       source_table:    'raw_material_lots',
@@ -280,31 +283,62 @@ const QC_LABEL: Record<string, string> = {
 
 // ── Stage flow ────────────────────────────────────────────────────────────────
 
-const STAGES = [
-  { key: 'materials',    label: 'Raw Materials',   dot: 'bg-orange-400', text: 'text-orange-500 dark:text-orange-400' },
-  { key: 'production',   label: 'Production',      dot: 'bg-blue-500',   text: 'text-blue-600 dark:text-blue-400'    },
-  { key: 'quality',      label: 'Quality Control', dot: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
-  { key: 'distribution', label: 'Distribution',    dot: 'bg-teal-500',   text: 'text-teal-600 dark:text-teal-400'   },
-] as const
+const STAGE_FLOW = [
+  { key: 'materials'    as const, label: 'Raw Materials'   },
+  { key: 'production'   as const, label: 'Production'      },
+  { key: 'quality'      as const, label: 'Quality Control' },
+  { key: 'distribution' as const, label: 'Distribution'    },
+]
 
 function StageFlow({ events }: { events: JourneyEvent[] }) {
   const present = new Set(events.map(e => classifyEvent(e.event_type).stageGroup))
+  const hasCompliance = present.has('compliance')
+
+  // Find the most advanced stage reached
+  let currentIdx = -1
+  for (let i = STAGE_FLOW.length - 1; i >= 0; i--) {
+    if (present.has(STAGE_FLOW[i].key)) { currentIdx = i; break }
+  }
+  // Distribution reached = all stages done, show all green
+  const allDone = currentIdx === STAGE_FLOW.length - 1
+
   return (
     <div className="mb-5 flex flex-wrap items-center gap-1.5">
-      {STAGES.map((s, i) => {
-        const has = present.has(s.key)
+      {STAGE_FLOW.map(({ key, label }, i) => {
+        const isCompleted = allDone ? i <= currentIdx : i < currentIdx
+        const isCurrent   = !allDone && i === currentIdx
+        const isFuture    = i > currentIdx
+
+        const pill = isCompleted
+          ? 'border-emerald-200 dark:border-emerald-700/60 bg-emerald-50 dark:bg-emerald-900/20'
+          : isCurrent
+          ? 'border-blue-200 dark:border-blue-600/60 bg-blue-50 dark:bg-blue-900/20'
+          : 'border-dashed border-gray-200 dark:border-gray-700 bg-transparent opacity-40'
+        const dot  = isCompleted ? 'bg-emerald-400' : isCurrent ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+        const text = isCompleted ? 'text-emerald-600 dark:text-emerald-400' : isCurrent ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'
+        const arrow = i < currentIdx ? 'text-emerald-300 dark:text-emerald-700' : 'text-gray-300 dark:text-gray-600'
+
         return (
-          <Fragment key={s.key}>
-            <div className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 shadow-sm ${has ? 'border-gray-200 dark:border-gray-700/60 bg-white dark:bg-gray-800/60' : 'border-dashed border-gray-200 dark:border-gray-700 bg-transparent opacity-40'}`}>
-              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${s.dot}`} />
-              <span className={`text-[10px] font-bold uppercase tracking-wider ${s.text}`}>{s.label}</span>
+          <Fragment key={key}>
+            <div className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 shadow-sm ${pill}`}>
+              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+              <span className={`text-[10px] font-bold uppercase tracking-wider ${text}`}>{label}</span>
             </div>
-            {i < STAGES.length - 1 && (
-              <span className="text-[10px] text-gray-300 dark:text-gray-600 select-none">→</span>
+            {i < STAGE_FLOW.length - 1 && (
+              <span className={`text-[10px] select-none ${arrow}`}>→</span>
             )}
           </Fragment>
         )
       })}
+      {hasCompliance && (
+        <>
+          <span className="text-[10px] text-purple-300 dark:text-purple-700 select-none">→</span>
+          <div className="flex items-center gap-1.5 rounded-full border border-purple-200 dark:border-purple-700/60 bg-purple-50 dark:bg-purple-900/20 px-2.5 py-1 shadow-sm">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-purple-500" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400">Compliance</span>
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -419,7 +453,9 @@ function BatchHeader({ order, qcResults, materials, sales }: {
   order: TraceOrder; qcResults: TraceQc[]; materials: TraceMaterial[]; sales: TraceSale[]
 }) {
   const [copied, setCopied] = useState(false)
-  const latestQc = qcResults[0] ?? null
+  const latestQc = [...qcResults].sort(
+    (a, b) => new Date(b.inspected_at).getTime() - new Date(a.inspected_at).getTime(),
+  )[0] ?? null
 
   function handleCopy() {
     navigator.clipboard.writeText(order.id).then(() => {
@@ -427,6 +463,16 @@ function BatchHeader({ order, qcResults, materials, sales }: {
       setTimeout(() => setCopied(false), 2000)
     })
   }
+
+  // Derive operational stage from real data — never shows generic "Pending".
+  const stageBadge = (() => {
+    if (sales.length > 0)               return { label: 'Shipped',              cls: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400' }
+    if (latestQc?.status === 'pass')    return { label: 'Ready for Shipment',   cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' }
+    if (qcResults.length > 0)           return { label: 'Quality Review',        cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' }
+    if (order.started_at)               return { label: 'In Production',         cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' }
+    if (materials.length > 0)           return { label: 'Raw Material Received', cls: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' }
+    return null
+  })()
 
   return (
     <div className="mb-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
@@ -436,9 +482,11 @@ function BatchHeader({ order, qcResults, materials, sales }: {
           <p className="mt-0.5 font-mono text-xs text-gray-400 dark:text-gray-500">SKU: {order.sku}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <span className={`inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider ${ORDER_BADGE[order.status] ?? 'bg-gray-100 text-gray-600'}`}>
-            {ORDER_LABEL[order.status] ?? order.status.replace(/_/g, ' ')}
-          </span>
+          {stageBadge && (
+            <span className={`inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider ${stageBadge.cls}`}>
+              {stageBadge.label}
+            </span>
+          )}
           {latestQc && (
             <span className={`inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider ${QC_BADGE[latestQc.status]}`}>
               {QC_LABEL[latestQc.status]}
@@ -681,7 +729,7 @@ export default function ProductJourneyDetailClient() {
       supabase.from('recalls').select('id, title, status, created_at, closed_at').eq('batch_id', id),
       supabase
         .from('bill_of_materials')
-        .select('id, material_name, lot_number, quantity, unit, raw_material_lots(id, lot_number, received_at, status, suppliers(name))')
+        .select('id, material_name, lot_number, quantity, unit, created_at, raw_material_lots(id, lot_number, received_at, status, suppliers(name))')
         .eq('production_order_id', id),
     ]).then(async ([traceRes, journeyRes, capaRes, recallRes, bomRes]) => {
       if (traceRes.error || !traceRes.data) {
@@ -711,8 +759,9 @@ export default function ProductJourneyDetailClient() {
           quantity:      row.quantity,
           unit:          row.unit,
           supplier_name: supplier?.name ?? null,
-          received_at:   lots?.received_at ?? null,
-          lot_status:    lots?.status     ?? null,
+          received_at:    lots?.received_at ?? null,
+          lot_status:     lots?.status     ?? null,
+          bom_created_at: row.created_at   ?? null,
         }
       })
       setEnrichedMaterials(materials)
@@ -849,9 +898,9 @@ export default function ProductJourneyDetailClient() {
         <div className="flex items-center gap-2.5 border-b border-gray-100 dark:border-gray-700 px-4 py-3">
           <Activity size={15} className="text-gray-400 dark:text-gray-500" />
           <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Product Journey Timeline</h2>
-          {businessEvents.length > 0 && (
+          {businessEvents.length > 1 && (
             <span className="ml-auto rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-xs font-medium text-gray-500 dark:text-gray-400">
-              {businessEvents.length} events
+              {businessEvents.length} {businessEvents.length === 1 ? 'event' : 'events'}
             </span>
           )}
         </div>

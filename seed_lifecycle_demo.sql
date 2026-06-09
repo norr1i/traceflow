@@ -260,11 +260,14 @@ BEGIN
   ON CONFLICT DO NOTHING;
 
   -- bill_of_materials: production_order_id UUID
-  INSERT INTO bill_of_materials (production_order_id, material_name, lot_number, quantity, unit, company_id, created_at)
+  -- raw_material_lot_id links to raw_material_lots so the Product Journey
+  -- page can derive Real "Raw Material Received" timeline events with
+  -- actual received_at timestamps and supplier names.
+  INSERT INTO bill_of_materials (production_order_id, material_name, lot_number, quantity, unit, raw_material_lot_id, company_id, created_at)
   VALUES
-    (batch_01, 'Stainless Steel 316 Round Bar 25mm', 'LOT-2025-SS316-0891', 87.5, 'kg',    cid, t1+interval '1 day'),
-    (batch_01, 'PTFE Virgin Rod Stock 20mm dia.',    'LOT-2025-PTFE-0054',  12.5, 'm',     cid, t1+interval '1 day'),
-    (batch_01, 'NBR Nitrile Rubber Sheet 3mm',       'LOT-2025-NBR-0203',    2.5, 'sheet', cid, t1+interval '1 day')
+    (batch_01, 'Stainless Steel 316 Round Bar 25mm', 'LOT-2025-SS316-0891', 87.5, 'kg',    lot_ss316, cid, t1+interval '1 day'),
+    (batch_01, 'PTFE Virgin Rod Stock 20mm dia.',    'LOT-2025-PTFE-0054',  12.5, 'm',     NULL,      cid, t1+interval '1 day'),
+    (batch_01, 'NBR Nitrile Rubber Sheet 3mm',       'LOT-2025-NBR-0203',    2.5, 'sheet', NULL,      cid, t1+interval '1 day')
   ON CONFLICT DO NOTHING;
 
   -- batch_qc_results: batch_id UUID (FK production_orders.id)
@@ -360,15 +363,58 @@ BEGIN
   END LOOP;
 
   -- batch_journey_events: batch_id UUID FK production_orders.id
+  -- Story 1 — Ball Valve: complete lifecycle events
   INSERT INTO batch_journey_events
     (company_id, batch_id, event_type, event_timestamp, actor_email, entity_type, metadata, created_at)
   VALUES
-    (cid, batch_01, 'raw_material.received', t1, 'warehouse@company.sa', 'raw_material',
-     '{"title":"Raw Materials Received & Verified","description":"SS316 lot LOT-2025-SS316-0891 (87.5 kg) from Gulf Steel Industries. Mill cert EN 10204 3.1 verified. Cleared for production."}'::jsonb, t1),
+    (cid, batch_01, 'raw_material.received', t_base, 'warehouse@company.sa', 'raw_material',
+     '{"title":"Raw Materials Received","description":"SS316 lot LOT-2025-SS316-0891 (500 kg) received from Gulf Steel Industries. Mill cert EN 10204 3.1 attached. Stored in quarantine pending incoming QC."}'::jsonb, t_base),
+
+    (cid, batch_01, 'raw_material.released', t1, 'qa@company.sa', 'raw_material',
+     '{"title":"Raw Material Released for Production","description":"LOT-2025-SS316-0891 passed incoming inspection. Hardness 187 HB confirmed (spec 150–200 HB). 87.5 kg allocated to Ball Valve order. Cleared for production."}'::jsonb, t1),
+
     (cid, batch_01, 'packaging.completed', t1+interval '10 days', 'ops@company.sa', 'production_order',
      '{"title":"Packaging & Labelling Complete","description":"250 units packed in VCI-coated cartons. SFDA traceability labels and QR codes applied. Ready for dispatch."}'::jsonb, t1+interval '10 days'),
-    (cid, batch_01, 'capa.closed', t1+interval '11 days', 'qa@company.sa', 'production_order',
-     '{"title":"SFDA Documentation Filed","description":"CE/API declarations of conformity, pressure test certificates, and material certs uploaded to SFDA product registry."}'::jsonb, t1+interval '11 days')
+
+    (cid, batch_01, 'distribution.delivered', t1+interval '13 days', 'logistics@company.sa', 'sales',
+     '{"title":"Shipment Delivered — Saudi Aramco","description":"120 units confirmed received at Jubail Industrial Area. DN-SA-2025-0441 delivery note signed. Customer acceptance complete."}'::jsonb, t1+interval '13 days'),
+
+    (cid, batch_01, 'distribution.delivered', t1+interval '15 days', 'logistics@company.sa', 'sales',
+     '{"title":"Shipment Delivered — Sipchem Jubail","description":"80 units confirmed received at Plant 4. DN-SPC-2025-0217 delivery note signed. Customer acceptance complete."}'::jsonb, t1+interval '15 days'),
+
+    (cid, batch_01, 'distribution.delivered', t1+interval '18 days', 'logistics@company.sa', 'sales',
+     '{"title":"Shipment Delivered — Maaden Mining","description":"50 units confirmed received at Wa''ad Al Shamal. DN-MAD-2025-0089 delivery note signed. Customer acceptance complete."}'::jsonb, t1+interval '18 days')
+  ON CONFLICT DO NOTHING;
+
+  -- Story 2 — Hydraulic Cylinder: raw material receipt + release (then QC fail)
+  INSERT INTO batch_journey_events
+    (company_id, batch_id, event_type, event_timestamp, actor_email, entity_type, metadata, created_at)
+  VALUES
+    (cid, batch_02, 'raw_material.received', t2-interval '2 days', 'warehouse@company.sa', 'raw_material',
+     '{"title":"Raw Materials Received","description":"Chrome rod LOT-2025-CRROD-0115 (300 kg) from Yanbu Precision Engineering. Carbon steel LOT-2025-CS235-0442 (800 kg) from Gulf Steel Industries. Both delivered — incoming QC pending."}'::jsonb, t2-interval '2 days'),
+
+    (cid, batch_02, 'raw_material.released', t2, 'qa@company.sa', 'raw_material',
+     '{"title":"Raw Materials Released — Conditional","description":"LOT-2025-CS235-0442 (Carbon steel) passed incoming inspection. LOT-2025-CRROD-0115 (Chrome rod): CoC reviewed — hardness deferred to in-process Rockwell check per revised QCP-011. Materials released conditionally for production start."}'::jsonb, t2)
+  ON CONFLICT DO NOTHING;
+
+  -- Story 3 — Safety Relief Valve: full lifecycle including recall
+  INSERT INTO batch_journey_events
+    (company_id, batch_id, event_type, event_timestamp, actor_email, entity_type, metadata, created_at)
+  VALUES
+    (cid, batch_03, 'raw_material.received', t3-interval '1 day', 'warehouse@company.sa', 'raw_material',
+     '{"title":"Raw Materials Received","description":"Carbon steel LOT-2025-CS235-0442 (62 kg), SS316 LOT-2025-SS316-0891 (18 kg), and NBR sheet LOT-2025-NBR-0223 (3 sheets) received. Spring assemblies from SHV-Springs also received — material cert on file."}'::jsonb, t3-interval '1 day'),
+
+    (cid, batch_03, 'raw_material.released', t3, 'qa@company.sa', 'raw_material',
+     '{"title":"Raw Materials Released for Production","description":"All incoming lots passed visual and dimensional inspection. Mill certs verified. Spring cert reviewed — Inconel 625 declared (not XRF/PMI verified at this stage). All materials released for production."}'::jsonb, t3),
+
+    (cid, batch_03, 'distribution.delivered', t3+interval '11 days', 'logistics@company.sa', 'sales',
+     '{"title":"Shipment Delivered — Tasnee Petrochemicals","description":"60 units confirmed received at Jubail. DN-TAS-2025-0388 delivery note signed. Units installed in process safety system."}'::jsonb, t3+interval '11 days'),
+
+    (cid, batch_03, 'distribution.delivered', t3+interval '13 days', 'logistics@company.sa', 'sales',
+     '{"title":"Shipment Delivered — National Gas Co.","description":"55 units confirmed received at NGIC Riyadh. DN-NGC-2025-0154 delivery note signed."}'::jsonb, t3+interval '13 days'),
+
+    (cid, batch_03, 'distribution.delivered', t3+interval '15 days', 'logistics@company.sa', 'sales',
+     '{"title":"Shipment Delivered — Advanced Polypropylene Co.","description":"35 units confirmed received at Jubail reactor facility. DN-APC-2025-0071 delivery note signed."}'::jsonb, t3+interval '15 days')
   ON CONFLICT DO NOTHING;
 
   -- ══════════════════════════════════════════════════════════════
@@ -383,11 +429,11 @@ BEGIN
   VALUES (batch_02, p_hyd, 80, 'completed', t2+interval '1 day', t2+interval '7 days', cid, t2)
   ON CONFLICT DO NOTHING;
 
-  INSERT INTO bill_of_materials (production_order_id, material_name, lot_number, quantity, unit, company_id, created_at)
+  INSERT INTO bill_of_materials (production_order_id, material_name, lot_number, quantity, unit, raw_material_lot_id, company_id, created_at)
   VALUES
-    (batch_02,'Chrome-Plated Steel Rod 50mm',  'LOT-2025-CRROD-0115', 45.0,'kg',    cid,t2+interval '1 day'),
-    (batch_02,'Carbon Steel Sheet S235 6mm',   'LOT-2025-CS235-0442',120.0,'kg',    cid,t2+interval '1 day'),
-    (batch_02,'NBR Nitrile Rubber Sheet 3mm',  'LOT-2025-NBR-0203',    4.0,'sheet', cid,t2+interval '1 day')
+    (batch_02,'Chrome-Plated Steel Rod 50mm',  'LOT-2025-CRROD-0115', 45.0,'kg',    lot_chrome, cid,t2+interval '1 day'),
+    (batch_02,'Carbon Steel Sheet S235 6mm',   'LOT-2025-CS235-0442',120.0,'kg',    lot_cs235,  cid,t2+interval '1 day'),
+    (batch_02,'NBR Nitrile Rubber Sheet 3mm',  'LOT-2025-NBR-0203',    4.0,'sheet', NULL,       cid,t2+interval '1 day')
   ON CONFLICT DO NOTHING;
 
   -- batch_qc_results.batch_id UUID
@@ -462,11 +508,11 @@ BEGIN
   VALUES (batch_03, p_relief, 150, 'completed', t3+interval '1 day', t3+interval '6 days', cid, t3)
   ON CONFLICT DO NOTHING;
 
-  INSERT INTO bill_of_materials (production_order_id, material_name, lot_number, quantity, unit, company_id, created_at)
+  INSERT INTO bill_of_materials (production_order_id, material_name, lot_number, quantity, unit, raw_material_lot_id, company_id, created_at)
   VALUES
-    (batch_03,'Carbon Steel Sheet S235 6mm',       'LOT-2025-CS235-0442', 62.0,'kg',    cid,t3+interval '1 day'),
-    (batch_03,'NBR Nitrile Rubber Sheet 3mm',       'LOT-2025-NBR-0223',   3.0,'sheet', cid,t3+interval '1 day'),
-    (batch_03,'Stainless Steel 316 Round Bar 25mm','LOT-2025-SS316-0891', 18.0,'kg',    cid,t3+interval '1 day')
+    (batch_03,'Carbon Steel Sheet S235 6mm',       'LOT-2025-CS235-0442', 62.0,'kg',    lot_cs235, cid,t3+interval '1 day'),
+    (batch_03,'NBR Nitrile Rubber Sheet 3mm',       'LOT-2025-NBR-0223',   3.0,'sheet', NULL,      cid,t3+interval '1 day'),
+    (batch_03,'Stainless Steel 316 Round Bar 25mm','LOT-2025-SS316-0891', 18.0,'kg',    lot_ss316, cid,t3+interval '1 day')
   ON CONFLICT DO NOTHING;
 
   -- batch_qc_results.batch_id UUID
