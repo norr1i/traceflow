@@ -455,7 +455,7 @@ function StageFlow({ events }: { events: JourneyEvent[] }) {
 function TimelineEvent({ event, isLast }: { event: JourneyEvent; isLast: boolean }) {
   const cat   = classifyEvent(event.event_type)
   const actor = extractActor(event.metadata)
-  const { Icon, iconBg, iconColor, badgeClass, borderAccent, dotBg, label: catLabel } = cat
+  const { Icon, iconBg, iconColor, borderAccent, dotBg } = cat
   return (
     <div className="flex gap-3 group">
       <div className="flex shrink-0 flex-col items-center" style={{ width: 36 }}>
@@ -467,10 +467,7 @@ function TimelineEvent({ event, isLast }: { event: JourneyEvent; isLast: boolean
         )}
       </div>
       <div className={`min-w-0 flex-1 rounded-xl border border-gray-100 dark:border-gray-700/60 border-l-2 ${borderAccent} bg-white dark:bg-gray-800/60 px-3.5 py-3 shadow-sm hover:shadow-md transition-shadow ${isLast ? 'mb-0.5' : 'mb-3'}`}>
-        <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
-          <p className="text-sm font-semibold text-gray-900 dark:text-white leading-snug">{event.title}</p>
-          <span className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${badgeClass}`}>{catLabel}</span>
-        </div>
+        <p className="text-sm font-semibold text-gray-900 dark:text-white leading-snug">{event.title}</p>
         {event.description && (
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{event.description}</p>
         )}
