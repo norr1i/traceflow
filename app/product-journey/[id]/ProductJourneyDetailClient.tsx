@@ -200,7 +200,7 @@ function synthesizeEvents(
       event_type:      'production.started',
       event_timestamp: order.started_at,
       title:           'Production Started',
-      description:     `Production initiated for ${order.quantity.toLocaleString()} units.`,
+      description:     `Manufacturing commenced for ${order.quantity.toLocaleString()} units.`,
       source_table:    'production_orders',
       metadata:        null,
     })
@@ -211,7 +211,7 @@ function synthesizeEvents(
       event_type:      'production.completed',
       event_timestamp: order.completed_at,
       title:           'Production Completed',
-      description:     `${order.quantity.toLocaleString()} units produced and ready for quality inspection.`,
+      description:     `${order.quantity.toLocaleString()} units manufactured and transferred to quality inspection.`,
       source_table:    'production_orders',
       metadata:        null,
     })
@@ -384,12 +384,12 @@ function deduplicateSameDayQc(events: JourneyEvent[]): JourneyEvent[] {
 // rendering. Keeps wording customer-facing without changing business logic.
 function normalizeEvents(events: JourneyEvent[]): JourneyEvent[] {
   return events.map(e => {
-    // "Batch of N × Product opened." → "Production order created for N units of Product."
+    // "Batch of N × Product opened." → "Production order raised for N units of Product."
     if (e.event_type === 'production.order_created' || e.event_type === 'production.created') {
-      const fixedTitle = /^batch of /i.test(e.title ?? '') ? 'Production Order Created' : e.title
+      const fixedTitle = /^batch of /i.test(e.title ?? '') ? 'Production Order Raised' : e.title
       const fixedDesc  = e.description?.replace(
         /\bbatch of ([\d,]+)\s*[×x×]\s*(.+?)\s+opened\.?/i,
-        'Production order created for $1 units of $2.',
+        'Production order raised for $1 units of $2.',
       ) ?? e.description
       return { ...e, title: fixedTitle, description: fixedDesc }
     }
@@ -489,14 +489,18 @@ function StageFlow({ events }: { events: JourneyEvent[] }) {
     <div className="mb-5 flex flex-wrap items-center gap-1.5">
       {visibleStages.map(({ key, label }, vi) => {
         const i = STAGE_FLOW.findIndex(s => s.key === key)
-        const isCompleted = allDone ? i <= currentIdx : i < currentIdx
-        const isCurrent   = !allDone && i === currentIdx
+        // QC stage should show as completed (green) as soon as QC passes —
+        // even before distribution events exist — so the flow doesn't stall
+        // on blue "current" after the batch has been approved.
+        const qcHasPassed = key === 'quality'
+          && events.some(e => e.event_type === 'qc.pass' || e.event_type === 'qc_inspection.passed')
         // Quality Control shows amber when the only QC outcomes are fail/hold —
-        // do not present it as completed (green) or in-progress (blue) when
-        // the inspection result is negative.
+        // do not present it as completed or in-progress when inspection failed.
         const isQcWarning = key === 'quality'
           && !events.some(e => e.event_type === 'qc.pass' || e.event_type === 'qc_inspection.passed')
           && events.some(e => ['qc.fail', 'qc.hold', 'qc_inspection.failed', 'qc_inspection.hold'].includes(e.event_type))
+        const isCompleted = (allDone ? i <= currentIdx : i < currentIdx) || qcHasPassed
+        const isCurrent   = !allDone && i === currentIdx && !qcHasPassed && !isQcWarning
 
         const pill = isQcWarning
           ? 'border-amber-200 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-900/20'
@@ -1008,22 +1012,16 @@ export default function ProductJourneyDetailClient() {
 
   return (
     <div className="px-6 py-5">
-      {/* Breadcrumb */}
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <Link href="/product-journey"
-          className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-[#3a6f8f] dark:hover:text-[#7ab3d0] transition-colors">
-          <ChevronLeft size={15} />Traceability Search
-        </Link>
-        <span className="font-mono text-xs text-gray-400 dark:text-gray-500">···{id.slice(-12)}</span>
-      </div>
-
-      {/* Page title */}
-      <div className="mb-5">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Product Journey</h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          End-to-end traceability for{' '}
-          <span className="font-medium text-gray-700 dark:text-gray-300">{traceData.order.product_name}</span>
-        </p>
+      {/* Breadcrumb + page title — one compact row */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between gap-4">
+          <Link href="/product-journey"
+            className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-[#3a6f8f] dark:hover:text-[#7ab3d0] transition-colors">
+            <ChevronLeft size={15} />Traceability Search
+          </Link>
+          <span className="font-mono text-xs text-gray-400 dark:text-gray-500">···{id.slice(-12)}</span>
+        </div>
+        <h1 className="mt-2 text-xl font-bold text-gray-900 dark:text-white leading-tight">Product Journey</h1>
       </div>
 
       {/* Batch header — product identity */}
@@ -1059,7 +1057,7 @@ export default function ProductJourneyDetailClient() {
                     onClick={() => setShowSysEvents(v => !v)}
                     className="mt-1 flex w-full items-center justify-between rounded-lg border border-dashed border-gray-200 dark:border-gray-700 px-3 py-2 text-xs font-medium text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700/30 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                   >
-                    <span>System Events ({sysEvents.length})</span>
+                    <span>Scan & Tracking Events ({sysEvents.length})</span>
                     {showSysEvents ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                   </button>
                   {showSysEvents && (
@@ -1102,7 +1100,7 @@ export default function ProductJourneyDetailClient() {
                     onClick={() => setShowSysEvents(v => !v)}
                     className="mt-3 flex w-full items-center justify-between rounded-lg border border-dashed border-gray-200 dark:border-gray-700 px-3 py-2 text-xs font-medium text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700/30 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                   >
-                    <span>System Events ({sysEvents.length})</span>
+                    <span>Scan & Tracking Events ({sysEvents.length})</span>
                     {showSysEvents ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                   </button>
                   {showSysEvents && (
