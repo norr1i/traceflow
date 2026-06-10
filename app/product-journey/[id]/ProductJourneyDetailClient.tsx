@@ -89,6 +89,14 @@ type RecallRecord = {
   created_at: string
   closed_at:  string | null
 }
+type DistributionRecord = {
+  id:               string
+  recipient_name:   string | null
+  recipient_type:   string | null
+  quantity_shipped: number
+  shipped_at:       string
+  notes:            string | null
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -105,7 +113,7 @@ function fmtDateTime(iso: string) {
 }
 function extractActor(meta: Record<string, unknown> | null): string | null {
   if (!meta) return null
-  for (const k of ['inspector_name', 'performed_by', 'created_by', 'user_name']) {
+  for (const k of ['inspector_name', 'performed_by', 'created_by', 'user_name', 'actor_email']) {
     if (typeof meta[k] === 'string' && meta[k]) return meta[k] as string
   }
   return null
@@ -116,24 +124,79 @@ function isSystemEvent(e: JourneyEvent): boolean {
   return e.source_table === 'scan_events' || e.event_type.startsWith('qr.')
 }
 
-// Synthesise events for data sources the RPC does not cover:
-// CAPA records, recall records, and sales-based shipments (fallback
-// for batches that have no distribution_records rows).
+// Suppress BOM events that are clearly test/placeholder data: very short material
+// names, banned keyword names, or sub-threshold quantities (< 0.01 of any unit).
+const LOW_QUALITY_MATERIAL_NAMES = /^(mat|test|sample|temp|tmp|foo|bar|baz)$/i
+
+function isLowQualityMaterialEvent(e: JourneyEvent): boolean {
+  if (e.event_type !== 'material.added_to_batch') return false
+  const name = ((e.metadata?.material_name as string) ?? '').trim()
+  if (LOW_QUALITY_MATERIAL_NAMES.test(name)) return true
+  if (name.length > 0 && name.length < 4) return true
+  const qty = e.metadata?.quantity as number | undefined
+  if (typeof qty === 'number' && qty < 0.01) return true
+  return false
+}
+
+// Collapse multiple material.added_to_batch events sharing the same minute into
+// a single "Materials Allocated (N)" event. Prevents a wall of identical Raw
+// Material cards when the BOM has several simultaneous entries.
+function groupMaterialEvents(events: JourneyEvent[]): JourneyEvent[] {
+  const groups = new Map<string, JourneyEvent[]>()
+  const rest: JourneyEvent[] = []
+
+  for (const e of events) {
+    if (e.event_type !== 'material.added_to_batch') { rest.push(e); continue }
+    const key = e.event_timestamp.substring(0, 16)
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(e)
+  }
+
+  const grouped: JourneyEvent[] = []
+  for (const [, group] of groups) {
+    if (group.length === 1) {
+      grouped.push(group[0])
+    } else {
+      const summaries = group.map(e => {
+        const name = ((e.metadata?.material_name as string) ?? '').trim()
+        const qty  = e.metadata?.quantity as number | undefined
+        const unit = e.metadata?.unit as string | undefined
+        return qty !== undefined && unit ? `${name} (${qty.toLocaleString()} ${unit})` : name
+      })
+      grouped.push({
+        event_type:      'material.allocated',
+        event_timestamp: group[0].event_timestamp,
+        title:           `Materials Allocated (${group.length})`,
+        description:     summaries.join(', ') + '.',
+        source_table:    'bill_of_materials',
+        metadata:        { material_count: group.length, materials: summaries },
+      })
+    }
+  }
+
+  return [...rest, ...grouped].sort(
+    (a, b) => new Date(a.event_timestamp).getTime() - new Date(b.event_timestamp).getTime(),
+  )
+}
+
+// Synthesise events for data sources the RPC does not cover.
 //
-// The RPC already handles: production_orders, bill_of_materials,
-// batch_qc_results, quality_inspections, distribution_records, scan_events,
-// and batch_journey_events. Synthesising those here would produce duplicates.
+// distribution.shipped: prefer distribution_records (fetched client-side via
+// the batches table, which holds the correct FK). Fall back to sales when no
+// distribution_records exist so batches that were never linked to a batches row
+// still show shipment events.
+//
+// production.started/completed, CAPAs, and recalls are always synthesised here
+// as the RPC has no access to those sources.
 function synthesizeEvents(
-  order:   TraceOrder,
-  sales:   TraceSale[],
-  capas:   CapaRecord[],
-  recalls: RecallRecord[],
+  order:               TraceOrder,
+  sales:               TraceSale[],
+  capas:               CapaRecord[],
+  recalls:             RecallRecord[],
+  distributionRecords: DistributionRecord[],
 ): JourneyEvent[] {
   const out: JourneyEvent[] = []
 
-  // production.started / production.completed deduplicate with the RPC
-  // via matching event_type + timestamp[:16]. They are kept here as a
-  // fallback for when the journey RPC returns an empty timeline.
   if (order.started_at) {
     out.push({
       event_type:      'production.started',
@@ -156,19 +219,37 @@ function synthesizeEvents(
     })
   }
 
-  // distribution.shipped from sales: deduplicates with distribution_records
-  // events from the RPC when timestamps match; acts as fallback otherwise.
-  for (const sale of sales) {
-    out.push({
-      event_type:      'distribution.shipped',
-      event_timestamp: sale.sold_at,
-      title:           'Shipment Created',
-      description:     sale.customer_name
-        ? `${sale.quantity.toLocaleString()} units shipped to ${sale.customer_name}.`
-        : `${sale.quantity.toLocaleString()} units dispatched.`,
-      source_table:    'sales',
-      metadata:        sale.customer_name ? { customer_name: sale.customer_name } : null,
-    })
+  // Use distribution_records when available — they carry recipient name,
+  // delivery note numbers, and PO references. Fall back to sales otherwise.
+  if (distributionRecords.length > 0) {
+    for (const dr of distributionRecords) {
+      const recipient = dr.recipient_name ?? 'Customer'
+      out.push({
+        event_type:      'distribution.shipped',
+        event_timestamp: dr.shipped_at,
+        title:           `Shipped to ${recipient}`,
+        description:     dr.notes ?? `${dr.quantity_shipped.toLocaleString()} units dispatched to ${recipient}.`,
+        source_table:    'distribution_records',
+        metadata:        {
+          recipient_name:   dr.recipient_name,
+          recipient_type:   dr.recipient_type,
+          quantity_shipped: dr.quantity_shipped,
+        },
+      })
+    }
+  } else {
+    for (const sale of sales) {
+      out.push({
+        event_type:      'distribution.shipped',
+        event_timestamp: sale.sold_at,
+        title:           sale.customer_name ? `Shipped to ${sale.customer_name}` : 'Shipment Dispatched',
+        description:     sale.customer_name
+          ? `${sale.quantity.toLocaleString()} units shipped to ${sale.customer_name}.`
+          : `${sale.quantity.toLocaleString()} units dispatched.`,
+        source_table:    'sales',
+        metadata:        sale.customer_name ? { customer_name: sale.customer_name } : null,
+      })
+    }
   }
 
   for (const capa of capas) {
@@ -178,7 +259,7 @@ function synthesizeEvents(
       title:           'CAPA Opened',
       description:     capa.title,
       source_table:    'capas',
-      metadata:        null,
+      metadata:        { capa_id: capa.id, status: capa.status },
     })
     if (capa.closed_at) {
       out.push({
@@ -187,7 +268,7 @@ function synthesizeEvents(
         title:           'CAPA Closed',
         description:     `${capa.title} — resolved.`,
         source_table:    'capas',
-        metadata:        null,
+        metadata:        { capa_id: capa.id },
       })
     }
   }
@@ -199,7 +280,7 @@ function synthesizeEvents(
       title:           'Recall Initiated',
       description:     recall.title,
       source_table:    'recalls',
-      metadata:        null,
+      metadata:        { recall_id: recall.id, status: recall.status },
     })
     if (recall.closed_at) {
       out.push({
@@ -208,7 +289,7 @@ function synthesizeEvents(
         title:           'Recall Closed',
         description:     `${recall.title} — resolved.`,
         source_table:    'recalls',
-        metadata:        null,
+        metadata:        { recall_id: recall.id },
       })
     }
   }
@@ -409,28 +490,54 @@ function TimelineSkeleton() {
   )
 }
 
-// ── Affected records card ─────────────────────────────────────────────────────
+// ── Traceability records card ─────────────────────────────────────────────────
 
 function AffectedRecords({
-  qcCount, capaCount, recallCount, shipments,
+  batchId, qcResults, capas, recalls, sales,
 }: {
-  qcCount:     number
-  capaCount:   number
-  recallCount: number
-  shipments:   number
+  batchId:   string
+  qcResults: TraceQc[]
+  capas:     CapaRecord[]
+  recalls:   RecallRecord[]
+  sales:     TraceSale[]
 }) {
-  const rows = [
-    { label: 'QC Records', value: qcCount,     href: '/quality-control', color: 'text-emerald-700 dark:text-emerald-400', bg: 'bg-emerald-100 dark:bg-emerald-900/30' },
-    { label: 'CAPAs',      value: capaCount,   href: '/capa',            color: 'text-amber-700 dark:text-amber-400',    bg: 'bg-amber-100 dark:bg-amber-900/30'    },
-    { label: 'Recalls',    value: recallCount, href: '/recall',          color: 'text-red-700 dark:text-red-400',        bg: 'bg-red-100 dark:bg-red-900/30'        },
-    { label: 'Shipments',  value: shipments,   href: '/sales',           color: 'text-teal-700 dark:text-teal-400',      bg: 'bg-teal-100 dark:bg-teal-900/30'      },
-  ].filter(r => r.value > 0)
+  type Row = { label: string; value: number; href: string; color: string; bg: string }
+  const rows: Row[] = []
+
+  if (qcResults.length > 0) rows.push({
+    label: 'QC Records',
+    value: qcResults.length,
+    href:  `/quality-control?batch_id=${batchId}`,
+    color: 'text-emerald-700 dark:text-emerald-400',
+    bg:    'bg-emerald-100 dark:bg-emerald-900/30',
+  })
+  if (capas.length > 0) rows.push({
+    label: capas.length === 1 ? 'CAPA' : 'CAPAs',
+    value: capas.length,
+    href:  capas.length === 1 ? `/capa/${capas[0].id}` : `/capa?batch_id=${batchId}`,
+    color: 'text-amber-700 dark:text-amber-400',
+    bg:    'bg-amber-100 dark:bg-amber-900/30',
+  })
+  if (recalls.length > 0) rows.push({
+    label: recalls.length === 1 ? 'Recall' : 'Recalls',
+    value: recalls.length,
+    href:  recalls.length === 1 ? `/recall/${recalls[0].id}` : `/recall?batch_id=${batchId}`,
+    color: 'text-red-700 dark:text-red-400',
+    bg:    'bg-red-100 dark:bg-red-900/30',
+  })
+  if (sales.length > 0) rows.push({
+    label: 'Shipments',
+    value: sales.length,
+    href:  `/sales?batch_id=${batchId}`,
+    color: 'text-teal-700 dark:text-teal-400',
+    bg:    'bg-teal-100 dark:bg-teal-900/30',
+  })
 
   if (rows.length === 0) return null
 
   return (
     <div className="mt-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
-      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Affected Records</p>
+      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Traceability Records</p>
       <div className="space-y-1">
         {rows.map(({ label, value, href, color, bg }) => (
           <a
@@ -453,8 +560,8 @@ function AffectedRecords({
 
 // ── Batch header ──────────────────────────────────────────────────────────────
 
-function BatchHeader({ order, qcResults, materials, sales }: {
-  order: TraceOrder; qcResults: TraceQc[]; materials: TraceMaterial[]; sales: TraceSale[]
+function BatchHeader({ order, qcResults, materials, sales, recalls }: {
+  order: TraceOrder; qcResults: TraceQc[]; materials: TraceMaterial[]; sales: TraceSale[]; recalls: RecallRecord[]
 }) {
   const [copied, setCopied] = useState(false)
   const latestQc = [...qcResults].sort(
@@ -468,13 +575,19 @@ function BatchHeader({ order, qcResults, materials, sales }: {
     })
   }
 
-  // Derive operational stage from real data — never shows generic "Pending".
+  const activeRecall  = recalls.find(r => r.status !== 'closed') ?? null
+  const resolvedRecall = !activeRecall && recalls.some(r => r.status === 'closed')
+
+  // Recall status overrides all other stage labels. A batch under active
+  // field recall must never show "Shipped" — that hides a safety-critical event.
   const stageBadge = (() => {
-    if (sales.length > 0)               return { label: 'Shipped',              cls: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400' }
-    if (latestQc?.status === 'pass')    return { label: 'Ready for Shipment',   cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' }
-    if (qcResults.length > 0)           return { label: 'Quality Review',        cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' }
-    if (order.started_at)               return { label: 'In Production',         cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' }
-    if (materials.length > 0)           return { label: 'Raw Material Received', cls: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' }
+    if (activeRecall)                     return { label: 'Under Recall',         cls: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' }
+    if (resolvedRecall && sales.length > 0) return { label: 'Recall Resolved',   cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' }
+    if (sales.length > 0)                 return { label: 'Shipped',             cls: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400' }
+    if (latestQc?.status === 'pass')      return { label: 'Ready for Shipment',  cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' }
+    if (qcResults.length > 0)            return { label: 'Quality Review',       cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' }
+    if (order.started_at)                return { label: 'In Production',        cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' }
+    if (materials.length > 0)            return { label: 'Raw Material Received', cls: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' }
     return null
   })()
 
@@ -746,7 +859,10 @@ export default function ProductJourneyDetailClient() {
         .from('bill_of_materials')
         .select('id, material_name, lot_number, quantity, unit, created_at, raw_material_lots(id, lot_number, received_at, status, suppliers(name))')
         .eq('production_order_id', id),
-    ]).then(async ([traceRes, journeyRes, capaRes, recallRes, bomRes]) => {
+      // Resolve the batches.id that links to this production order — needed
+      // because distribution_records.batch_id FK → batches.id, not production_orders.id.
+      supabase.from('batches').select('id').eq('production_order_id', id),
+    ]).then(async ([traceRes, journeyRes, capaRes, recallRes, bomRes, batchesRes]) => {
       if (traceRes.error || !traceRes.data) {
         setNotFound(true)
         setLoading(false)
@@ -781,12 +897,26 @@ export default function ProductJourneyDetailClient() {
       })
       setEnrichedMaterials(materials)
 
+      // Fetch distribution_records via the linked batches row.
+      // distribution_records.batch_id references batches.id (not production_orders.id),
+      // so a direct query on p_batch_id would always return zero rows.
+      const linkedBatchIds = ((batchesRes.data ?? []) as Array<{ id: string }>).map(b => b.id)
+      let distributionRecords: DistributionRecord[] = []
+      if (linkedBatchIds.length > 0) {
+        const { data: distData } = await supabase
+          .from('distribution_records')
+          .select('id, recipient_name, recipient_type, quantity_shipped, shipped_at, notes')
+          .in('batch_id', linkedBatchIds)
+          .order('shipped_at', { ascending: true })
+        distributionRecords = (distData ?? []) as DistributionRecord[]
+      }
+
       const jd = journeyRes.data as { timeline?: JourneyEvent[] } | null
       const rpcEvents: JourneyEvent[] = (jd?.timeline && Array.isArray(jd.timeline))
         ? [...jd.timeline].sort((a, b) => new Date(a.event_timestamp).getTime() - new Date(b.event_timestamp).getTime())
         : []
 
-      const synth  = synthesizeEvents(trace.order, trace.sales, capas, recalls)
+      const synth  = synthesizeEvents(trace.order, trace.sales, capas, recalls, distributionRecords)
       const merged = deduplicateSameDayQc(mergeJourneyEvents(rpcEvents, synth))
       setJourney(merged)
       setLoading(false)
@@ -870,8 +1000,12 @@ export default function ProductJourneyDetailClient() {
   const capaCount   = capaRecords.length
   const recallCount = recallRecords.length
 
-  const businessEvents = journey.filter(e => !isSystemEvent(e))
-  const sysEvents      = journey.filter(e => isSystemEvent(e))
+  // Filter out system events and low-quality placeholder BOM entries,
+  // then group simultaneous material allocations into a single card.
+  const businessEvents = groupMaterialEvents(
+    journey.filter(e => !isSystemEvent(e) && !isLowQualityMaterialEvent(e))
+  )
+  const sysEvents = journey.filter(e => isSystemEvent(e))
 
   return (
     <div className="px-6 py-5">
@@ -899,6 +1033,7 @@ export default function ProductJourneyDetailClient() {
         qcResults={traceData.qc_results}
         materials={traceData.materials}
         sales={traceData.sales}
+        recalls={recallRecords}
       />
 
       <TraceabilitySummary
@@ -1001,10 +1136,11 @@ export default function ProductJourneyDetailClient() {
         <ImpactAnalysis impacts={impactData} loading={impactLoading} />
       )}
       <AffectedRecords
-        qcCount={traceData.qc_results.length}
-        capaCount={capaCount}
-        recallCount={recallCount}
-        shipments={traceData.sales.length}
+        batchId={id}
+        qcResults={traceData.qc_results}
+        capas={capaRecords}
+        recalls={recallRecords}
+        sales={traceData.sales}
       />
     </div>
   )
