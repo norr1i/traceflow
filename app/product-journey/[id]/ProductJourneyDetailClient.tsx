@@ -174,9 +174,7 @@ function groupMaterialEvents(events: JourneyEvent[]): JourneyEvent[] {
     }
   }
 
-  return [...rest, ...grouped].sort(
-    (a, b) => new Date(a.event_timestamp).getTime() - new Date(b.event_timestamp).getTime(),
-  )
+  return [...rest, ...grouped].sort(chronologicalSort)
 }
 
 // Synthesise events for data sources the RPC does not cover.
@@ -297,15 +295,64 @@ function synthesizeEvents(
   return out
 }
 
+// Canonical manufacturing lifecycle order. Used as a tiebreaker when two
+// events share the same timestamp, enforcing a believable sequence even when
+// the DB records events at minute precision (causing real collisions in seed
+// data and in production batches created/QC-ed in the same minute).
+const LIFECYCLE_ORDER: Record<string, number> = {
+  'raw_material.received':    10,
+  'incoming_qc.approved':     20,
+  'incoming_qc.conditional':  20,
+  'incoming_qc.failed':       20,
+  'raw_material.released':    30,
+  'material.allocated':       30,
+  'production.order_created': 40,
+  'production.created':       40,
+  'production.started':       50,
+  'production.completed':     60,
+  'packaging.completed':      70,
+  'qc.pass':                  80,
+  'qc.fail':                  80,
+  'qc.hold':                  80,
+  'qc_inspection.passed':     90,
+  'qc_inspection.failed':     90,
+  'qc_inspection.hold':       90,
+  'distribution.shipped':    100,
+  'distribution.created':    100,
+  'distribution.delivered':  110,
+  'recall.initiated':        120,
+  'recall.issued':           120,
+  'recall.created':          120,
+  'capa.opened':             130,
+  'capa.created':            130,
+  'recall.closed':           140,
+  'capa.closed':             150,
+}
+
+function lifecyclePriority(eventType: string): number {
+  if (LIFECYCLE_ORDER[eventType] !== undefined) return LIFECYCLE_ORDER[eventType]
+  if (eventType.startsWith('incoming_qc.'))  return 20
+  if (eventType.startsWith('material.'))     return 30
+  if (eventType.startsWith('production.'))   return 50
+  if (eventType.startsWith('qc'))            return 80
+  if (eventType.startsWith('distribution.')) return 100
+  if (eventType.startsWith('recall.'))       return 120
+  if (eventType.startsWith('capa.'))         return 130
+  return 500
+}
+
+function chronologicalSort(a: JourneyEvent, b: JourneyEvent): number {
+  const tDiff = new Date(a.event_timestamp).getTime() - new Date(b.event_timestamp).getTime()
+  return tDiff !== 0 ? tDiff : lifecyclePriority(a.event_type) - lifecyclePriority(b.event_type)
+}
+
 // Merge RPC events with synthesized events, deduplicating by event_type +
 // minute-precision timestamp, and sorting chronologically.
 function mergeJourneyEvents(rpc: JourneyEvent[], synth: JourneyEvent[]): JourneyEvent[] {
   const key = (e: JourneyEvent) => `${e.event_type}|${e.event_timestamp.substring(0, 16)}`
   const rpcKeys = new Set(rpc.map(key))
   const deduped = synth.filter(e => !rpcKeys.has(key(e)))
-  return [...rpc, ...deduped].sort(
-    (a, b) => new Date(a.event_timestamp).getTime() - new Date(b.event_timestamp).getTime(),
-  )
+  return [...rpc, ...deduped].sort(chronologicalSort)
 }
 
 // The RPC pulls QC events from two tables: batch_qc_results (event_type
@@ -330,9 +377,7 @@ function deduplicateSameDayQc(events: JourneyEvent[]): JourneyEvent[] {
     // batch_qc_results events have richer notes; prefer them
     if (!existing || e.source_table === 'batch_qc_results') best.set(dk, e)
   }
-  return [...rest, ...Array.from(best.values())].sort(
-    (a, b) => new Date(a.event_timestamp).getTime() - new Date(b.event_timestamp).getTime(),
-  )
+  return [...rest, ...Array.from(best.values())].sort(chronologicalSort)
 }
 
 // Rewrite known internal/ERP language in event titles and descriptions before
@@ -406,18 +451,25 @@ function StageFlow({ events }: { events: JourneyEvent[] }) {
     <div className="mb-5 flex flex-wrap items-center gap-1.5">
       {visibleStages.map(({ key, label }, vi) => {
         const i = STAGE_FLOW.findIndex(s => s.key === key)
-        // All visible stages have events; isCompleted only depends on position.
         const isCompleted = allDone ? i <= currentIdx : i < currentIdx
         const isCurrent   = !allDone && i === currentIdx
+        // Quality Control shows amber when the only QC outcomes are fail/hold —
+        // do not present it as completed (green) or in-progress (blue) when
+        // the inspection result is negative.
+        const isQcWarning = key === 'quality'
+          && !events.some(e => e.event_type === 'qc.pass' || e.event_type === 'qc_inspection.passed')
+          && events.some(e => ['qc.fail', 'qc.hold', 'qc_inspection.failed', 'qc_inspection.hold'].includes(e.event_type))
 
-        const pill = isCompleted
+        const pill = isQcWarning
+          ? 'border-amber-200 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-900/20'
+          : isCompleted
           ? 'border-emerald-200 dark:border-emerald-700/60 bg-emerald-50 dark:bg-emerald-900/20'
           : isCurrent
           ? 'border-blue-200 dark:border-blue-600/60 bg-blue-50 dark:bg-blue-900/20'
           : 'border-dashed border-gray-200 dark:border-gray-700 bg-transparent opacity-40'
-        const dot  = isCompleted ? 'bg-emerald-400' : isCurrent ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
-        const text = isCompleted ? 'text-emerald-600 dark:text-emerald-400' : isCurrent ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'
-        const arrow = isCompleted ? 'text-emerald-300 dark:text-emerald-700' : 'text-gray-300 dark:text-gray-600'
+        const dot  = isQcWarning ? 'bg-amber-400' : isCompleted ? 'bg-emerald-400' : isCurrent ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+        const text = isQcWarning ? 'text-amber-600 dark:text-amber-400' : isCompleted ? 'text-emerald-600 dark:text-emerald-400' : isCurrent ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'
+        const arrow = isCompleted && !isQcWarning ? 'text-emerald-300 dark:text-emerald-700' : 'text-gray-300 dark:text-gray-600'
 
         return (
           <Fragment key={key}>
@@ -823,7 +875,7 @@ export default function ProductJourneyDetailClient() {
 
       const jd = journeyRes.data as { timeline?: JourneyEvent[] } | null
       const rpcEvents: JourneyEvent[] = (jd?.timeline && Array.isArray(jd.timeline))
-        ? [...jd.timeline].sort((a, b) => new Date(a.event_timestamp).getTime() - new Date(b.event_timestamp).getTime())
+        ? [...jd.timeline].sort(chronologicalSort)
         : []
 
       const synth  = synthesizeEvents(trace.order, trace.sales, capas, recalls, distributionRecords)
