@@ -167,7 +167,26 @@ export default function ProductJourneyClient() {
     router.push(`/product-journey/${b.id}`)
   }
 
-  const recent = batches.slice(0, 6)
+  // Demo-first ordering: pin the three main story SKUs to the top, then
+  // in-progress/pending supporting batches, then everything else by date.
+  const DEMO_PRIORITY_SKUS = [
+    'VBC-2IN-316',  // Ball Valve — completed, QC passed, distributed
+    'HPC-50-200',   // Hydraulic Cylinder — completed, CAPA example
+    'VSR-05-010',   // Safety Relief Valve — completed, recall story
+    'ELV-7K5-VFD',  // VFD — in progress, QC pending
+    'ELM-3P-250A',  // MCCB — pending (newest batch)
+    'VGV-DN50-16',  // Gate Valve — in progress, QC hold
+  ]
+  const recent = [...batches]
+    .sort((a, b) => {
+      const ai = DEMO_PRIORITY_SKUS.indexOf(a.sku)
+      const bi = DEMO_PRIORITY_SKUS.indexOf(b.sku)
+      if (ai !== -1 && bi !== -1) return ai - bi
+      if (ai !== -1) return -1
+      if (bi !== -1) return 1
+      return 0
+    })
+    .slice(0, 6)
 
   return (
     <div className="px-6 py-5">

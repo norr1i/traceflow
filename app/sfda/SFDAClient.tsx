@@ -1121,16 +1121,33 @@ export default function SFDAClient() {
       'recalls:', recallData?.length ?? 'null',
     )
 
+    // UUID pattern — only keep QC rows whose batch_id references a real production order.
+    // Filters out base-seed text IDs like 'BATCH-2026-001' and 'BATCH-SEED-NNN'.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const qcRows = (qcData ?? []).map((r: any) => ({
-      batch_id:        String(r.batch_id ?? ''),
-      inspection_date: String(r.inspection_date ?? ''),
-      inspection_type: String(r.inspection_type ?? ''),
-      status:          String(r.status ?? ''),
-      overall_score:   Number(r.overall_score ?? 0),
-      notes:           (r.notes           as string | null) ?? null,
-      inspector_name:  (r.inspector_name  as string | null) ?? (r.inspector_id as string | null) ?? null,
-    }))
+    const qcRows = (qcData ?? [])
+      .filter((r: any) => UUID_RE.test(String(r.batch_id ?? '')))
+      .map((r: any) => ({
+        batch_id:        String(r.batch_id ?? ''),
+        inspection_date: String(r.inspection_date ?? ''),
+        inspection_type: String(r.inspection_type ?? ''),
+        status:          String(r.status ?? ''),
+        overall_score:   Number(r.overall_score ?? 0),
+        notes:           (r.notes           as string | null) ?? null,
+        inspector_name:  (r.inspector_name  as string | null) ?? (r.inspector_id as string | null) ?? null,
+      }))
+
+    // Demo-first ordering for the batch report: pin the main story SKUs to the
+    // top of the PDF table so the report opens with the most compelling examples.
+    const DEMO_BATCH_SKU_ORDER = [
+      'VBC-2IN-316',  // Ball Valve — completed, distributed
+      'HPC-50-200',   // Hydraulic Cylinder — CAPA link
+      'VSR-05-010',   // Safety Relief Valve — recall story
+      'ELV-7K5-VFD',  // VFD — in progress, pending QC
+      'ELM-3P-250A',  // MCCB — pending
+      'VGV-DN50-16',  // Gate Valve — in progress, QC hold
+    ]
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const batchRows = (batchData ?? []).map((r: any) => {
@@ -1144,6 +1161,13 @@ export default function SFDAClient() {
         created_at:   String(r.created_at ?? ''),
         completed_at: r.completed_at ? String(r.completed_at) : null,
       }
+    }).sort((a, b) => {
+      const ai = DEMO_BATCH_SKU_ORDER.indexOf(a.sku)
+      const bi = DEMO_BATCH_SKU_ORDER.indexOf(b.sku)
+      if (ai !== -1 && bi !== -1) return ai - bi
+      if (ai !== -1) return -1
+      if (bi !== -1) return 1
+      return 0
     })
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
