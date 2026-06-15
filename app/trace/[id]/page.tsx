@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 import {
   ShieldCheck, Package, FlaskConical, Layers, ShoppingCart,
-  AlertCircle, Loader2, QrCode, Activity, ScanLine,
+  AlertCircle, AlertTriangle, Loader2, QrCode, Activity, ScanLine,
 } from 'lucide-react'
 import { LogoIcon } from '../../components/Logo'
 import { JourneyMetrics } from './JourneyMetrics'
@@ -55,6 +55,11 @@ type JourneyData = {
   batch: Record<string, unknown>
   timeline: JourneyEvent[]
   event_count: number
+}
+
+type RcaAlert = {
+  recalls: { recall_number: string; title: string; status: string; affected_units: number | null }[]
+  risk_level: 'none' | 'low' | 'medium' | 'high' | 'critical'
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -164,6 +169,7 @@ export default function PublicTracePage() {
   const [notFound,       setNotFound]       = useState(false)
   const [journey,        setJourney]        = useState<JourneyEvent[]>([])
   const [journeyLoading, setJourneyLoading] = useState(false)
+  const [rcaData,        setRcaData]        = useState<RcaAlert | null>(null)
 
   useEffect(() => {
     if (!id) return
@@ -189,7 +195,6 @@ export default function PublicTracePage() {
 
         supabase
           .rpc('get_batch_journey', { p_batch_id: id })
-          .single()
           .then(({ data: jd, error: je }) => {
             if (!je && jd) {
               const timeline = (jd as JourneyData).timeline
@@ -197,6 +202,12 @@ export default function PublicTracePage() {
             }
             setJourneyLoading(false)
           }, () => setJourneyLoading(false))
+
+        supabase
+          .rpc('get_root_cause_analysis', { p_batch_id: id })
+          .then(({ data: rca, error: rcaErr }) => {
+            if (!rcaErr && rca) setRcaData(rca as RcaAlert)
+          })
       })
   }, [id])
 
@@ -232,6 +243,11 @@ export default function PublicTracePage() {
   // Display-only split — journey state is never mutated; both arrays remain queryable.
   const manufacturingEvents = journey.filter(e => !isScanEvent(e.source_table))
   const scanEvents          = journey.filter(e =>  isScanEvent(e.source_table))
+
+  const activeRecalls   = rcaData?.recalls.filter(r => r.status !== 'closed') ?? []
+  const showRecallAlert = activeRecalls.length > 0
+  const showRiskAlert   = !showRecallAlert &&
+    (rcaData?.risk_level === 'high' || rcaData?.risk_level === 'critical')
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -270,6 +286,38 @@ export default function PublicTracePage() {
             Verified by TraceFlow — authentic product batch record
           </span>
         </div>
+
+        {/* Active recall alert */}
+        {showRecallAlert && (
+          <div className="flex gap-3 rounded-xl border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3">
+            <AlertTriangle size={16} className="shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-red-700 dark:text-red-400">Active Recall</p>
+              {activeRecalls.map((r, i) => (
+                <p key={i} className="text-xs text-red-600 dark:text-red-400 mt-0.5">
+                  {r.recall_number}: {r.title}
+                  {r.affected_units ? ` — ${r.affected_units.toLocaleString()} units affected` : ''}
+                </p>
+              ))}
+              <p className="text-xs text-red-500 dark:text-red-500 mt-1.5 font-medium">
+                Stop use immediately and contact the manufacturer.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* High / critical risk alert (no active recall) */}
+        {showRiskAlert && (
+          <div className="flex gap-3 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-3">
+            <AlertTriangle size={16} className="shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+            <div>
+              <p className="text-sm font-bold text-amber-700 dark:text-amber-400">Quality Alert</p>
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                This batch has been flagged with a {rcaData?.risk_level} risk level. Contact the manufacturer for details.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Batch overview */}
         <Section icon={<Package size={15} />} title="Batch Overview">
