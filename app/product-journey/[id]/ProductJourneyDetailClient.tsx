@@ -10,6 +10,7 @@ import {
   Activity, User, Calendar,
   Hash, Building2, Network, Copy, Check, ChevronDown, ChevronUp,
 } from 'lucide-react'
+import RootCausePanel from './RootCausePanel'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1192,6 +1193,7 @@ export default function ProductJourneyDetailClient() {
       {enrichedMaterials.length > 0 && (
         <ImpactAnalysis impacts={impactData} loading={impactLoading} />
       )}
+      <RootCausePanel batchId={id} />
     </div>
   )
 }

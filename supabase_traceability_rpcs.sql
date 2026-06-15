@@ -358,6 +358,39 @@ BEGIN
     WHERE bje.batch_id   = p_batch_id
       AND bje.company_id = v_company_id
 
+    UNION ALL
+
+    -- ── Source 10: batch_events (SFDA lifecycle events) ─────────
+    -- batch_events.batch_id stores batches.id (TEXT, no FK).
+    -- Join through batches → production_order_id to reach p_batch_id.
+    -- Only produced / consumed / shipped are surfaced; others ignored.
+    SELECT
+      CASE be.event_type
+        WHEN 'produced' THEN 'production.completed'
+        WHEN 'consumed' THEN 'material.consumed'
+        WHEN 'shipped'  THEN 'distribution.shipped'
+      END,
+      be.occurred_at,
+      CASE be.event_type
+        WHEN 'produced' THEN 'Production Completed'
+        WHEN 'consumed' THEN 'Materials Consumed'
+        WHEN 'shipped'  THEN 'Shipped'
+      END,
+      COALESCE(be.description, CASE be.event_type
+        WHEN 'produced' THEN 'Production batch completed.'
+        WHEN 'consumed' THEN 'Raw materials consumed for production.'
+        WHEN 'shipped'  THEN 'Batch dispatched.'
+      END),
+      'batch_events',
+      jsonb_strip_nulls(jsonb_build_object(
+        'description', be.description
+      ))
+    FROM  batch_events be
+    JOIN  batches      b  ON b.id::text = be.batch_id
+    WHERE b.production_order_id = p_batch_id
+      AND be.company_id         = v_company_id
+      AND be.event_type IN ('produced', 'consumed', 'shipped')
+
   )
   -- ── Aggregate into sorted array ─────────────────────────────
   -- NULLS LAST: guards against any source returning a NULL
