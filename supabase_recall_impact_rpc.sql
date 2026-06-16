@@ -1,0 +1,253 @@
+-- ============================================================
+-- TraceFlow — Recall Impact Analysis RPC
+-- File: supabase_recall_impact_rpc.sql
+-- ============================================================
+--
+-- Creates:
+--   get_recall_impact(
+--     p_lot_number    text DEFAULT NULL,
+--     p_material_name text DEFAULT NULL,
+--     p_batch_id      uuid DEFAULT NULL
+--   ) RETURNS jsonb
+--
+-- Supply exactly one of the three parameters.
+--
+-- Company resolution order (allows SQL Editor smoke tests):
+--   1. get_my_company_id()  — normal app path (authenticated session)
+--   2. production_orders    — if p_batch_id provided and step 1 is NULL
+--   3. bill_of_materials / raw_material_lots
+--                           — if p_lot_number provided and step 1 is NULL
+--   4. bill_of_materials    — if p_material_name provided and step 1 is NULL
+--   5. Return NULL          — company still unresolvable
+--
+-- SCHEMA NOTES (live DB confirmed from seed_lifecycle_demo.sql)
+--   distribution_records.batch_id       — uuid (FK → production_orders.id)
+--   distribution_records.recipient_name — text NOT NULL
+--   distribution_records.quantity_shipped — integer NOT NULL
+--   distribution_records.recipient_type  — recipient_type ENUM NOT NULL
+--   distribution_records.notes           — text
+--
+-- HOW TO RUN
+--   Supabase Dashboard → SQL Editor → New Query → paste → Run
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION get_recall_impact(
+  p_lot_number    text DEFAULT NULL,
+  p_material_name text DEFAULT NULL,
+  p_batch_id      uuid DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_company_id   uuid;
+  v_batch_ids    uuid[];
+  v_products     jsonb;
+  v_batches      jsonb;
+  v_distribution jsonb;
+  v_total_units  bigint  := 0;
+  v_has_recall   boolean := false;
+BEGIN
+  -- ── Step 1: resolve via session (normal authenticated path) ──────
+  v_company_id := get_my_company_id();
+
+  -- ── Steps 2-4: fallback for SQL Editor / service-role callers ────
+  IF v_company_id IS NULL THEN
+    IF p_batch_id IS NOT NULL THEN
+      SELECT company_id
+      INTO   v_company_id
+      FROM   production_orders
+      WHERE  id = p_batch_id
+      LIMIT  1;
+
+    ELSIF p_lot_number IS NOT NULL THEN
+      -- Try bill_of_materials first (lot_number text column)
+      SELECT bom.company_id
+      INTO   v_company_id
+      FROM   bill_of_materials bom
+      WHERE  bom.lot_number ILIKE '%' || p_lot_number || '%'
+      LIMIT  1;
+
+      -- Fall back to raw_material_lots if BOM had no match
+      IF v_company_id IS NULL THEN
+        SELECT rml.company_id
+        INTO   v_company_id
+        FROM   raw_material_lots rml
+        WHERE  rml.lot_number ILIKE '%' || p_lot_number || '%'
+        LIMIT  1;
+      END IF;
+
+    ELSIF p_material_name IS NOT NULL THEN
+      SELECT bom.company_id
+      INTO   v_company_id
+      FROM   bill_of_materials bom
+      WHERE  bom.material_name ILIKE '%' || p_material_name || '%'
+      LIMIT  1;
+    END IF;
+  END IF;
+
+  -- ── Step 5: still no company → give up ───────────────────────────
+  IF v_company_id IS NULL THEN RETURN NULL; END IF;
+
+  -- ── Resolve batch IDs from whichever parameter was supplied ──────
+  IF p_batch_id IS NOT NULL THEN
+    SELECT ARRAY_AGG(DISTINCT id)
+    INTO   v_batch_ids
+    FROM   production_orders
+    WHERE  id         = p_batch_id
+      AND  company_id = v_company_id;
+
+  ELSIF p_lot_number IS NOT NULL THEN
+    SELECT ARRAY_AGG(DISTINCT bom.production_order_id)
+    INTO   v_batch_ids
+    FROM   bill_of_materials bom
+    WHERE  bom.company_id = v_company_id
+      AND  (
+        bom.raw_material_lot_id IN (
+          SELECT id
+          FROM   raw_material_lots
+          WHERE  lot_number ILIKE '%' || p_lot_number || '%'
+            AND  company_id = v_company_id
+        )
+        OR bom.lot_number ILIKE '%' || p_lot_number || '%'
+      );
+
+  ELSIF p_material_name IS NOT NULL THEN
+    SELECT ARRAY_AGG(DISTINCT bom.production_order_id)
+    INTO   v_batch_ids
+    FROM   bill_of_materials bom
+    WHERE  bom.company_id   = v_company_id
+      AND  bom.material_name ILIKE '%' || p_material_name || '%';
+  END IF;
+
+  -- ── No matches → return empty result ─────────────────────────────
+  IF v_batch_ids IS NULL OR array_length(v_batch_ids, 1) = 0 THEN
+    RETURN jsonb_build_object(
+      'affected_products',     '[]'::jsonb,
+      'affected_batches',      '[]'::jsonb,
+      'affected_distributors', '[]'::jsonb,
+      'total_affected_units',  0,
+      'total_batches',         0,
+      'total_products',        0,
+      'total_distributors',    0,
+      'risk_level',            'none',
+      'has_open_recall',       false
+    );
+  END IF;
+
+  -- ── Affected batches ─────────────────────────────────────────────
+  SELECT COALESCE(
+    jsonb_agg(
+      jsonb_build_object(
+        'batch_id',     po.id,
+        'product_name', COALESCE(p.name, 'Unknown'),
+        'sku',          COALESCE(p.sku,  ''),
+        'quantity',     po.quantity,
+        'status',       po.status,
+        'created_at',   po.created_at,
+        'completed_at', po.completed_at
+      ) ORDER BY po.created_at DESC
+    ),
+    '[]'::jsonb
+  )
+  INTO v_batches
+  FROM  production_orders po
+  LEFT  JOIN products p ON p.id = po.product_id
+  WHERE po.id         = ANY(v_batch_ids)
+    AND po.company_id = v_company_id;
+
+  -- ── Affected products (SUM in subquery to avoid nested aggregates)
+  SELECT COALESCE(
+    jsonb_agg(
+      jsonb_build_object(
+        'product_name',   sub.product_name,
+        'sku',            sub.sku,
+        'affected_units', sub.affected_units,
+        'batch_count',    sub.batch_count
+      ) ORDER BY sub.affected_units DESC
+    ),
+    '[]'::jsonb
+  )
+  INTO v_products
+  FROM (
+    SELECT
+      p.name               AS product_name,
+      p.sku                AS sku,
+      SUM(po.quantity)::bigint AS affected_units,
+      COUNT(po.id)         AS batch_count
+    FROM  production_orders po
+    JOIN  products          p  ON p.id = po.product_id
+    WHERE po.id         = ANY(v_batch_ids)
+      AND po.company_id = v_company_id
+    GROUP BY p.id, p.name, p.sku
+  ) sub;
+
+  -- ── Downstream distribution ───────────────────────────────────────
+  -- batch_id is uuid in the live DB — join directly against uuid[].
+  SELECT COALESCE(
+    jsonb_agg(
+      jsonb_build_object(
+        'batch_id',       dr.batch_id,
+        'recipient_name', dr.recipient_name,
+        'recipient_type', dr.recipient_type::text,
+        'quantity',       dr.quantity_shipped,
+        'shipped_at',     dr.shipped_at,
+        'notes',          dr.notes
+      ) ORDER BY dr.shipped_at DESC
+    ),
+    '[]'::jsonb
+  )
+  INTO v_distribution
+  FROM  distribution_records dr
+  WHERE dr.company_id = v_company_id
+    AND dr.batch_id   = ANY(v_batch_ids);
+
+  -- Total distributed units
+  SELECT COALESCE(SUM(dr.quantity_shipped), 0)
+  INTO   v_total_units
+  FROM   distribution_records dr
+  WHERE  dr.company_id = v_company_id
+    AND  dr.batch_id   = ANY(v_batch_ids);
+
+  -- ── Open recall check ────────────────────────────────────────────
+  SELECT EXISTS(
+    SELECT 1 FROM recalls
+    WHERE  batch_id   = ANY(v_batch_ids)
+      AND  company_id = v_company_id
+      AND  status    <> 'closed'
+  ) INTO v_has_recall;
+
+  -- ── Return full impact document ──────────────────────────────────
+  RETURN jsonb_build_object(
+    'affected_products',     v_products,
+    'affected_batches',      v_batches,
+    'affected_distributors', v_distribution,
+    'total_affected_units',  v_total_units,
+    'total_batches',         jsonb_array_length(v_batches),
+    'total_products',        jsonb_array_length(v_products),
+    'total_distributors',    jsonb_array_length(v_distribution),
+    'risk_level',            CASE
+                               WHEN v_has_recall AND v_total_units > 0 THEN 'critical'
+                               WHEN v_has_recall                       THEN 'high'
+                               WHEN v_total_units > 100                THEN 'high'
+                               WHEN v_total_units > 0                  THEN 'medium'
+                               WHEN jsonb_array_length(v_batches) > 0  THEN 'low'
+                               ELSE                                         'none'
+                             END,
+    'has_open_recall',       v_has_recall
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_recall_impact(text, text, uuid) TO authenticated;
+
+DO $$
+BEGIN
+  RAISE NOTICE '✓ get_recall_impact(text, text, uuid) redeployed with fallback company resolution.';
+  RAISE NOTICE '  Smoke test (lot):      SELECT get_recall_impact(p_lot_number    := ''LOT-2025-SS316-0891'');';
+  RAISE NOTICE '  Smoke test (material): SELECT get_recall_impact(p_material_name := ''Steel'');';
+  RAISE NOTICE '  Smoke test (batch):    SELECT get_recall_impact(p_batch_id      := ''<uuid>'');';
+END;
+$$;
