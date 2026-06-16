@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import { useAuth, useRole } from '../lib/auth-context'
 import { useT, fmtNum } from '../lib/i18n'
@@ -8,12 +9,12 @@ import { canEdit } from '../lib/permissions'
 import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
 import { logActivity, actorName } from '../lib/activity'
-import { useRecalls, type RecallFormData, type RecallSeverity, type RecallStatus } from '../hooks/useRecalls'
+import { useRecalls, type RecallFormData, type RecallSeverity, type RecallStatus, type LinkedCapaSummary } from '../hooks/useRecalls'
 import {
   AlertTriangle, Search, Download, ChevronDown, ChevronRight,
   Package, FlaskConical, Layers, ShoppingCart, Network,
   XCircle, AlertCircle, Loader2, X, ClipboardList,
-  Plus, RefreshCw, Trash2, GitBranch,
+  Plus, RefreshCw, Trash2, GitBranch, FileWarning, ExternalLink,
 } from 'lucide-react'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -370,6 +371,44 @@ const EMPTY_RECALL: RecallFormData = {
   batch_id: null, product_id: null,
 }
 
+// ── CAPA status badge ───────────────────────────────────────────────────────
+
+const CAPA_STATUS_CLS: Record<string, string> = {
+  open:              'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  investigation:     'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+  corrective_action: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  verification:      'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400',
+  closed:            'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+}
+
+function CapaCell({ capas, onOpen }: { capas: LinkedCapaSummary[]; onOpen: (id: string) => void }) {
+  if (capas.length === 0) {
+    return <span className="text-xs text-gray-300 dark:text-gray-600">—</span>
+  }
+  const first    = capas[0]
+  const openCount = capas.filter(c => c.status !== 'closed').length
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        onClick={() => onOpen(first.id)}
+        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider hover:opacity-80 transition-opacity ${CAPA_STATUS_CLS[first.status] ?? CAPA_STATUS_CLS.open}`}
+        title={`Open CAPA: ${first.capa_number ?? first.id.slice(0, 8)}`}
+      >
+        <FileWarning size={9} />
+        {first.capa_number ?? `#${first.id.slice(0, 8)}`}
+      </button>
+      {openCount > 0 && (
+        <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+          {openCount} open
+        </span>
+      )}
+      {capas.length > 1 && (
+        <span className="text-[10px] text-gray-400">+{capas.length - 1} more</span>
+      )}
+    </div>
+  )
+}
+
 function RecallCreateModal({ onClose, onSave, saving }: {
   onClose: () => void
   onSave:  (d: RecallFormData) => Promise<void>
@@ -451,6 +490,7 @@ function RecallRegistry() {
   const role    = useRole()
   const toast   = useToast()
   const confirm = useConfirm()
+  const router  = useRouter()
   const canEditRecall = canEdit(role, 'recall')
 
   const { recalls, stats, loading, error, refresh, createRecall, updateStatus, deleteRecall } = useRecalls()
@@ -464,7 +504,7 @@ function RecallRegistry() {
     setSaving(false)
     if (!result) { toast.error('Failed to create recall'); return }
     setShowCreate(false)
-    toast.success(`Recall ${result.recall_number ?? ''} created`)
+    toast.success(`Recall ${result.recall_number ?? ''} created — CAPA investigation opened automatically`)
     if (companyId) {
       void logActivity({
         companyId, actorUserId: user?.id, actorEmail: user?.email,
@@ -557,6 +597,7 @@ function RecallRegistry() {
                   <th className="px-5 py-3 text-start">Title</th>
                   <th className="px-5 py-3 text-start">Severity</th>
                   <th className="px-5 py-3 text-start">Status</th>
+                  <th className="px-5 py-3 text-start">CAPA</th>
                   <th className="px-5 py-3 text-start">Initiated</th>
                   <th className="px-5 py-3 text-start">Affected</th>
                   <th className="px-5 py-3" />
@@ -582,6 +623,12 @@ function RecallRegistry() {
                         {recall.status.replace('_', ' ')}
                       </span>
                     </td>
+                    <td className="px-5 py-3.5">
+                      <CapaCell
+                        capas={recall.linked_capas ?? []}
+                        onOpen={id => router.push(`/capa/${id}`)}
+                      />
+                    </td>
                     <td className="px-5 py-3.5 text-gray-600 dark:text-gray-400 whitespace-nowrap text-xs">
                       {new Date(recall.initiated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                     </td>
@@ -598,6 +645,15 @@ function RecallRegistry() {
                           >
                             <GitBranch size={12} />Journey
                           </a>
+                        )}
+                        {(recall.linked_capas?.length ?? 0) > 0 && (
+                          <button
+                            onClick={() => router.push(`/capa/${recall.linked_capas![0].id}`)}
+                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-[#3a6f8f] dark:text-[#7ab3d0] hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors whitespace-nowrap"
+                            title="Open linked CAPA"
+                          >
+                            <ExternalLink size={12} />CAPA
+                          </button>
                         )}
                         {canEditRecall && recall.status !== 'closed' && (
                           <button

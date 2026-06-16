@@ -7,6 +7,13 @@ import { useAuth } from '../lib/auth-context'
 export type RecallSeverity = 'low' | 'medium' | 'high' | 'critical'
 export type RecallStatus   = 'open' | 'in_progress' | 'closed'
 
+export type LinkedCapaSummary = {
+  id:          string
+  capa_number: string | null
+  status:      string
+  severity:    string
+}
+
 export type Recall = {
   id:                string
   company_id:        string
@@ -25,9 +32,11 @@ export type Recall = {
   closed_at:         string | null
   created_at:        string
   updated_at:        string
-  // joined fields (when fetched with product/batch selects)
+  // joined fields
   products?:          { name: string; sku: string } | null
   production_orders?: { id: string; status: string } | null
+  // enriched client-side: CAPAs linked to this recall
+  linked_capas?:      LinkedCapaSummary[]
 }
 
 export type RecallStats = {
@@ -85,25 +94,45 @@ export function useRecalls() {
         .range(offset, offset + RECALL_PAGE_SIZE - 1)
 
       if (listErr) throw listErr
-      setRecalls((data ?? []) as Recall[])
+      const recallList = (data ?? []) as Recall[]
       setTotalCount(count ?? 0)
 
-      // Aggregate stats via RPC
-      const { data: rpc, error: rpcErr } = await supabase
-        .rpc('get_recall_stats', { p_company_id: companyId })
+      // Load stats + linked CAPAs in parallel
+      const recallIds = recallList.map(r => r.id)
+      const [rpcRes, capaRes] = await Promise.all([
+        supabase.rpc('get_recall_stats', { p_company_id: companyId }),
+        recallIds.length > 0
+          ? supabase
+              .from('capas')
+              .select('id, capa_number, status, severity, recall_id')
+              .eq('company_id', companyId)
+              .in('recall_id', recallIds)
+          : Promise.resolve({ data: [], error: null }),
+      ])
 
-      if (!rpcErr && rpc) {
-        setStats(rpc as RecallStats)
+      // Group linked CAPAs by recall_id
+      const capasByRecall = new Map<string, LinkedCapaSummary[]>()
+      for (const c of ((capaRes.data ?? []) as Array<{
+        id: string; capa_number: string | null; status: string; severity: string; recall_id: string | null
+      }>)) {
+        if (!c.recall_id) continue
+        const list = capasByRecall.get(c.recall_id) ?? []
+        list.push({ id: c.id, capa_number: c.capa_number, status: c.status, severity: c.severity })
+        capasByRecall.set(c.recall_id, list)
+      }
+
+      setRecalls(recallList.map(r => ({ ...r, linked_capas: capasByRecall.get(r.id) ?? [] })))
+
+      if (!rpcRes.error && rpcRes.data) {
+        setStats(rpcRes.data as RecallStats)
       } else {
-        // Derive from page data as fallback
-        const list = (data ?? []) as Recall[]
         setStats({
-          open:            list.filter(r => r.status === 'open').length,
-          in_progress:     list.filter(r => r.status === 'in_progress').length,
-          closed:          list.filter(r => r.status === 'closed').length,
-          total:           list.length,
-          critical_open:   list.filter(r => r.severity === 'critical' && r.status !== 'closed').length,
-          active:          list.filter(r => r.status !== 'closed').length,
+          open:            recallList.filter(r => r.status === 'open').length,
+          in_progress:     recallList.filter(r => r.status === 'in_progress').length,
+          closed:          recallList.filter(r => r.status === 'closed').length,
+          total:           recallList.length,
+          critical_open:   recallList.filter(r => r.severity === 'critical' && r.status !== 'closed').length,
+          active:          recallList.filter(r => r.status !== 'closed').length,
           resolution_rate: 0,
         })
       }
@@ -139,8 +168,34 @@ export function useRecalls() {
       .select()
       .single()
     if (err) { setError(err.message); return null }
+
+    const recall = row as Recall
+
+    // Auto-create a linked CAPA investigation (non-blocking; errors are swallowed)
+    const capaRootCause = [
+      `Auto-generated CAPA for recall ${recall.recall_number ?? recall.title}.`,
+      `Recall Reason: ${data.reason}`,
+      data.root_cause         ? `Initial Root Cause: ${data.root_cause}` : null,
+      data.corrective_action  ? `Proposed Corrective Action: ${data.corrective_action}` : null,
+      data.affected_units     ? `Affected Units: ${parseInt(data.affected_units, 10).toLocaleString()}` : null,
+      data.initiated_by_name  ? `Initiated By: ${data.initiated_by_name}` : null,
+    ].filter(Boolean).join('\n')
+
+    void supabase.from('capas').insert([{
+      company_id:   companyId,
+      recall_id:    recall.id,
+      batch_id:     data.batch_id ?? null,
+      title:        `Recall Investigation — ${recall.recall_number ?? recall.title}`,
+      severity:     'critical',
+      source_type:  'recall',
+      status:       'open',
+      owner_name:   data.initiated_by_name || null,
+      due_date:     new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      root_cause:   capaRootCause,
+    }])
+
     await load(1); setPageState(1)
-    return row as Recall
+    return recall
   }
 
   const updateStatus = async (id: string, status: RecallStatus): Promise<boolean> => {

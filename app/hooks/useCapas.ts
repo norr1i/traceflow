@@ -97,6 +97,59 @@ export type CapaAnalytics = {
   monthly_trend:    { month: string; opened: number; closed: number }[]
 }
 
+// ── Recall-linked types (used in useCapaDetail) ───────────────────────────────
+
+export type RecallForCapa = {
+  id:                string
+  recall_number:     string | null
+  title:             string
+  reason:            string
+  severity:          string
+  status:            string
+  affected_units:    number | null
+  initiated_at:      string
+  batch_id:          string | null
+  product_id:        string | null
+}
+
+export type RecallImpactProduct = {
+  product_name:   string
+  sku:            string
+  affected_units: number
+  batch_count:    number
+}
+
+export type RecallImpactBatch = {
+  batch_id:     string
+  product_name: string
+  sku:          string
+  quantity:     number
+  status:       string
+  created_at:   string
+  completed_at: string | null
+}
+
+export type RecallImpactDistributor = {
+  batch_id:       string
+  recipient_name: string
+  recipient_type: string
+  quantity:       number
+  shipped_at:     string | null
+  notes:          string | null
+}
+
+export type RecallImpact = {
+  affected_products:     RecallImpactProduct[]
+  affected_batches:      RecallImpactBatch[]
+  affected_distributors: RecallImpactDistributor[]
+  total_affected_units:  number
+  total_batches:         number
+  total_products:        number
+  total_distributors:    number
+  risk_level:            string
+  has_open_recall:       boolean
+}
+
 export type CapaFormData = {
   title:             string
   severity:          'minor' | 'major' | 'critical'
@@ -295,6 +348,8 @@ export function useCapaDetail(capaId: string | undefined) {
   const [actions,       setActions]       = useState<CapaAction[]>([])
   const [evidence,      setEvidence]      = useState<CapaEvidence[]>([])
   const [history,       setHistory]       = useState<CapaStatusHistory[]>([])
+  const [linkedRecall,  setLinkedRecall]  = useState<RecallForCapa | null>(null)
+  const [recallImpact,  setRecallImpact]  = useState<RecallImpact | null>(null)
   const [loading,       setLoading]       = useState(true)
   const [error,         setError]         = useState<string | null>(null)
   const [saving,        setSaving]        = useState(false)
@@ -303,6 +358,7 @@ export function useCapaDetail(capaId: string | undefined) {
   const loadDetail = useCallback(async () => {
     if (!capaId || !companyId) { setLoading(false); return }
     setLoading(true); setError(null)
+    setLinkedRecall(null); setRecallImpact(null)
 
     try {
       const [capaRes, actRes, evRes, histRes] = await Promise.all([
@@ -313,10 +369,30 @@ export function useCapaDetail(capaId: string | undefined) {
       ])
 
       if (capaRes.error) throw capaRes.error
-      setCapa(capaRes.data as Capa)
+      const capaData = capaRes.data as Capa
+      setCapa(capaData)
       setActions((actRes.data ?? []) as CapaAction[])
       setEvidence((evRes.data ?? []) as CapaEvidence[])
       setHistory((histRes.data ?? []) as CapaStatusHistory[])
+
+      // If linked to a recall, fetch recall details + impact in parallel
+      if (capaData.recall_id) {
+        const { data: recallData } = await supabase
+          .from('recalls')
+          .select('id, recall_number, title, reason, severity, status, affected_units, initiated_at, batch_id, product_id')
+          .eq('id', capaData.recall_id)
+          .eq('company_id', companyId)
+          .maybeSingle()
+
+        if (recallData) {
+          setLinkedRecall(recallData as RecallForCapa)
+          if (recallData.batch_id) {
+            const { data: impact } = await supabase
+              .rpc('get_recall_impact', { p_batch_id: recallData.batch_id as string })
+            if (impact) setRecallImpact(impact as RecallImpact)
+          }
+        }
+      }
     } catch (err) {
       setError(extractMessage(err))
     } finally {
@@ -476,6 +552,7 @@ export function useCapaDetail(capaId: string | undefined) {
 
   return {
     capa, actions, evidence, history,
+    linkedRecall, recallImpact,
     loading, error, saving, uploading,
     advanceStatus, updateCapa,
     addAction, completeAction, deleteAction,

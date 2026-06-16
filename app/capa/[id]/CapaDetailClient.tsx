@@ -6,11 +6,14 @@ import {
   ArrowLeft, FileWarning, ArrowRight, CheckCircle2,
   Plus, Trash2, Upload, FileText, Image as ImageIcon,
   ExternalLink, AlertTriangle, RefreshCw, GitBranch,
-  Clock, ChevronDown, ChevronUp, X,
+  Clock, ChevronDown, ChevronUp, X, AlertCircle,
+  Package, Layers, Truck,
 } from 'lucide-react'
 import {
   useCapaDetail, NEXT_STATUS, ADVANCE_LABEL, SOURCE_LABELS,
   type CapaStatus, type CapaFormData, type CapaAction, type CapaEvidence,
+  type RecallForCapa, type RecallImpact,
+  type RecallImpactProduct, type RecallImpactBatch, type RecallImpactDistributor,
 } from '../../hooks/useCapas'
 import { useRole } from '../../lib/auth-context'
 import { canEdit } from '../../lib/permissions'
@@ -261,6 +264,207 @@ function UploadPanel({ onUpload, uploading, onClose }: {
   )
 }
 
+// ── Recall severity / status badge helpers ────────────────────────────────────
+
+const RECALL_SEV_CLS: Record<string, string> = {
+  low:      'bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400',
+  medium:   'bg-amber-100 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400',
+  high:     'bg-orange-100 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400',
+  critical: 'bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400',
+}
+
+const RECALL_STAT_CLS: Record<string, string> = {
+  open:        'bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400',
+  in_progress: 'bg-amber-100 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400',
+  closed:      'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400',
+}
+
+const RISK_CLS: Record<string, string> = {
+  critical: 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/15 dark:border-red-800 dark:text-red-400',
+  high:     'bg-orange-50 border-orange-200 text-orange-700 dark:bg-orange-900/15 dark:border-orange-800 dark:text-orange-400',
+  medium:   'bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/15 dark:border-amber-800 dark:text-amber-400',
+  low:      'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/15 dark:border-blue-800 dark:text-blue-400',
+  none:     'bg-gray-50 border-gray-200 text-gray-600 dark:bg-[#262E36]/20 dark:border-[#B3B7BA]/10 dark:text-gray-400',
+}
+
+// ── Linked Recall panel ───────────────────────────────────────────────────────
+
+function LinkedRecallPanel({ recall, impact }: { recall: RecallForCapa; impact: RecallImpact | null }) {
+  const [open, setOpen] = useState(true)
+
+  return (
+    <div className={card}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex w-full items-center gap-2 border-b border-[#B3B7BA]/30 dark:border-[#B3B7BA]/[0.10] px-5 py-3.5 text-left hover:bg-[#D1CFC9]/20 dark:hover:bg-[#262E36]/25 transition-colors"
+      >
+        <AlertCircle size={15} className="shrink-0 text-red-500 dark:text-red-400" />
+        <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Linked Recall</span>
+        <span className="rounded-full bg-red-100 dark:bg-red-900/30 px-2 py-0.5 text-[10px] font-bold text-red-700 dark:text-red-400">
+          {recall.recall_number ?? recall.id.slice(0, 8)}
+        </span>
+        <span className="ml-auto text-gray-400 dark:text-gray-600">
+          {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </span>
+      </button>
+
+      {open && (
+        <div className="px-5 py-4 space-y-5">
+
+          {/* Recall header */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-gray-900 dark:text-white leading-snug">{recall.title}</p>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{recall.reason}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${RECALL_SEV_CLS[recall.severity] ?? RECALL_SEV_CLS.medium}`}>
+                  {recall.severity}
+                </span>
+                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${RECALL_STAT_CLS[recall.status] ?? RECALL_STAT_CLS.open}`}>
+                  {recall.status.replace('_', ' ')}
+                </span>
+                {recall.affected_units != null && (
+                  <span className="rounded-full border border-[#B3B7BA]/40 px-2 py-0.5 text-xs text-gray-600 dark:text-gray-400">
+                    {recall.affected_units.toLocaleString()} units affected
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <div>
+                <p className={label}>Initiated</p>
+                <p className="text-sm text-gray-700 dark:text-gray-300">
+                  {fmt(recall.initiated_at)}
+                </p>
+              </div>
+              <a
+                href="/recall"
+                className="flex items-center gap-1 self-end rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/55 transition-colors whitespace-nowrap"
+              >
+                <ExternalLink size={11} />Recall Registry
+              </a>
+            </div>
+          </div>
+
+          {/* Impact section — only if we got RPC data */}
+          {impact && (
+            <>
+              {/* Risk banner */}
+              {impact.risk_level !== 'none' && (
+                <div className={`flex items-center gap-2 rounded-lg border px-4 py-2.5 text-xs font-medium ${RISK_CLS[impact.risk_level] ?? RISK_CLS.none}`}>
+                  <AlertTriangle size={13} />
+                  Risk Level: <span className="font-bold uppercase">{impact.risk_level}</span>
+                  {impact.total_affected_units > 0 && (
+                    <span className="ml-auto">{impact.total_affected_units.toLocaleString()} units distributed</span>
+                  )}
+                </div>
+              )}
+
+              {/* Affected Products */}
+              {impact.affected_products.length > 0 && (
+                <div>
+                  <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-gray-400">
+                    <Package size={11} /> Affected Products ({impact.total_products})
+                  </p>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] text-gray-400">
+                        <th className="pb-1.5 text-start font-medium">Product</th>
+                        <th className="pb-1.5 text-start font-medium">SKU</th>
+                        <th className="pb-1.5 text-end font-medium">Units</th>
+                        <th className="pb-1.5 text-end font-medium">Batches</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50 dark:divide-[#B3B7BA]/[0.07]">
+                      {impact.affected_products.map((p: RecallImpactProduct, i: number) => (
+                        <tr key={i}>
+                          <td className="py-1.5 font-medium text-gray-900 dark:text-white">{p.product_name}</td>
+                          <td className="py-1.5 font-mono text-gray-400">{p.sku}</td>
+                          <td className="py-1.5 text-end text-gray-700 dark:text-gray-300">{p.affected_units.toLocaleString()}</td>
+                          <td className="py-1.5 text-end text-gray-700 dark:text-gray-300">{p.batch_count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Affected Batches */}
+              {impact.affected_batches.length > 0 && (
+                <div>
+                  <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-gray-400">
+                    <Layers size={11} /> Affected Batches ({impact.total_batches})
+                  </p>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] text-gray-400">
+                        <th className="pb-1.5 text-start font-medium">Batch ID</th>
+                        <th className="pb-1.5 text-start font-medium">Product</th>
+                        <th className="pb-1.5 text-end font-medium">Qty</th>
+                        <th className="pb-1.5 text-start font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50 dark:divide-[#B3B7BA]/[0.07]">
+                      {impact.affected_batches.map((b: RecallImpactBatch, i: number) => (
+                        <tr key={i}>
+                          <td className="py-1.5 font-mono text-gray-400">{b.batch_id.slice(0, 13)}…</td>
+                          <td className="py-1.5 text-gray-900 dark:text-white">{b.product_name}</td>
+                          <td className="py-1.5 text-end text-gray-700 dark:text-gray-300">{b.quantity.toLocaleString()}</td>
+                          <td className="py-1.5 capitalize text-gray-500 dark:text-gray-400">{b.status.replace('_', ' ')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Affected Distributors */}
+              {impact.affected_distributors.length > 0 && (
+                <div>
+                  <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-gray-400">
+                    <Truck size={11} /> Affected Distributors ({impact.total_distributors})
+                  </p>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] text-gray-400">
+                        <th className="pb-1.5 text-start font-medium">Distributor</th>
+                        <th className="pb-1.5 text-start font-medium">Type</th>
+                        <th className="pb-1.5 text-end font-medium">Units</th>
+                        <th className="pb-1.5 text-start font-medium">Shipped</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50 dark:divide-[#B3B7BA]/[0.07]">
+                      {impact.affected_distributors.map((d: RecallImpactDistributor, i: number) => (
+                        <tr key={i}>
+                          <td className="py-1.5 font-medium text-gray-900 dark:text-white">{d.recipient_name}</td>
+                          <td className="py-1.5 capitalize text-gray-500 dark:text-gray-400">{d.recipient_type.replace('_', ' ')}</td>
+                          <td className="py-1.5 text-end text-gray-700 dark:text-gray-300">{d.quantity.toLocaleString()}</td>
+                          <td className="py-1.5 text-gray-500 dark:text-gray-400">{fmt(d.shipped_at)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {impact.affected_products.length === 0 && impact.affected_batches.length === 0 && (
+                <p className="text-xs italic text-gray-400">No affected products or batches found for this recall&apos;s batch.</p>
+              )}
+            </>
+          )}
+
+          {!impact && recall.batch_id && (
+            <p className="text-xs italic text-gray-400">Recall impact data not available — batch may not have distribution records yet.</p>
+          )}
+          {!impact && !recall.batch_id && (
+            <p className="text-xs italic text-gray-400">No batch linked to this recall — search affected products in the Recall Impact page.</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function CapaDetailClient({ id }: { id: string }) {
@@ -271,6 +475,7 @@ export default function CapaDetailClient({ id }: { id: string }) {
 
   const {
     capa, actions, evidence, history,
+    linkedRecall, recallImpact,
     loading, error, saving, uploading,
     advanceStatus, updateCapa,
     addAction, completeAction, deleteAction,
@@ -527,6 +732,13 @@ export default function CapaDetailClient({ id }: { id: string }) {
           </div>
         )}
       </div>
+
+      {/* Linked Recall panel — shown when CAPA was auto-created from a recall */}
+      {linkedRecall && (
+        <div className="mb-5">
+          <LinkedRecallPanel recall={linkedRecall} impact={recallImpact} />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
 
