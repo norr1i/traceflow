@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useState, useEffect } from 'react'
+import { Fragment, useState, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../lib/supabase'
@@ -9,8 +9,10 @@ import {
   ChevronLeft, Package, Layers, Truck,
   Activity, User, Calendar,
   Hash, Building2, Network, Copy, Check, ChevronDown, ChevronUp,
+  QrCode, Download, ExternalLink,
 } from 'lucide-react'
 import RootCausePanel from './RootCausePanel'
+import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -883,6 +885,108 @@ function ImpactAnalysis({ impacts, loading }: { impacts: MaterialImpact[]; loadi
   )
 }
 
+// ── Product Story Panel ───────────────────────────────────────────────────────
+
+function ProductStoryPanel({ batchId }: { batchId: string }) {
+  const [open,   setOpen]   = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [origin, setOrigin] = useState('')
+  const qrDlRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => { setOrigin(window.location.origin) }, [])
+
+  const traceUrl = `${origin}/trace/${batchId}`
+
+  function handleCopy() {
+    navigator.clipboard?.writeText(traceUrl).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  function handleDownload() {
+    const canvas = qrDlRef.current?.querySelector('canvas') as HTMLCanvasElement | null
+    if (!canvas) return
+    const url = canvas.toDataURL('image/png')
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `trace-${batchId.slice(0, 8)}.png`
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
+  }
+
+  return (
+    <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex w-full items-center gap-2.5 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
+      >
+        <QrCode size={15} className="text-gray-400 dark:text-gray-500" />
+        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Product Story</h2>
+        <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">Public QR trace page</span>
+        {open
+          ? <ChevronUp   size={14} className="text-gray-400 dark:text-gray-500" />
+          : <ChevronDown size={14} className="text-gray-400 dark:text-gray-500" />
+        }
+      </button>
+
+      {open && (
+        <div className="border-t border-gray-100 dark:border-gray-700 px-4 py-4 space-y-4">
+
+          {/* QR code */}
+          <div className="flex justify-center">
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white p-3 shadow-sm">
+              {origin && <QRCodeSVG value={traceUrl} size={160} level="H" marginSize={1} />}
+            </div>
+          </div>
+
+          {/* URL display */}
+          <div className="rounded-lg bg-gray-50 dark:bg-gray-700/40 px-3 py-2 font-mono text-[11px] text-gray-500 dark:text-gray-400 break-all select-all">
+            {traceUrl || `…/trace/${batchId}`}
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-2">
+            <button
+              onClick={handleCopy}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+              {copied
+                ? <Check size={13} className="text-emerald-500" />
+                : <Copy  size={13} />
+              }
+              {copied ? 'Copied!' : 'Copy URL'}
+            </button>
+
+            <a
+              href={traceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+              <ExternalLink size={13} />
+              Open Story
+            </a>
+
+            <button
+              onClick={handleDownload}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+              <Download size={13} />
+              Download QR
+            </button>
+          </div>
+
+          {/* Hidden high-res canvas used by handleDownload */}
+          <div ref={qrDlRef} className="hidden" aria-hidden="true">
+            {origin && <QRCodeCanvas value={traceUrl} size={512} level="H" marginSize={4} />}
+          </div>
+
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function ProductJourneyDetailClient() {
@@ -1194,6 +1298,7 @@ export default function ProductJourneyDetailClient() {
         <ImpactAnalysis impacts={impactData} loading={impactLoading} />
       )}
       <RootCausePanel batchId={id} />
+      <ProductStoryPanel batchId={id} />
     </div>
   )
 }
