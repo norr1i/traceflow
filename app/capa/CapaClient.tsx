@@ -1,30 +1,34 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   FileWarning, Plus, RefreshCw, Search, AlertTriangle,
-  X, ArrowRight, MoreHorizontal, Eye, Pencil, Trash2, GitBranch,
+  X, ArrowRight, MoreHorizontal, Eye, Pencil, Trash2,
+  FileDown, TrendingUp, ChevronDown, ChevronUp,
 } from 'lucide-react'
-import { useCapas, NEXT_STATUS, ADVANCE_LABEL, type CapaStatus, type CapaFormData, type Capa } from '../hooks/useCapas'
+import {
+  useCapas, useCapaAnalytics,
+  NEXT_STATUS, ADVANCE_LABEL, SOURCE_LABELS,
+  type CapaStatus, type CapaFormData, type Capa, type CapaSourceType,
+  PAGE_SIZE,
+} from '../hooks/useCapas'
 import { useAuth, useRole } from '../lib/auth-context'
 import { canEdit } from '../lib/permissions'
 import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
 import { logActivity, actorName } from '../lib/activity'
 import PaginationBar from '../components/PaginationBar'
-import { PAGE_SIZE } from '../hooks/useCapas'
 
-// ── Status config ────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 const STATUS_META: Record<CapaStatus, { label: string; badgeCls: string }> = {
-  open:              { label: 'Open',             badgeCls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
-  investigation:     { label: 'Investigation',    badgeCls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
-  corrective_action: { label: 'Corrective Action',badgeCls: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' },
-  verification:      { label: 'Verification',     badgeCls: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400' },
-  closed:            { label: 'Closed',           badgeCls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  open:              { label: 'Open',              badgeCls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+  investigation:     { label: 'Investigation',     badgeCls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
+  corrective_action: { label: 'Corrective Action', badgeCls: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' },
+  verification:      { label: 'Verification',      badgeCls: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400' },
+  closed:            { label: 'Closed',            badgeCls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
 }
-
-// ── Priority (from severity) ──────────────────────────────────────────────────
 
 const PRIORITY_META = {
   critical: { label: 'Critical', cls: 'bg-red-100    text-red-700    dark:bg-red-900/30    dark:text-red-400'    },
@@ -32,29 +36,58 @@ const PRIORITY_META = {
   minor:    { label: 'Medium',   cls: 'bg-amber-100  text-amber-700  dark:bg-amber-900/30  dark:text-amber-400'  },
 } as const
 
-// ── Sub-components ───────────────────────────────────────────────────────────
+const SOURCE_BADGE: Record<string, string> = {
+  quality_issue: 'bg-orange-100 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400',
+  recall:        'bg-red-100    text-red-700    dark:bg-red-900/20    dark:text-red-400',
+  audit:         'bg-blue-100   text-blue-700   dark:bg-blue-900/20   dark:text-blue-400',
+  complaint:     'bg-amber-100  text-amber-700  dark:bg-amber-900/20  dark:text-amber-400',
+  supplier:      'bg-violet-100 text-violet-700 dark:bg-violet-900/20 dark:text-violet-400',
+  other:         'bg-gray-100   text-gray-600   dark:bg-gray-700      dark:text-gray-400',
+}
+
+const SOURCE_OPTIONS: { value: CapaSourceType | ''; label: string }[] = [
+  { value: '',               label: 'All Sources'    },
+  { value: 'quality_issue',  label: 'Quality Issue'  },
+  { value: 'recall',         label: 'Recall'         },
+  { value: 'audit',          label: 'Audit'          },
+  { value: 'complaint',      label: 'Complaint'      },
+  { value: 'supplier',       label: 'Supplier'       },
+  { value: 'other',          label: 'Other'          },
+]
+
+const PRIORITY_OPTIONS = [
+  { value: '' as const,        label: 'All Priorities' },
+  { value: 'critical' as const, label: 'Critical'      },
+  { value: 'major' as const,    label: 'High'          },
+  { value: 'minor' as const,    label: 'Medium'        },
+]
+
+// ── Atom components ───────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: CapaStatus }) {
-  const meta = STATUS_META[status]
+  const { label, badgeCls } = STATUS_META[status]
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${meta.badgeCls}`}>
-      {meta.label}
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${badgeCls}`}>
+      {label}
     </span>
   )
 }
 
 function PriorityBadge({ severity }: { severity: 'minor' | 'major' | 'critical' }) {
-  const m = PRIORITY_META[severity]
+  const { label, cls } = PRIORITY_META[severity]
+  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${cls}`}>{label}</span>
+}
+
+function SourceBadge({ sourceType }: { sourceType: CapaSourceType | null }) {
+  if (!sourceType) return <span className="text-xs text-gray-400 dark:text-gray-500">—</span>
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${m.cls}`}>
-      {m.label}
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${SOURCE_BADGE[sourceType] ?? SOURCE_BADGE.other}`}>
+      {SOURCE_LABELS[sourceType]}
     </span>
   )
 }
 
-function KpiCard({ label, value, color }: {
-  label: string; value: number | string; color: string
-}) {
+function KpiCard({ label, value, color }: { label: string; value: number | string; color: string }) {
   return (
     <div className="rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-4 py-3 shadow-sm">
       <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">{label}</p>
@@ -75,21 +108,21 @@ function EmptyState({ message }: { message: string }) {
 // ── Three-dot row menu ────────────────────────────────────────────────────────
 
 function RowMenu({ onView, onEdit, onDelete, editable }: {
-  onView:    () => void
-  onEdit:    () => void
-  onDelete:  () => void
-  editable:  boolean
+  onView:   () => void
+  onEdit:   () => void
+  onDelete: () => void
+  editable: boolean
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
-    function handler(e: MouseEvent) {
+    function h(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
   }, [open])
 
   const item = 'flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors'
@@ -103,21 +136,18 @@ function RowMenu({ onView, onEdit, onDelete, editable }: {
       >
         <MoreHorizontal size={15} />
       </button>
-
       {open && (
         <div className="absolute right-0 top-full z-20 mt-1 w-36 overflow-hidden rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.15] bg-white dark:bg-[#1a2530] py-1 shadow-xl">
           <button onClick={() => { onView(); setOpen(false) }}
             className={`${item} text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-[#262E36]/55`}>
             <Eye size={13} className="shrink-0 text-gray-400" />View
           </button>
-
           {editable && (
             <button onClick={() => { onEdit(); setOpen(false) }}
               className={`${item} text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-[#262E36]/55`}>
               <Pencil size={13} className="shrink-0 text-gray-400" />Edit
             </button>
           )}
-
           {editable && (
             <>
               <div className="my-1 border-t border-gray-100 dark:border-[#B3B7BA]/[0.10]" />
@@ -133,167 +163,170 @@ function RowMenu({ onView, onEdit, onDelete, editable }: {
   )
 }
 
-// ── CAPA detail modal (read-only) ─────────────────────────────────────────────
+// ── Analytics panel ───────────────────────────────────────────────────────────
 
-// Stage order used to gate timeline entries
-const STATUS_STAGE: Record<CapaStatus, number> = {
-  open: 0, investigation: 1, corrective_action: 2, verification: 3, closed: 4,
-}
+function AnalyticsPanel() {
+  const { data, loading } = useCapaAnalytics()
+  const [open, setOpen]   = useState(false)
 
-function CapaDetailModal({ capa, onClose }: { capa: Capa; onClose: () => void }) {
-  const fmt = (d: string | null) =>
-    d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+  if (loading && !open) return null
 
-  // "31 May 2026 · 09:32"
-  const fmtAudit = (d: string | null): string | null => {
-    if (!d) return null
-    const dt   = new Date(d)
-    const date = dt.toLocaleDateString('en-GB',  { day: '2-digit', month: 'short', year: 'numeric' })
-    const time = dt.toLocaleTimeString('en-GB',  { hour: '2-digit', minute: '2-digit' })
-    return `${date} · ${time}`
+  const maxPri = Math.max(...(data?.by_priority.map(x => x.count) ?? [1]), 1)
+  const maxSrc = Math.max(...(data?.by_source.map(x => x.count) ?? [1]), 1)
+  const maxMon = Math.max(...(data?.monthly_trend.flatMap(x => [x.opened, x.closed]) ?? [1]), 1)
+
+  const SEVER_CLS: Record<string, string> = {
+    critical: 'bg-red-500',
+    major:    'bg-orange-400',
+    minor:    'bg-amber-400',
   }
 
-  const sl = 'mb-1 text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500'
-  const st = 'text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line leading-relaxed'
-
-  // Root cause label depends on how far the CAPA has progressed
-  const findingsLabel =
-    capa.status === 'open' || capa.status === 'investigation'
-      ? 'Current Findings'
-      : 'Root Cause'
-
-  // Timeline: only show events up to and including the current status stage
-  const currentStage = STATUS_STAGE[capa.status]
-  const timelineEntries: Array<{ label: string; ts: string | null; stage: number }> = [
-    { label: 'Opened',                  ts: capa.created_at,            stage: 0 },
-    { label: 'Investigation Started',   ts: capa.investigation_at,      stage: 1 },
-    { label: 'Corrective Action',       ts: capa.corrective_action_at,  stage: 2 },
-    { label: 'Verification',            ts: capa.verification_at,       stage: 3 },
-    { label: 'Closed',                  ts: capa.closed_at,             stage: 4 },
-  ]
-  const visibleTimeline = timelineEntries.filter(e => e.stage <= currentStage && e.ts !== null)
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-xl rounded-2xl border border-white/[0.08] bg-[#F1EFEC] dark:bg-[#141e28] p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+    <div className="rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 shadow-sm overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex w-full items-center gap-2 border-b border-[#B3B7BA]/30 dark:border-[#B3B7BA]/[0.10] px-5 py-3.5 text-left hover:bg-[#D1CFC9]/20 dark:hover:bg-[#262E36]/25 transition-colors"
+      >
+        <TrendingUp size={15} className="shrink-0 text-gray-400 dark:text-gray-500" />
+        <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Analytics</span>
+        <span className="ml-auto text-gray-400 dark:text-gray-600">
+          {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </span>
+      </button>
 
-        {/* Header */}
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <p className="mb-1 font-mono text-xs font-semibold text-[#3a6f8f] dark:text-[#7ab3d0]">
-              {capa.capa_number ?? `#${capa.id.slice(0, 8)}`}
-            </p>
-            <h2 className="text-base font-semibold leading-snug text-gray-900 dark:text-white">
-              {capa.title}
-            </h2>
-          </div>
-          <button onClick={onClose} className="shrink-0 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
-            <X size={20} />
-          </button>
-        </div>
-
-        {/* Status pills */}
-        <div className="mb-5 flex flex-wrap gap-2">
-          <StatusBadge status={capa.status} />
-          <PriorityBadge severity={capa.severity} />
-          {capa.owner_name && (
-            <span className="inline-flex items-center rounded-full border border-[#B3B7BA]/40 px-2.5 py-0.5 text-xs text-gray-600 dark:text-gray-300">
-              {capa.owner_name}
-            </span>
-          )}
-          {capa.due_date && (
-            <span className="inline-flex items-center rounded-full border border-[#B3B7BA]/40 px-2.5 py-0.5 text-xs text-gray-500 dark:text-gray-400">
-              Due {fmt(capa.due_date)}
-            </span>
-          )}
-        </div>
-
-        {/* Detail sections */}
-        <div className="space-y-4">
-          {capa.root_cause && (
-            <div>
-              <p className={sl}>{findingsLabel}</p>
-              <p className={st}>{capa.root_cause}</p>
+      {open && (
+        <div className="px-5 py-4">
+          {loading ? (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              {[0, 1, 2, 3].map(i => (
+                <div key={i} className="h-24 animate-pulse rounded-xl bg-gray-200 dark:bg-[#262E36]/55" />
+              ))}
             </div>
-          )}
-          {capa.corrective_action && (
-            <div>
-              <p className={sl}>Corrective Action</p>
-              <p className={st}>{capa.corrective_action}</p>
-            </div>
-          )}
-          {capa.preventive_action && (
-            <div>
-              <p className={sl}>Preventive Action</p>
-              <p className={st}>{capa.preventive_action}</p>
-            </div>
-          )}
-        </div>
+          ) : !data ? (
+            <p className="text-sm italic text-gray-400 dark:text-gray-500">Analytics unavailable — deploy get_capa_analytics RPC.</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
 
-        {/* Audit trail timeline */}
-        {visibleTimeline.length > 0 && (
-          <div className="mt-5 border-t border-gray-100 dark:border-[#B3B7BA]/[0.10] pt-4">
-            <p className={sl}>Audit Trail</p>
-            <ol className="mt-3 space-y-0">
-              {visibleTimeline.map((entry, idx) => {
-                const isLast    = idx === visibleTimeline.length - 1
-                const dotCls    = isLast
-                  ? 'bg-[#3a6f8f] dark:bg-[#7ab3d0]'
-                  : 'bg-gray-300 dark:bg-gray-600'
-                return (
-                  <li key={entry.label} className="flex gap-3">
-                    {/* Dot + connector line */}
-                    <div className="flex flex-col items-center pt-0.5">
-                      <div className={`h-2 w-2 shrink-0 rounded-full ${dotCls}`} />
-                      {!isLast && (
-                        <div className="mt-1 w-px flex-1 bg-gray-200 dark:bg-[#B3B7BA]/[0.15]" style={{ minHeight: '1.5rem' }} />
-                      )}
+              {/* Avg closure time */}
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2">
+                  Avg Closure Time
+                </p>
+                <p className="text-3xl font-bold text-gray-900 dark:text-white tabular-nums">
+                  {data.avg_closure_days}
+                  <span className="ml-1 text-sm font-normal text-gray-400 dark:text-gray-500">days</span>
+                </p>
+                <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">for closed CAPAs</p>
+              </div>
+
+              {/* By priority */}
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2">
+                  Open by Priority
+                </p>
+                <div className="space-y-1.5">
+                  {data.by_priority.map(p => (
+                    <div key={p.severity}>
+                      <div className="flex justify-between text-xs mb-0.5">
+                        <span className="text-gray-600 dark:text-gray-400">
+                          {PRIORITY_META[p.severity as keyof typeof PRIORITY_META]?.label ?? p.severity}
+                        </span>
+                        <span className="font-semibold tabular-nums text-gray-800 dark:text-gray-200">{p.count}</span>
+                      </div>
+                      <div className="h-1.5 w-full rounded-full bg-gray-200 dark:bg-gray-700">
+                        <div
+                          className={`h-1.5 rounded-full ${SEVER_CLS[p.severity] ?? 'bg-gray-400'}`}
+                          style={{ width: `${Math.round((p.count / maxPri) * 100)}%` }}
+                        />
+                      </div>
                     </div>
-                    {/* Entry text */}
-                    <div className={isLast ? 'pb-0' : 'pb-3'}>
-                      <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">{entry.label}</p>
-                      <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500 tabular-nums">
-                        {fmtAudit(entry.ts)}
+                  ))}
+                  {data.by_priority.length === 0 && (
+                    <p className="text-xs text-gray-400 dark:text-gray-500">No data</p>
+                  )}
+                </div>
+              </div>
+
+              {/* By source */}
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2">
+                  CAPAs by Source
+                </p>
+                <div className="space-y-1.5">
+                  {data.by_source.map(s => (
+                    <div key={s.source_type}>
+                      <div className="flex justify-between text-xs mb-0.5">
+                        <span className="text-gray-600 dark:text-gray-400">
+                          {SOURCE_LABELS[s.source_type as CapaSourceType | 'unspecified'] ?? s.source_type}
+                        </span>
+                        <span className="font-semibold tabular-nums text-gray-800 dark:text-gray-200">{s.count}</span>
+                      </div>
+                      <div className="h-1.5 w-full rounded-full bg-gray-200 dark:bg-gray-700">
+                        <div
+                          className="h-1.5 rounded-full bg-[#3a6f8f]"
+                          style={{ width: `${Math.round((s.count / maxSrc) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                  {data.by_source.length === 0 && (
+                    <p className="text-xs text-gray-400 dark:text-gray-500">No data</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Monthly trend */}
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2">
+                  Monthly Trend
+                </p>
+                <div className="flex items-end gap-1 h-14">
+                  {data.monthly_trend.map(m => (
+                    <div key={m.month} className="flex-1 flex flex-col items-center gap-0.5">
+                      <div className="flex flex-col w-full gap-px">
+                        <div
+                          className="w-full rounded-sm bg-[#3a6f8f]/70"
+                          style={{ height: `${Math.max(2, Math.round((m.opened / maxMon) * 40))}px` }}
+                          title={`Opened: ${m.opened}`}
+                        />
+                        <div
+                          className="w-full rounded-sm bg-emerald-500/70"
+                          style={{ height: `${Math.max(2, Math.round((m.closed / maxMon) * 40))}px` }}
+                          title={`Closed: ${m.closed}`}
+                        />
+                      </div>
+                      <p className="text-[8px] text-gray-400 dark:text-gray-500 tabular-nums leading-none">
+                        {m.month.split(' ')[0]}
                       </p>
                     </div>
-                  </li>
-                )
-              })}
-            </ol>
-          </div>
-        )}
-
-        <div className="mt-5 flex items-center justify-between gap-3">
-          {capa.batch_id && (
-            <a
-              href={`/product-journey/${capa.batch_id}`}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#3a6f8f]/10 dark:bg-[#3a6f8f]/20 border border-[#3a6f8f]/20 px-3 py-1.5 text-sm font-medium text-[#3a6f8f] dark:text-[#7ab3d0] hover:bg-[#3a6f8f]/20 transition-colors"
-            >
-              <GitBranch size={13} />View Batch Journey
-            </a>
+                  ))}
+                </div>
+                <div className="mt-1.5 flex gap-3 text-[9px] text-gray-400">
+                  <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-3 rounded-sm bg-[#3a6f8f]/70" />Opened</span>
+                  <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-3 rounded-sm bg-emerald-500/70" />Closed</span>
+                </div>
+              </div>
+            </div>
           )}
-          <button onClick={onClose}
-            className="ml-auto rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/45">
-            Close
-          </button>
         </div>
-      </div>
+      )}
     </div>
   )
 }
 
-// ── Shared form fields (create & edit) ────────────────────────────────────────
+// ── Shared form fields ────────────────────────────────────────────────────────
 
 const fieldCls = 'w-full rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC] dark:bg-[#262E36]/55 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]'
 const labelCls = 'mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300'
 
-// ── Create CAPA modal ─────────────────────────────────────────────────────────
-
 const EMPTY_FORM: CapaFormData = {
-  title: '', severity: 'major', root_cause: '', corrective_action: '',
-  preventive_action: '', owner_name: '', due_date: '', status: 'open',
+  title: '', severity: 'major', source_type: null,
+  root_cause: '', corrective_action: '', preventive_action: '',
+  owner_name: '', due_date: '', status: 'open',
   recall_id: null, inspection_id: null, batch_id: null,
 }
+
+// ── Create modal ──────────────────────────────────────────────────────────────
 
 function CreateModal({ onClose, onSave, saving }: {
   onClose: () => void
@@ -322,19 +355,31 @@ function CreateModal({ onClose, onSave, saving }: {
               placeholder="Describe the finding or issue" />
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelCls}>Severity</label>
+              <label className={labelCls}>Priority</label>
               <select value={form.severity} onChange={f('severity')} className={fieldCls}>
-                <option value="minor">Minor</option>
-                <option value="major">Major</option>
+                <option value="minor">Medium</option>
+                <option value="major">High</option>
                 <option value="critical">Critical</option>
               </select>
             </div>
             <div>
+              <label className={labelCls}>Source Type</label>
+              <select value={form.source_type ?? ''} onChange={f('source_type')} className={fieldCls}>
+                <option value="">Select source…</option>
+                {SOURCE_OPTIONS.slice(1).map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
               <label className={labelCls}>Owner *</label>
               <input required value={form.owner_name ?? ''} onChange={f('owner_name')}
-                className={fieldCls} placeholder="Assigned to" />
+                className={fieldCls} placeholder="Responsible person" />
             </div>
             <div>
               <label className={labelCls}>Due Date *</label>
@@ -361,11 +406,9 @@ function CreateModal({ onClose, onSave, saving }: {
           </div>
 
           <div>
-            <label className={labelCls}>
-              Linked Batch ID <span className="text-gray-400 font-normal">(optional UUID)</span>
-            </label>
+            <label className={labelCls}>Linked Batch ID <span className="text-gray-400 font-normal">(optional)</span></label>
             <input value={form.batch_id ?? ''} onChange={f('batch_id')} className={fieldCls}
-              placeholder="e.g. 6db4527d-cbe8-…" />
+              placeholder="Production order UUID" />
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
@@ -384,7 +427,7 @@ function CreateModal({ onClose, onSave, saving }: {
   )
 }
 
-// ── Edit CAPA modal ───────────────────────────────────────────────────────────
+// ── Edit modal ────────────────────────────────────────────────────────────────
 
 function EditModal({ capa, onClose, onSave, saving }: {
   capa:    Capa
@@ -395,6 +438,7 @@ function EditModal({ capa, onClose, onSave, saving }: {
   const [form, setForm] = useState<CapaFormData>({
     title:             capa.title,
     severity:          capa.severity,
+    source_type:       capa.source_type,
     root_cause:        capa.root_cause        ?? '',
     corrective_action: capa.corrective_action ?? '',
     preventive_action: capa.preventive_action ?? '',
@@ -429,15 +473,27 @@ function EditModal({ capa, onClose, onSave, saving }: {
             <input required value={form.title ?? ''} onChange={f('title')} className={fieldCls} />
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelCls}>Severity</label>
+              <label className={labelCls}>Priority</label>
               <select value={form.severity} onChange={f('severity')} className={fieldCls}>
-                <option value="minor">Minor</option>
-                <option value="major">Major</option>
+                <option value="minor">Medium</option>
+                <option value="major">High</option>
                 <option value="critical">Critical</option>
               </select>
             </div>
+            <div>
+              <label className={labelCls}>Source Type</label>
+              <select value={form.source_type ?? ''} onChange={f('source_type')} className={fieldCls}>
+                <option value="">Unspecified</option>
+                {SOURCE_OPTIONS.slice(1).map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Owner *</label>
               <input required value={form.owner_name ?? ''} onChange={f('owner_name')} className={fieldCls} />
@@ -479,11 +535,51 @@ function EditModal({ capa, onClose, onSave, saving }: {
   )
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+// ── Export helpers ────────────────────────────────────────────────────────────
+
+function exportCSV(rows: Capa[]) {
+  const q   = (s: string) => `"${String(s).replace(/"/g, '""')}"`
+  const fmt = (d: string | null) => d ? new Date(d).toLocaleDateString('en-GB') : ''
+  const header = ['CAPA #', 'Title', 'Priority', 'Source', 'Owner', 'Due Date', 'Status', 'Created', 'Closed']
+  const lines  = [
+    header.map(q).join(','),
+    ...rows.map(c => [
+      q(c.capa_number ?? c.id.slice(0, 8)),
+      q(c.title),
+      q(PRIORITY_META[c.severity]?.label ?? c.severity),
+      q(c.source_type ? SOURCE_LABELS[c.source_type] : ''),
+      q(c.owner_name ?? ''),
+      q(fmt(c.due_date)),
+      q(STATUS_META[c.status].label),
+      q(fmt(c.created_at)),
+      q(fmt(c.closed_at)),
+    ].join(',')),
+  ]
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+  const url  = URL.createObjectURL(blob)
+  const a    = Object.assign(document.createElement('a'), {
+    href: url, download: `capas-${new Date().toISOString().slice(0, 10)}.csv`,
+  })
+  document.body.appendChild(a); a.click(); document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+function exportJSON(rows: Capa[]) {
+  const blob = new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json' })
+  const url  = URL.createObjectURL(blob)
+  const a    = Object.assign(document.createElement('a'), {
+    href: url, download: `capas-${new Date().toISOString().slice(0, 10)}.json`,
+  })
+  document.body.appendChild(a); a.click(); document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 type FilterTab = 'all' | 'open' | 'in_progress' | 'overdue' | 'closed'
 
 export default function CapaClient() {
+  const router  = useRouter()
   const toast   = useToast()
   const confirm = useConfirm()
   const role    = useRole()
@@ -498,13 +594,12 @@ export default function CapaClient() {
 
   const [search,     setSearch]     = useState('')
   const [filterTab,  setFilterTab]  = useState<FilterTab>('all')
+  const [filterPri,  setFilterPri]  = useState<'critical' | 'major' | 'minor' | ''>('')
+  const [filterSrc,  setFilterSrc]  = useState<CapaSourceType | ''>('')
   const [showCreate, setShowCreate] = useState(false)
-  const [viewCapa,   setViewCapa]   = useState<Capa | null>(null)
   const [editCapa,   setEditCapa]   = useState<Capa | null>(null)
   const [saving,     setSaving]     = useState(false)
   const [advancing,  setAdvancing]  = useState<string | null>(null)
-
-  // ── Filter ────────────────────────────────────────────────────────────────
 
   const today = new Date().toISOString().slice(0, 10)
 
@@ -513,12 +608,13 @@ export default function CapaClient() {
       search === '' ||
       c.title?.toLowerCase().includes(search.toLowerCase()) ||
       c.capa_number?.toLowerCase().includes(search.toLowerCase()) ||
-      c.owner_name?.toLowerCase().includes(search.toLowerCase())
+      c.owner_name?.toLowerCase().includes(search.toLowerCase()) ||
+      c.batch_id?.includes(search)
 
     const overdue    = c.status !== 'closed' && !!c.due_date && c.due_date < today
     const inProgress = ['investigation', 'corrective_action', 'verification'].includes(c.status)
 
-    const matchFilter =
+    const matchTab =
       filterTab === 'all'          ? true
       : filterTab === 'open'       ? c.status === 'open'
       : filterTab === 'in_progress'? inProgress
@@ -526,7 +622,10 @@ export default function CapaClient() {
       : filterTab === 'closed'     ? c.status === 'closed'
       : true
 
-    return matchSearch && matchFilter
+    const matchPri = filterPri === '' || c.severity === filterPri
+    const matchSrc = filterSrc === '' || c.source_type === filterSrc
+
+    return matchSearch && matchTab && matchPri && matchSrc
   })
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -562,60 +661,45 @@ export default function CapaClient() {
     const next = NEXT_STATUS[current]
     if (!next) return
 
-    const confirmed = next === 'closed'
-      ? await confirm({
-          title:        'Close this CAPA?',
-          message:      'This action will mark the CAPA as completed.',
-          confirmLabel: 'Close CAPA',
-          danger:       false,
-        })
-      : await confirm({
-          title:        'Advance Stage',
-          message:      `Current Stage: ${STATUS_META[current].label} → Next Stage: ${STATUS_META[next].label}`,
-          confirmLabel: 'Confirm',
-          danger:       false,
-        })
-
+    const confirmed = await confirm({
+      title:        next === 'closed' ? 'Close this CAPA?' : 'Advance Stage',
+      message:      `${STATUS_META[current].label} → ${STATUS_META[next].label}`,
+      confirmLabel: next === 'closed' ? 'Close CAPA' : 'Confirm',
+      danger:       false,
+    })
     if (!confirmed) return
 
     setAdvancing(id)
-    const ok = await advanceStatus(id, current)
+    const ok = await advanceStatus(id, current, user?.email)
     setAdvancing(null)
     if (!ok) { toast.error('Failed to advance status'); return }
-    const label = next === 'closed' ? 'CAPA closed' : `Status advanced to ${STATUS_META[next].label}`
-    toast.success(label)
-    const actionType = next === 'closed' ? 'capa.closed'
-      : next === 'verification' ? 'capa.verified'
-      : 'capa.updated'
+    toast.success(next === 'closed' ? 'CAPA closed' : `Advanced to ${STATUS_META[next].label}`)
     if (companyId) {
       void logActivity({
         companyId, actorUserId: user?.id, actorEmail: user?.email,
-        actionType, entityType: 'capa', entityId: id,
+        actionType: next === 'closed' ? 'capa.closed' : 'capa.updated',
+        entityType: 'capa', entityId: id,
         message: `${actorName(user?.email)} advanced CAPA to ${STATUS_META[next].label}`,
       })
     }
   }
 
   async function handleDelete(id: string, capaNumber: string | null) {
-    const ok = await confirm({
+    const ok2 = await confirm({
       title:        'Delete CAPA',
       message:      `Delete ${capaNumber ?? 'this CAPA'}? This cannot be undone.`,
       confirmLabel: 'Delete',
     })
-    if (!ok) return
+    if (!ok2) return
     const deleted = await deleteCapa(id)
     if (deleted) toast.success('CAPA deleted')
     else         toast.error('Failed to delete CAPA')
   }
 
-  // ── Derived KPI values ────────────────────────────────────────────────────
-
   const inProgressCount = !loading
     ? (stats?.investigation ?? 0) + (stats?.corrective_action ?? 0) + (stats?.verification ?? 0)
     : null
   const openIsZero = !loading && (stats?.open ?? 0) === 0
-
-  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex-1 overflow-y-auto bg-[var(--bg)] p-6">
@@ -624,14 +708,11 @@ export default function CapaClient() {
       {showCreate && (
         <CreateModal onClose={() => setShowCreate(false)} onSave={handleCreate} saving={saving} />
       )}
-      {viewCapa && (
-        <CapaDetailModal capa={viewCapa} onClose={() => setViewCapa(null)} />
-      )}
       {editCapa && (
         <EditModal capa={editCapa} onClose={() => setEditCapa(null)} onSave={handleEdit} saving={saving} />
       )}
 
-      {/* Page header */}
+      {/* Header */}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">CAPA Center</h1>
@@ -653,37 +734,20 @@ export default function CapaClient() {
         </div>
       </div>
 
-      {/* Error */}
       {error && (
         <div className="mb-5 flex items-center gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-400">
           <AlertTriangle size={16} />{error}
         </div>
       )}
 
-      {/* KPI cards — 4 core cards; Open only when non-zero */}
+      {/* KPI cards */}
       <div className={`mb-5 grid gap-3 ${!loading && openIsZero ? 'sm:grid-cols-2 xl:grid-cols-4' : 'sm:grid-cols-3 xl:grid-cols-5'}`}>
-        <KpiCard
-          label="Total"
-          value={loading ? '—' : totalCount}
-          color="text-gray-800 dark:text-gray-100"
-        />
+        <KpiCard label="Total"       value={loading ? '—' : totalCount}        color="text-gray-800 dark:text-gray-100" />
         {(!loading && !openIsZero) && (
-          <KpiCard
-            label="Open"
-            value={stats?.open ?? 0}
-            color="text-blue-600 dark:text-blue-400"
-          />
+          <KpiCard label="Open"      value={stats?.open ?? 0}                  color="text-blue-600 dark:text-blue-400" />
         )}
-        <KpiCard
-          label="In Progress"
-          value={loading ? '—' : (inProgressCount ?? '—')}
-          color="text-amber-600 dark:text-amber-400"
-        />
-        <KpiCard
-          label="Closed"
-          value={loading ? '—' : (stats?.closed ?? 0)}
-          color="text-emerald-600 dark:text-emerald-400"
-        />
+        <KpiCard label="In Progress" value={loading ? '—' : (inProgressCount ?? '—')} color="text-amber-600 dark:text-amber-400" />
+        <KpiCard label="Closed"      value={loading ? '—' : (stats?.closed ?? 0)}     color="text-emerald-600 dark:text-emerald-400" />
         <KpiCard
           label="Overdue"
           value={loading ? '—' : (stats?.overdue ?? 0)}
@@ -691,40 +755,78 @@ export default function CapaClient() {
         />
       </div>
 
+      {/* Analytics panel */}
+      <div className="mb-5">
+        <AnalyticsPanel />
+      </div>
+
       {/* Filter tabs */}
-      <div className="mb-4 flex gap-1 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 p-1 shadow-sm w-fit">
-        {([
-          { key: 'all'         as FilterTab, label: 'All' },
-          { key: 'open'        as FilterTab, label: 'Open' },
-          { key: 'in_progress' as FilterTab, label: 'In Progress' },
-          { key: 'overdue'     as FilterTab, label: 'Overdue' },
-          { key: 'closed'      as FilterTab, label: 'Closed' },
-        ]).map(tab => (
-          <button key={tab.key} onClick={() => setFilterTab(tab.key)}
-            className={`rounded-md px-4 py-1.5 text-sm font-medium transition ${
-              filterTab === tab.key
-                ? 'bg-[#3a6f8f] text-white shadow-sm'
-                : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-            }`}>
-            {tab.label}
-          </button>
-        ))}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="flex gap-1 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 p-1 shadow-sm">
+          {([
+            { key: 'all'          as FilterTab, label: 'All'         },
+            { key: 'open'         as FilterTab, label: 'Open'        },
+            { key: 'in_progress'  as FilterTab, label: 'In Progress' },
+            { key: 'overdue'      as FilterTab, label: 'Overdue'     },
+            { key: 'closed'       as FilterTab, label: 'Closed'      },
+          ]).map(tab => (
+            <button key={tab.key} onClick={() => setFilterTab(tab.key)}
+              className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition ${
+                filterTab === tab.key
+                  ? 'bg-[#3a6f8f] text-white shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Priority filter */}
+        <select
+          value={filterPri}
+          onChange={e => setFilterPri(e.target.value as typeof filterPri)}
+          className="rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-3 py-2 text-sm text-gray-600 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-[#4a7fa5]"
+        >
+          {PRIORITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+
+        {/* Source filter */}
+        <select
+          value={filterSrc}
+          onChange={e => setFilterSrc(e.target.value as typeof filterSrc)}
+          className="rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-3 py-2 text-sm text-gray-600 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-[#4a7fa5]"
+        >
+          {SOURCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
       </div>
 
       {/* Table card */}
       <div className="rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 shadow-sm">
 
         {/* Toolbar */}
-        <div className="flex items-center gap-3 border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] px-5 py-4">
+        <div className="flex flex-wrap items-center gap-3 border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] px-5 py-4">
           <div className="relative w-full sm:w-72">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input type="text" placeholder="Search by title, CAPA #, or owner…"
+            <input type="text" placeholder="Search by title, CAPA #, owner, batch…"
               value={search} onChange={e => setSearch(e.target.value)}
               className="w-full rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#D1CFC9]/50 dark:bg-[#262E36]/55 py-2 pl-9 pr-3 text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:border-[#4a7fa5] focus:outline-none focus:ring-1 focus:ring-[#4a7fa5]/30" />
           </div>
+          <div className="ml-auto flex gap-2">
+            <button
+              onClick={() => exportCSV(filtered)}
+              className="flex items-center gap-1.5 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-white/50 dark:bg-[#262E36]/25 px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-[#262E36]/45 transition"
+            >
+              <FileDown size={14} />CSV
+            </button>
+            <button
+              onClick={() => exportJSON(filtered)}
+              className="flex items-center gap-1.5 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-white/50 dark:bg-[#262E36]/25 px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-[#262E36]/45 transition"
+            >
+              <FileDown size={14} />JSON
+            </button>
+          </div>
         </div>
 
-        {/* Table */}
         {loading ? (
           <div className="space-y-3 p-5">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -740,10 +842,12 @@ export default function CapaClient() {
                 <tr className="border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] bg-[#D1CFC9]/50 dark:bg-[#262E36]/38 text-[11px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">
                   <th className="px-4 py-3.5 text-start whitespace-nowrap">CAPA #</th>
                   <th className="px-4 py-3.5 text-start">Title</th>
+                  <th className="px-4 py-3.5 text-start whitespace-nowrap">Source</th>
                   <th className="px-4 py-3.5 text-start whitespace-nowrap">Priority</th>
                   <th className="px-4 py-3.5 text-start whitespace-nowrap">Owner</th>
                   <th className="px-4 py-3.5 text-start whitespace-nowrap">Due Date</th>
                   <th className="px-4 py-3.5 text-start whitespace-nowrap">Status</th>
+                  <th className="px-4 py-3.5 text-start whitespace-nowrap">Created</th>
                   <th className="px-4 py-3.5" />
                 </tr>
               </thead>
@@ -751,73 +855,73 @@ export default function CapaClient() {
                 {filtered.map(capa => {
                   const nextStatus   = NEXT_STATUS[capa.status]
                   const advanceLabel = ADVANCE_LABEL[capa.status]
+                  const overdue      = capa.status !== 'closed' && !!capa.due_date && capa.due_date < today
                   return (
                     <tr key={capa.id}
                       className="hover:bg-[#3a6f8f]/[0.07] dark:hover:bg-[#3a6f8f]/[0.13] transition-colors">
 
-                      {/* CAPA # — clickable, prominent */}
                       <td className="px-4 py-4 whitespace-nowrap">
                         <button
-                          onClick={() => setViewCapa(capa)}
+                          onClick={() => router.push(`/capa/${capa.id}`)}
                           className="font-mono text-xs font-semibold text-[#3a6f8f] dark:text-[#7ab3d0] hover:underline underline-offset-2"
                         >
                           {capa.capa_number ?? `#${capa.id.slice(0, 8)}`}
                         </button>
                       </td>
 
-                      {/* Title */}
-                      <td className="px-4 py-4 max-w-[260px]">
+                      <td className="px-4 py-4 max-w-[220px]">
                         <p className="text-sm font-medium text-gray-900 dark:text-gray-100 leading-tight truncate">
                           {capa.title}
                         </p>
                       </td>
 
-                      {/* Priority */}
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <SourceBadge sourceType={capa.source_type} />
+                      </td>
+
                       <td className="px-4 py-4 whitespace-nowrap">
                         <PriorityBadge severity={capa.severity} />
                       </td>
 
-                      {/* Owner */}
                       <td className="px-4 py-4 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">
                         {capa.owner_name ?? '—'}
                       </td>
 
-                      {/* Due Date */}
-                      <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-500 dark:text-gray-400">
-                        {capa.due_date
-                          ? new Date(capa.due_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-                          : '—'}
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <span className={`text-xs ${overdue ? 'font-semibold text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                          {capa.due_date
+                            ? new Date(capa.due_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                            : '—'}
+                        </span>
                       </td>
 
-                      {/* Status */}
                       <td className="px-4 py-4 whitespace-nowrap">
                         <StatusBadge status={capa.status} />
                       </td>
 
-                      {/* Actions */}
+                      <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-500 dark:text-gray-400">
+                        {new Date(capa.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </td>
+
                       <td className="px-4 py-4">
                         <div className="flex items-center justify-end gap-2">
-
-                          {/* Advance button — visible text */}
                           {canEditCapa && nextStatus && advanceLabel && (
                             <button
                               disabled={advancing === capa.id}
                               onClick={() => handleAdvance(capa.id, capa.status)}
-                              title={advanceLabel}
                               className="flex items-center gap-1 rounded-md border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.15] bg-white/60 dark:bg-[#262E36]/30 px-2.5 py-1 text-xs font-medium text-gray-700 dark:text-gray-200 hover:border-[#3a6f8f]/50 hover:bg-[#3a6f8f]/10 hover:text-[#3a6f8f] dark:hover:text-[#7ab3d0] disabled:opacity-40 transition whitespace-nowrap"
                             >
                               {advancing === capa.id
                                 ? <><RefreshCw size={11} className="animate-spin" /><span>…</span></>
-                                : <><ArrowRight size={11} /><span>Next Stage</span></>}
+                                : <><ArrowRight size={11} /><span>Next Stage</span></>
+                              }
                             </button>
                           )}
-
-                          {/* Three-dot menu */}
                           <RowMenu
                             editable={canEditCapa}
-                            onView={()   => setViewCapa(capa)}
-                            onEdit={()   => setEditCapa(capa)}
-                            onDelete={()  => handleDelete(capa.id, capa.capa_number)}
+                            onView={()  => router.push(`/capa/${capa.id}`)}
+                            onEdit={()  => setEditCapa(capa)}
+                            onDelete={() => handleDelete(capa.id, capa.capa_number)}
                           />
                         </div>
                       </td>
@@ -829,7 +933,6 @@ export default function CapaClient() {
           </div>
         )}
 
-        {/* Pagination */}
         {!loading && (
           <PaginationBar
             page={page}
@@ -840,11 +943,11 @@ export default function CapaClient() {
           />
         )}
 
-        {/* Footer */}
         {!loading && (
           <div className="border-t border-gray-100 dark:border-[#B3B7BA]/[0.10] px-5 py-3 text-xs text-gray-400 dark:text-gray-500">
             Showing {filtered.length} of {totalCount} CAPA{totalCount !== 1 ? 's' : ''}
             {(stats?.closed ?? 0) > 0 && ` · ${stats?.closed} closed`}
+            {(stats?.overdue ?? 0) > 0 && ` · ${stats?.overdue} overdue`}
           </div>
         )}
       </div>

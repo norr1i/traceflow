@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth-context'
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ── Core types ────────────────────────────────────────────────────────────────
 
 export type CapaStatus =
   | 'open'
@@ -10,6 +10,14 @@ export type CapaStatus =
   | 'corrective_action'
   | 'verification'
   | 'closed'
+
+export type CapaSourceType =
+  | 'quality_issue'
+  | 'recall'
+  | 'audit'
+  | 'complaint'
+  | 'supplier'
+  | 'other'
 
 export type Capa = {
   id:                   string
@@ -20,6 +28,7 @@ export type Capa = {
   batch_id:             string | null
   title:                string
   severity:             'minor' | 'major' | 'critical'
+  source_type:          CapaSourceType | null
   root_cause:           string | null
   corrective_action:    string | null
   preventive_action:    string | null
@@ -34,6 +43,43 @@ export type Capa = {
   updated_at:           string
 }
 
+export type CapaAction = {
+  id:           string
+  company_id:   string
+  capa_id:      string
+  description:  string
+  assigned_to:  string | null
+  due_date:     string | null
+  status:       'open' | 'in_progress' | 'completed'
+  completed_at: string | null
+  created_at:   string
+  updated_at:   string
+}
+
+export type CapaEvidence = {
+  id:          string
+  company_id:  string
+  capa_id:     string
+  file_name:   string
+  file_url:    string
+  file_type:   string | null
+  file_size:   number | null
+  uploaded_by: string | null
+  notes:       string | null
+  created_at:  string
+}
+
+export type CapaStatusHistory = {
+  id:          string
+  company_id:  string
+  capa_id:     string
+  from_status: string | null
+  to_status:   string
+  changed_by:  string | null
+  note:        string | null
+  created_at:  string
+}
+
 export type CapaStats = {
   open:              number
   investigation:     number
@@ -44,9 +90,17 @@ export type CapaStats = {
   active:            number
 }
 
+export type CapaAnalytics = {
+  avg_closure_days: number
+  by_priority:      { severity: string; count: number }[]
+  by_source:        { source_type: string; count: number }[]
+  monthly_trend:    { month: string; opened: number; closed: number }[]
+}
+
 export type CapaFormData = {
   title:             string
   severity:          'minor' | 'major' | 'critical'
+  source_type:       CapaSourceType | null
   root_cause:        string
   corrective_action: string
   preventive_action: string
@@ -58,19 +112,30 @@ export type CapaFormData = {
   batch_id:          string | null
 }
 
-// Advance map: each status → the next status in the lifecycle
+// ── Constants ─────────────────────────────────────────────────────────────────
+
 export const NEXT_STATUS: Partial<Record<CapaStatus, CapaStatus>> = {
-  open:             'investigation',
-  investigation:    'corrective_action',
-  corrective_action:'verification',
-  verification:     'closed',
+  open:              'investigation',
+  investigation:     'corrective_action',
+  corrective_action: 'verification',
+  verification:      'closed',
 }
 
 export const ADVANCE_LABEL: Partial<Record<CapaStatus, string>> = {
-  open:             'Start Investigation',
-  investigation:    'Start Corrective Action',
-  corrective_action:'Submit for Verification',
-  verification:     'Close CAPA',
+  open:              'Start Investigation',
+  investigation:     'Start Corrective Action',
+  corrective_action: 'Submit for Verification',
+  verification:      'Close CAPA',
+}
+
+export const SOURCE_LABELS: Record<CapaSourceType | 'unspecified', string> = {
+  quality_issue: 'Quality Issue',
+  recall:        'Recall',
+  audit:         'Audit',
+  complaint:     'Complaint',
+  supplier:      'Supplier',
+  other:         'Other',
+  unspecified:   'Unspecified',
 }
 
 export const PAGE_SIZE = 50
@@ -78,6 +143,8 @@ export const PAGE_SIZE = 50
 function extractMessage(err: unknown): string {
   return (err instanceof Error ? err.message : (err as { message?: string })?.message) ?? 'Unknown error'
 }
+
+// ── useCapas (list / dashboard) ───────────────────────────────────────────────
 
 export function useCapas() {
   const { companyId } = useAuth()
@@ -109,15 +176,13 @@ export function useCapas() {
       setCapas((data ?? []) as Capa[])
       setTotalCount(count ?? 0)
 
-      // Aggregate stats via RPC
       const { data: rpc, error: rpcErr } = await supabase
         .rpc('get_capa_stats', { p_company_id: companyId })
 
       if (!rpcErr && rpc) {
         setStats(rpc as CapaStats)
       } else {
-        // Derive from page data as fallback (RPC not yet deployed)
-        const now = new Date().toISOString().slice(0, 10)
+        const now  = new Date().toISOString().slice(0, 10)
         const list = (data ?? []) as Capa[]
         setStats({
           open:              list.filter(c => c.status === 'open').length,
@@ -153,11 +218,15 @@ export function useCapas() {
     return row as Capa
   }
 
-  const advanceStatus = async (id: string, currentStatus: CapaStatus): Promise<boolean> => {
+  const advanceStatus = async (
+    id: string,
+    currentStatus: CapaStatus,
+    changedBy?: string,
+  ): Promise<boolean> => {
     const next = NEXT_STATUS[currentStatus]
     if (!next) return false
 
-    const now = new Date().toISOString()
+    const now   = new Date().toISOString()
     const patch: Partial<Capa> = { status: next }
     if (next === 'investigation')     patch.investigation_at     = now
     if (next === 'corrective_action') patch.corrective_action_at = now
@@ -170,6 +239,17 @@ export function useCapas() {
       .eq('id', id)
       .eq('company_id', companyId ?? '')
     if (err) { setError(err.message); return false }
+
+    if (companyId) {
+      await supabase.from('capa_status_history').insert({
+        company_id:  companyId,
+        capa_id:     id,
+        from_status: currentStatus,
+        to_status:   next,
+        changed_by:  changedBy ?? null,
+      })
+    }
+
     await load(page)
     return true
   }
@@ -204,4 +284,223 @@ export function useCapas() {
     createCapa, advanceStatus, updateCapa, deleteCapa,
     refresh: () => load(page),
   }
+}
+
+// ── useCapaDetail (single CAPA page) ─────────────────────────────────────────
+
+export function useCapaDetail(capaId: string | undefined) {
+  const { companyId, user } = useAuth()
+
+  const [capa,          setCapa]          = useState<Capa | null>(null)
+  const [actions,       setActions]       = useState<CapaAction[]>([])
+  const [evidence,      setEvidence]      = useState<CapaEvidence[]>([])
+  const [history,       setHistory]       = useState<CapaStatusHistory[]>([])
+  const [loading,       setLoading]       = useState(true)
+  const [error,         setError]         = useState<string | null>(null)
+  const [saving,        setSaving]        = useState(false)
+  const [uploading,     setUploading]     = useState(false)
+
+  const loadDetail = useCallback(async () => {
+    if (!capaId || !companyId) { setLoading(false); return }
+    setLoading(true); setError(null)
+
+    try {
+      const [capaRes, actRes, evRes, histRes] = await Promise.all([
+        supabase.from('capas').select('*').eq('id', capaId).eq('company_id', companyId).single(),
+        supabase.from('capa_actions').select('*').eq('capa_id', capaId).eq('company_id', companyId).order('created_at'),
+        supabase.from('capa_evidence').select('*').eq('capa_id', capaId).eq('company_id', companyId).order('created_at', { ascending: false }),
+        supabase.from('capa_status_history').select('*').eq('capa_id', capaId).eq('company_id', companyId).order('created_at'),
+      ])
+
+      if (capaRes.error) throw capaRes.error
+      setCapa(capaRes.data as Capa)
+      setActions((actRes.data ?? []) as CapaAction[])
+      setEvidence((evRes.data ?? []) as CapaEvidence[])
+      setHistory((histRes.data ?? []) as CapaStatusHistory[])
+    } catch (err) {
+      setError(extractMessage(err))
+    } finally {
+      setLoading(false)
+    }
+  }, [capaId, companyId])
+
+  useEffect(() => { loadDetail() }, [loadDetail])
+
+  // ── Advance status ──────────────────────────────────────────────────────────
+
+  const advanceStatus = async (currentStatus: CapaStatus): Promise<boolean> => {
+    if (!capaId || !companyId) return false
+    const next = NEXT_STATUS[currentStatus]
+    if (!next) return false
+
+    setSaving(true)
+    const now   = new Date().toISOString()
+    const patch: Partial<Capa> = { status: next }
+    if (next === 'investigation')     patch.investigation_at     = now
+    if (next === 'corrective_action') patch.corrective_action_at = now
+    if (next === 'verification')      patch.verification_at      = now
+    if (next === 'closed')            patch.closed_at            = now
+
+    const { error: err } = await supabase
+      .from('capas')
+      .update(patch)
+      .eq('id', capaId)
+      .eq('company_id', companyId)
+
+    if (!err) {
+      await supabase.from('capa_status_history').insert({
+        company_id:  companyId,
+        capa_id:     capaId,
+        from_status: currentStatus,
+        to_status:   next,
+        changed_by:  user?.email ?? null,
+      })
+    }
+
+    setSaving(false)
+    if (err) return false
+    await loadDetail()
+    return true
+  }
+
+  // ── Update CAPA fields ──────────────────────────────────────────────────────
+
+  const updateCapa = async (data: Partial<CapaFormData>): Promise<boolean> => {
+    if (!capaId || !companyId) return false
+    setSaving(true)
+    const { error: err } = await supabase
+      .from('capas')
+      .update(data)
+      .eq('id', capaId)
+      .eq('company_id', companyId)
+    setSaving(false)
+    if (err) return false
+    await loadDetail()
+    return true
+  }
+
+  // ── capa_actions mutations ──────────────────────────────────────────────────
+
+  const addAction = async (description: string, assignedTo: string, dueDate: string): Promise<boolean> => {
+    if (!capaId || !companyId) return false
+    const { error: err } = await supabase.from('capa_actions').insert({
+      company_id:  companyId,
+      capa_id:     capaId,
+      description: description.trim(),
+      assigned_to: assignedTo.trim() || null,
+      due_date:    dueDate || null,
+    })
+    if (err) return false
+    await loadDetail()
+    return true
+  }
+
+  const completeAction = async (actionId: string): Promise<boolean> => {
+    if (!companyId) return false
+    const { error: err } = await supabase
+      .from('capa_actions')
+      .update({ status: 'completed', completed_at: new Date().toISOString() })
+      .eq('id', actionId)
+      .eq('company_id', companyId)
+    if (err) return false
+    await loadDetail()
+    return true
+  }
+
+  const deleteAction = async (actionId: string): Promise<boolean> => {
+    if (!companyId) return false
+    const { error: err } = await supabase
+      .from('capa_actions')
+      .delete()
+      .eq('id', actionId)
+      .eq('company_id', companyId)
+    if (err) return false
+    await loadDetail()
+    return true
+  }
+
+  // ── capa_evidence mutations ─────────────────────────────────────────────────
+
+  const uploadEvidence = async (file: File, notes: string): Promise<boolean> => {
+    if (!capaId || !companyId) return false
+    setUploading(true)
+
+    try {
+      const path  = `${companyId}/${capaId}/${Date.now()}-${file.name.replace(/\s+/g, '_')}`
+      const { error: upErr } = await supabase.storage.from('capa-evidence').upload(path, file)
+      if (upErr) throw upErr
+
+      const { data: { publicUrl } } = supabase.storage.from('capa-evidence').getPublicUrl(path)
+
+      const { error: dbErr } = await supabase.from('capa_evidence').insert({
+        company_id:  companyId,
+        capa_id:     capaId,
+        file_name:   file.name,
+        file_url:    publicUrl,
+        file_type:   file.type || null,
+        file_size:   file.size,
+        uploaded_by: user?.email ?? null,
+        notes:       notes.trim() || null,
+      })
+      if (dbErr) throw dbErr
+
+      await loadDetail()
+      return true
+    } catch {
+      return false
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const deleteEvidence = async (evidenceId: string, fileUrl: string): Promise<boolean> => {
+    if (!companyId) return false
+    // Extract storage path from URL and delete from storage
+    try {
+      const url     = new URL(fileUrl)
+      const parts   = url.pathname.split('/capa-evidence/')
+      if (parts[1]) {
+        await supabase.storage.from('capa-evidence').remove([parts[1]])
+      }
+    } catch { /* URL parse failed — skip storage deletion */ }
+
+    const { error: err } = await supabase
+      .from('capa_evidence')
+      .delete()
+      .eq('id', evidenceId)
+      .eq('company_id', companyId)
+    if (err) return false
+    await loadDetail()
+    return true
+  }
+
+  return {
+    capa, actions, evidence, history,
+    loading, error, saving, uploading,
+    advanceStatus, updateCapa,
+    addAction, completeAction, deleteAction,
+    uploadEvidence, deleteEvidence,
+    refresh: loadDetail,
+  }
+}
+
+// ── useCapaAnalytics ──────────────────────────────────────────────────────────
+
+export function useCapaAnalytics() {
+  const { companyId } = useAuth()
+  const [data,    setData]    = useState<CapaAnalytics | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!companyId) { setLoading(false); return }
+    setLoading(true)
+    supabase
+      .rpc('get_capa_analytics', { p_company_id: companyId })
+      .then(({ data: d, error: e }) => {
+        if (!e && d) setData(d as CapaAnalytics)
+        setLoading(false)
+      })
+  }, [companyId])
+
+  return { data, loading }
 }

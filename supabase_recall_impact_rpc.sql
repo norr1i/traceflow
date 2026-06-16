@@ -20,9 +20,20 @@
 --   4. bill_of_materials    — if p_material_name provided and step 1 is NULL
 --   5. Return NULL          — company still unresolvable
 --
+-- DISTRIBUTION JOIN CHAIN
+--   production_orders.id (v_batch_ids)
+--     → batches.production_order_id → batches.id (v_dist_batch_ids)
+--       → distribution_records.batch_id
+--
+--   distribution_records.batch_id is a UUID FK to batches.id, not to
+--   production_orders.id.  The intermediate batches table must be resolved
+--   before joining distribution.  Without this step, affected_distributors
+--   is always empty even when distribution records exist.
+--
 -- SCHEMA NOTES (live DB confirmed from seed_lifecycle_demo.sql)
---   distribution_records.batch_id       — uuid (FK → production_orders.id)
---   distribution_records.recipient_name — text NOT NULL
+--   batches.production_order_id    — uuid FK → production_orders.id
+--   distribution_records.batch_id  — uuid FK → batches.id
+--   distribution_records.recipient_name  — text NOT NULL
 --   distribution_records.quantity_shipped — integer NOT NULL
 --   distribution_records.recipient_type  — recipient_type ENUM NOT NULL
 --   distribution_records.notes           — text
@@ -42,13 +53,14 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_company_id   uuid;
-  v_batch_ids    uuid[];
-  v_products     jsonb;
-  v_batches      jsonb;
-  v_distribution jsonb;
-  v_total_units  bigint  := 0;
-  v_has_recall   boolean := false;
+  v_company_id      uuid;
+  v_batch_ids       uuid[];   -- production_orders.id
+  v_dist_batch_ids  uuid[];   -- batches.id (resolved via batches.production_order_id)
+  v_products        jsonb;
+  v_batches         jsonb;
+  v_distribution    jsonb;
+  v_total_units     bigint  := 0;
+  v_has_recall      boolean := false;
 BEGIN
   -- ── Step 1: resolve via session (normal authenticated path) ──────
   v_company_id := get_my_company_id();
@@ -63,14 +75,12 @@ BEGIN
       LIMIT  1;
 
     ELSIF p_lot_number IS NOT NULL THEN
-      -- Try bill_of_materials first (lot_number text column)
       SELECT bom.company_id
       INTO   v_company_id
       FROM   bill_of_materials bom
       WHERE  bom.lot_number ILIKE '%' || p_lot_number || '%'
       LIMIT  1;
 
-      -- Fall back to raw_material_lots if BOM had no match
       IF v_company_id IS NULL THEN
         SELECT rml.company_id
         INTO   v_company_id
@@ -91,7 +101,7 @@ BEGIN
   -- ── Step 5: still no company → give up ───────────────────────────
   IF v_company_id IS NULL THEN RETURN NULL; END IF;
 
-  -- ── Resolve batch IDs from whichever parameter was supplied ──────
+  -- ── Resolve batch IDs (production_orders.id) ─────────────────────
   IF p_batch_id IS NOT NULL THEN
     SELECT ARRAY_AGG(DISTINCT id)
     INTO   v_batch_ids
@@ -136,6 +146,17 @@ BEGIN
       'has_open_recall',       false
     );
   END IF;
+
+  -- ── Resolve batches.id for the distribution join ─────────────────
+  -- distribution_records.batch_id is a FK to batches.id, not to
+  -- production_orders.id.  Without this step, the distribution join
+  -- always misses because it compares batches.id against production
+  -- order UUIDs — two different UUID spaces.
+  SELECT ARRAY_AGG(DISTINCT b.id)
+  INTO   v_dist_batch_ids
+  FROM   batches b
+  WHERE  b.production_order_id = ANY(v_batch_ids)
+    AND  b.company_id          = v_company_id;
 
   -- ── Affected batches ─────────────────────────────────────────────
   SELECT COALESCE(
@@ -185,7 +206,12 @@ BEGIN
   ) sub;
 
   -- ── Downstream distribution ───────────────────────────────────────
-  -- batch_id is uuid in the live DB — join directly against uuid[].
+  -- Join path: production_orders.id → batches.production_order_id
+  --            → batches.id → distribution_records.batch_id
+  --
+  -- v_dist_batch_ids may be NULL when no batches rows exist for the
+  -- affected production orders (e.g. before seeding).  The ANY(NULL)
+  -- predicate safely returns no rows without erroring.
   SELECT COALESCE(
     jsonb_agg(
       jsonb_build_object(
@@ -202,14 +228,14 @@ BEGIN
   INTO v_distribution
   FROM  distribution_records dr
   WHERE dr.company_id = v_company_id
-    AND dr.batch_id   = ANY(v_batch_ids);
+    AND dr.batch_id   = ANY(v_dist_batch_ids);
 
   -- Total distributed units
   SELECT COALESCE(SUM(dr.quantity_shipped), 0)
   INTO   v_total_units
   FROM   distribution_records dr
   WHERE  dr.company_id = v_company_id
-    AND  dr.batch_id   = ANY(v_batch_ids);
+    AND  dr.batch_id   = ANY(v_dist_batch_ids);
 
   -- ── Open recall check ────────────────────────────────────────────
   SELECT EXISTS(
@@ -245,9 +271,10 @@ GRANT EXECUTE ON FUNCTION get_recall_impact(text, text, uuid) TO authenticated;
 
 DO $$
 BEGIN
-  RAISE NOTICE '✓ get_recall_impact(text, text, uuid) redeployed with fallback company resolution.';
+  RAISE NOTICE '✓ get_recall_impact(text, text, uuid) redeployed.';
+  RAISE NOTICE '  Distribution join now goes through: production_orders → batches → distribution_records';
   RAISE NOTICE '  Smoke test (lot):      SELECT get_recall_impact(p_lot_number    := ''LOT-2025-SS316-0891'');';
   RAISE NOTICE '  Smoke test (material): SELECT get_recall_impact(p_material_name := ''Steel'');';
-  RAISE NOTICE '  Smoke test (batch):    SELECT get_recall_impact(p_batch_id      := ''<uuid>'');';
+  RAISE NOTICE '  Smoke test (batch):    SELECT get_recall_impact(p_batch_id      := ''74d19d61-b61f-42ad-b1df-84a954361e6b'');';
 END;
 $$;
