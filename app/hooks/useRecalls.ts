@@ -63,6 +63,36 @@ export type RecallFormData = {
 
 export const RECALL_PAGE_SIZE = 50
 
+// ── CAPA payload builder (used in RecallClient to create CAPA after recall) ──
+
+export function buildCapaPayloadForRecall(
+  recall: Recall,
+  formData: RecallFormData,
+  companyId: string,
+): Record<string, unknown> {
+  const rootCause = [
+    `Auto-generated CAPA for recall ${recall.recall_number ?? recall.title}.`,
+    `Recall Reason: ${formData.reason}`,
+    formData.root_cause        ? `Initial Root Cause: ${formData.root_cause}` : null,
+    formData.corrective_action ? `Proposed Corrective Action: ${formData.corrective_action}` : null,
+    formData.affected_units    ? `Affected Units: ${parseInt(formData.affected_units, 10).toLocaleString()}` : null,
+    formData.initiated_by_name ? `Initiated By: ${formData.initiated_by_name}` : null,
+  ].filter(Boolean).join('\n')
+
+  return {
+    company_id:  companyId,
+    recall_id:   recall.id,
+    batch_id:    formData.batch_id || null,
+    title:       `Recall Investigation — ${recall.recall_number ?? recall.title}`,
+    severity:    'critical',
+    source_type: 'recall',
+    status:      'open',
+    owner_name:  formData.initiated_by_name || null,
+    due_date:    new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    root_cause:  rootCause,
+  }
+}
+
 function extractMessage(err: unknown): string {
   return (err instanceof Error ? err.message : (err as { message?: string })?.message) ?? 'Unknown error'
 }
@@ -170,30 +200,6 @@ export function useRecalls() {
     if (err) { setError(err.message); return null }
 
     const recall = row as Recall
-
-    // Auto-create a linked CAPA investigation (non-blocking; errors are swallowed)
-    const capaRootCause = [
-      `Auto-generated CAPA for recall ${recall.recall_number ?? recall.title}.`,
-      `Recall Reason: ${data.reason}`,
-      data.root_cause         ? `Initial Root Cause: ${data.root_cause}` : null,
-      data.corrective_action  ? `Proposed Corrective Action: ${data.corrective_action}` : null,
-      data.affected_units     ? `Affected Units: ${parseInt(data.affected_units, 10).toLocaleString()}` : null,
-      data.initiated_by_name  ? `Initiated By: ${data.initiated_by_name}` : null,
-    ].filter(Boolean).join('\n')
-
-    void supabase.from('capas').insert([{
-      company_id:   companyId,
-      recall_id:    recall.id,
-      batch_id:     data.batch_id ?? null,
-      title:        `Recall Investigation — ${recall.recall_number ?? recall.title}`,
-      severity:     'critical',
-      source_type:  'recall',
-      status:       'open',
-      owner_name:   data.initiated_by_name || null,
-      due_date:     new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-      root_cause:   capaRootCause,
-    }])
-
     await load(1); setPageState(1)
     return recall
   }

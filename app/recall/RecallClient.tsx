@@ -499,12 +499,57 @@ function RecallRegistry() {
   const [saving,     setSaving]     = useState(false)
 
   async function handleCreate(data: RecallFormData) {
+    if (!companyId) return
     setSaving(true)
+
+    // Step 1: create the recall
     const result = await createRecall(data)
+    if (!result) {
+      setSaving(false)
+      toast.error('Failed to create recall')
+      return
+    }
+
+    // Step 2: create the linked CAPA via SECURITY DEFINER RPC — bypasses RLS
+    const rootCause = [
+      `Auto-generated CAPA for recall ${result.recall_number ?? result.title}.`,
+      `Recall Reason: ${data.reason}`,
+      data.root_cause        ? `Initial Root Cause: ${data.root_cause}` : null,
+      data.corrective_action ? `Proposed Corrective Action: ${data.corrective_action}` : null,
+      data.affected_units    ? `Affected Units: ${parseInt(data.affected_units, 10).toLocaleString()}` : null,
+      data.initiated_by_name ? `Initiated By: ${data.initiated_by_name}` : null,
+    ].filter(Boolean).join('\n')
+
+    const { data: capaRows, error: capaErr } = await supabase
+      .rpc('insert_capa_from_recall', {
+        p_recall_id:  result.id,
+        p_batch_id:   data.batch_id || null,
+        p_title:      `Recall Investigation — ${result.recall_number ?? result.title}`,
+        p_owner_name: data.initiated_by_name || null,
+        p_due_date:   new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        p_root_cause: rootCause,
+      })
+    const capaRow = (capaRows as Array<{ id: string; capa_number: string | null }> | null)?.[0] ?? null
+
     setSaving(false)
-    if (!result) { toast.error('Failed to create recall'); return }
     setShowCreate(false)
-    toast.success(`Recall ${result.recall_number ?? ''} created — CAPA investigation opened automatically`)
+
+    if (capaErr) {
+      // Recall was created; CAPA failed — show exact error so user can diagnose
+      toast.error(
+        `Recall ${result.recall_number ?? ''} created, but CAPA auto-creation failed: ` +
+        `[${capaErr.code}] ${capaErr.message}`
+      )
+      console.error('[handleCreate] CAPA insert error:', capaErr)
+    } else {
+      toast.success(
+        `Recall ${result.recall_number ?? ''} created — CAPA ${capaRow?.capa_number ?? ''} opened automatically`
+      )
+    }
+
+    // Refresh to pick up linked_capas
+    refresh()
+
     if (companyId) {
       void logActivity({
         companyId, actorUserId: user?.id, actorEmail: user?.email,
