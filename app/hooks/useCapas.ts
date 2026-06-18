@@ -342,7 +342,7 @@ export function useCapas() {
 // ── useCapaDetail (single CAPA page) ─────────────────────────────────────────
 
 export function useCapaDetail(capaId: string | undefined) {
-  const { companyId, user } = useAuth()
+  const { companyId, user, loading: authLoading } = useAuth()
 
   const [capa,          setCapa]          = useState<Capa | null>(null)
   const [actions,       setActions]       = useState<CapaAction[]>([])
@@ -356,7 +356,8 @@ export function useCapaDetail(capaId: string | undefined) {
   const [uploading,     setUploading]     = useState(false)
 
   const loadDetail = useCallback(async () => {
-    if (!capaId || !companyId) { setLoading(false); return }
+    if (!capaId) { setLoading(false); return }
+    if (!companyId) { if (!authLoading) setLoading(false); return }
     setLoading(true); setError(null)
     setLinkedRecall(null); setRecallImpact(null)
 
@@ -398,7 +399,7 @@ export function useCapaDetail(capaId: string | undefined) {
     } finally {
       setLoading(false)
     }
-  }, [capaId, companyId])
+  }, [capaId, companyId, authLoading])
 
   useEffect(() => { loadDetail() }, [loadDetail])
 
