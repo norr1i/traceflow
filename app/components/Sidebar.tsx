@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Package,
   ClipboardList, ShieldCheck, ShoppingCart,
-  Menu, X, Boxes, AlertTriangle, Users, ShieldAlert, FileWarning,
+  Menu, X, Boxes, AlertTriangle, Users, ShieldAlert, FileWarning, GitBranch,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '../lib/auth-context'
@@ -40,6 +40,7 @@ const NAV_GROUPS: { labelKey: string; items: NavItem[] }[] = [
   {
     labelKey: 'nav_group.operations',
     items: [
+      { labelKey: 'nav.journey',        href: '/product-journey', icon: GitBranch,     permission: 'view:product-journey' },
       { labelKey: 'nav.recall',        href: '/recall',        icon: AlertTriangle, permission: 'view:recall' },
       { labelKey: 'nav.recall_impact', href: '/recall-impact', icon: ShieldAlert,   permission: 'view:recall' },
       { labelKey: 'nav.capa',   href: '/capa',   icon: FileWarning,   permission: 'view:capa'   },
