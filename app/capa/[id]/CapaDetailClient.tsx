@@ -468,8 +468,6 @@ function LinkedRecallPanel({ recall, impact }: { recall: RecallForCapa; impact: 
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function CapaDetailClient({ id }: { id: string }) {
-  console.log('[CapaDetailClient] rendered with id=', id, '| type=', typeof id)
-
   const toast   = useToast()
   const confirm = useConfirm()
   const role    = useRole()

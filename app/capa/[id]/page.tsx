@@ -3,10 +3,15 @@ import CapaDetailClient from './CapaDetailClient'
 
 export const dynamic = 'force-dynamic'
 
-export default function CapaDetailPage({ params }: { params: { id: string } }) {
+export default async function CapaDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  const { id } = await params
   return (
     <Suspense>
-      <CapaDetailClient id={params.id} />
+      <CapaDetailClient id={id} />
     </Suspense>
   )
 }

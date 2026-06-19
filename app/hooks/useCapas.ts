@@ -356,14 +356,10 @@ export function useCapaDetail(capaId: string | undefined) {
   const [uploading,     setUploading]     = useState(false)
 
   const loadDetail = useCallback(async () => {
-    console.log('[useCapaDetail] loadDetail fired', { capaId, companyId, authLoading })
-    if (!capaId) { console.log('[useCapaDetail] EXIT: no capaId'); setLoading(false); return }
-    if (!companyId) { console.log('[useCapaDetail] EXIT: no companyId yet, authLoading=', authLoading); if (!authLoading) setLoading(false); return }
+    if (!capaId) { setLoading(false); return }
+    if (!companyId) { if (!authLoading) setLoading(false); return }
     setLoading(true); setError(null)
     setLinkedRecall(null); setRecallImpact(null)
-
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(capaId)
-    console.log('[useCapaDetail] capaId=', capaId, '| looks like UUID:', isUuid, '| companyId=', companyId)
 
     try {
       const [capaRes, actRes, evRes, histRes] = await Promise.all([
@@ -373,7 +369,6 @@ export function useCapaDetail(capaId: string | undefined) {
         supabase.from('capa_status_history').select('*').eq('capa_id', capaId).eq('company_id', companyId).order('created_at'),
       ])
 
-      console.log('[useCapaDetail] capaRes:', { data: capaRes.data, error: capaRes.error })
       if (capaRes.error) throw capaRes.error
       const capaData = capaRes.data as Capa
       setCapa(capaData)
