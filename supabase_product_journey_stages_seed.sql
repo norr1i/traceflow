@@ -57,26 +57,26 @@ SELECT event_type, COUNT(*) AS rows
 FROM   public.batch_journey_events
 WHERE  event_type IN (
          'supplier.qualified', 'raw_material.received',
-         'incoming_qc.approved', 'packaging.completed'
+         'incoming_qc.approved', 'storage.entry',
+         'finished_goods.stored', 'distributor.received', 'market.listed'
        )
 GROUP  BY event_type ORDER BY event_type;
 
-SELECT '=== 2. production_orders summary ===' AS section;
+SELECT '=== 2. production_orders — company_id check ===' AS section;
 
 SELECT
-  status,
-  COUNT(*)                                 AS batch_count,
-  COUNT(completed_at)                      AS completed,
-  COUNT(started_at)                        AS started
+  CASE WHEN company_id IS NULL THEN 'NULL (seed will skip!)' ELSE 'set' END AS company_id_state,
+  COUNT(*) AS batch_count,
+  COUNT(completed_at) AS completed
 FROM   public.production_orders
-GROUP  BY status;
+GROUP  BY company_id IS NULL;
 
 SELECT '=== 3. bill_of_materials summary ===' AS section;
 
 SELECT
   COUNT(*)                                 AS total_bom_rows,
   COUNT(DISTINCT production_order_id)      AS batches_with_bom,
-  COUNT(raw_material_lot_id)               AS rows_with_lot_id,  -- expected: 0 for existing data
+  COUNT(raw_material_lot_id)               AS rows_with_lot_id,
   COUNT(DISTINCT material_name)            AS distinct_materials
 FROM   public.bill_of_materials;
 
@@ -85,8 +85,7 @@ SELECT '=== 4. raw_materials → suppliers availability ===' AS section;
 SELECT
   COUNT(*)                                 AS raw_materials,
   COUNT(supplier_id)                       AS with_supplier_id,
-  COUNT(DISTINCT s.id)                     AS distinct_suppliers,
-  COUNT(DISTINCT LOWER(TRIM(rm.name)))     AS distinct_names_for_join
+  COUNT(DISTINCT s.id)                     AS distinct_suppliers
 FROM   public.raw_materials rm
 LEFT JOIN public.suppliers s ON s.id = rm.supplier_id;
 
@@ -333,6 +332,124 @@ WHERE  po.completed_at  IS NOT NULL
 
 
 -- ────────────────────────────────────────────────────────────────
+-- STEP 5 — storage.entry (raw materials warehouse after incoming QC)
+-- Timed 3 hours after the earliest BOM entry (incoming QC at +2h,
+-- warehouse transfer at +3h).
+-- ────────────────────────────────────────────────────────────────
+
+INSERT INTO public.batch_journey_events (
+  company_id, batch_id, event_type, event_timestamp, metadata
+)
+SELECT
+  po.company_id,
+  po.id,
+  'storage.entry',
+  COALESCE(
+    (SELECT MIN(bom.created_at)
+     FROM   public.bill_of_materials bom
+     WHERE  bom.production_order_id = po.id),
+    po.created_at
+  ) + INTERVAL '3 hours',
+  jsonb_build_object(
+    'title',
+      'Transferred to Raw Materials Warehouse',
+    'description',
+      'Materials cleared from incoming QC inspection and placed into controlled raw materials storage pending production.'
+  )
+FROM   public.production_orders po
+WHERE  po.company_id IS NOT NULL
+  AND  NOT EXISTS (
+         SELECT 1 FROM public.batch_journey_events bje
+         WHERE  bje.batch_id   = po.id
+           AND  bje.event_type LIKE 'storage.%'
+       );
+
+
+-- ────────────────────────────────────────────────────────────────
+-- STEP 6 — finished_goods.stored (post-packaging finished goods warehouse)
+-- Timed 6 hours after production completion (packaging at +4h, warehouse at +6h).
+-- ────────────────────────────────────────────────────────────────
+
+INSERT INTO public.batch_journey_events (
+  company_id, batch_id, event_type, event_timestamp, metadata
+)
+SELECT
+  po.company_id,
+  po.id,
+  'finished_goods.stored',
+  po.completed_at + INTERVAL '6 hours',
+  jsonb_build_object(
+    'title',
+      'Stored in Finished Goods Warehouse',
+    'description',
+      po.quantity::text || ' packaged units transferred to finished goods storage awaiting dispatch.'
+  )
+FROM   public.production_orders po
+WHERE  po.completed_at  IS NOT NULL
+  AND  po.company_id    IS NOT NULL
+  AND  NOT EXISTS (
+         SELECT 1 FROM public.batch_journey_events bje
+         WHERE  bje.batch_id   = po.id
+           AND  bje.event_type LIKE 'finished_goods.%'
+       );
+
+
+-- ────────────────────────────────────────────────────────────────
+-- STEP 7 — distributor.received
+-- Timed 9 days after production completion (distribution shipped at ~7d,
+-- distributor receives 2d transit later).
+-- ────────────────────────────────────────────────────────────────
+
+INSERT INTO public.batch_journey_events (
+  company_id, batch_id, event_type, event_timestamp, metadata
+)
+SELECT
+  po.company_id,
+  po.id,
+  'distributor.received',
+  po.completed_at + INTERVAL '9 days',
+  jsonb_build_object(
+    'title',       'Received at Distribution Center',
+    'description', 'Products received and inventoried at regional distribution center.'
+  )
+FROM   public.production_orders po
+WHERE  po.completed_at  IS NOT NULL
+  AND  po.company_id    IS NOT NULL
+  AND  NOT EXISTS (
+         SELECT 1 FROM public.batch_journey_events bje
+         WHERE  bje.batch_id   = po.id
+           AND  bje.event_type LIKE 'distributor.%'
+       );
+
+
+-- ────────────────────────────────────────────────────────────────
+-- STEP 8 — market.listed
+-- Timed 12 days after production completion.
+-- ────────────────────────────────────────────────────────────────
+
+INSERT INTO public.batch_journey_events (
+  company_id, batch_id, event_type, event_timestamp, metadata
+)
+SELECT
+  po.company_id,
+  po.id,
+  'market.listed',
+  po.completed_at + INTERVAL '12 days',
+  jsonb_build_object(
+    'title',       'Active on Market',
+    'description', 'Products listed in retail channels and available for sale.'
+  )
+FROM   public.production_orders po
+WHERE  po.completed_at  IS NOT NULL
+  AND  po.company_id    IS NOT NULL
+  AND  NOT EXISTS (
+         SELECT 1 FROM public.batch_journey_events bje
+         WHERE  bje.batch_id   = po.id
+           AND  bje.event_type LIKE 'market.%'
+       );
+
+
+-- ────────────────────────────────────────────────────────────────
 -- VERIFICATION — run after to confirm what was inserted
 -- ────────────────────────────────────────────────────────────────
 
@@ -342,7 +459,8 @@ SELECT event_type, COUNT(*) AS rows
 FROM   public.batch_journey_events
 WHERE  event_type IN (
          'supplier.qualified', 'raw_material.received',
-         'incoming_qc.approved', 'packaging.completed'
+         'incoming_qc.approved', 'storage.entry',
+         'finished_goods.stored', 'distributor.received', 'market.listed'
        )
 GROUP  BY event_type ORDER BY event_type;
 

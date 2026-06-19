@@ -14,6 +14,10 @@ import {
   Box,
   Award,
   Microscope,
+  Archive,
+  Warehouse,
+  Store,
+  TrendingUp,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -25,10 +29,14 @@ export type StageGroup =
   | 'supplier'
   | 'materials'
   | 'incoming_qc'
+  | 'storage'      // pre-production raw materials warehouse
   | 'production'
-  | 'packaging'
   | 'quality'
+  | 'packaging'
+  | 'warehouse'    // post-packaging finished goods warehouse
   | 'distribution'
+  | 'distributor'
+  | 'market'
   | 'compliance'
   | 'other'
 
@@ -83,6 +91,30 @@ export const STAGE_META: Record<
     dotColor:  'bg-purple-500',
     textColor: 'text-purple-600 dark:text-purple-400',
     lineColor: 'bg-purple-200 dark:bg-purple-800/40',
+  },
+  storage: {
+    label:     'Warehouse Storage',
+    dotColor:  'bg-stone-500',
+    textColor: 'text-stone-600 dark:text-stone-400',
+    lineColor: 'bg-stone-200 dark:bg-stone-700',
+  },
+  warehouse: {
+    label:     'Warehouse',
+    dotColor:  'bg-sky-500',
+    textColor: 'text-sky-600 dark:text-sky-400',
+    lineColor: 'bg-sky-200 dark:bg-sky-800/40',
+  },
+  distributor: {
+    label:     'Distributor',
+    dotColor:  'bg-violet-500',
+    textColor: 'text-violet-600 dark:text-violet-400',
+    lineColor: 'bg-violet-200 dark:bg-violet-800/40',
+  },
+  market: {
+    label:     'Market Tracking',
+    dotColor:  'bg-rose-500',
+    textColor: 'text-rose-600 dark:text-rose-400',
+    lineColor: 'bg-rose-200 dark:bg-rose-800/40',
   },
   other: {
     label:     'System',
@@ -285,6 +317,50 @@ const C = {
     badgeClass:   'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
     Icon: FileWarning,
   },
+  storageEvent: {
+    key:          'storage_event',
+    label:        'Warehouse Storage',
+    stageGroup:   'storage' as StageGroup,
+    dotBg:        'bg-stone-500',
+    borderAccent: 'border-l-stone-500',
+    iconBg:       'bg-stone-50 dark:bg-stone-800/40',
+    iconColor:    'text-stone-500 dark:text-stone-400',
+    badgeClass:   'bg-stone-100 text-stone-700 dark:bg-stone-700/40 dark:text-stone-400',
+    Icon: Archive,
+  },
+  warehouseEvent: {
+    key:          'warehouse_event',
+    label:        'Warehouse',
+    stageGroup:   'warehouse' as StageGroup,
+    dotBg:        'bg-sky-500',
+    borderAccent: 'border-l-sky-500',
+    iconBg:       'bg-sky-50 dark:bg-sky-900/30',
+    iconColor:    'text-sky-600 dark:text-sky-400',
+    badgeClass:   'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',
+    Icon: Warehouse,
+  },
+  distributorEvent: {
+    key:          'distributor_event',
+    label:        'Distributor',
+    stageGroup:   'distributor' as StageGroup,
+    dotBg:        'bg-violet-500',
+    borderAccent: 'border-l-violet-500',
+    iconBg:       'bg-violet-50 dark:bg-violet-900/30',
+    iconColor:    'text-violet-600 dark:text-violet-400',
+    badgeClass:   'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400',
+    Icon: Store,
+  },
+  marketEvent: {
+    key:          'market_event',
+    label:        'Market Tracking',
+    stageGroup:   'market' as StageGroup,
+    dotBg:        'bg-rose-500',
+    borderAccent: 'border-l-rose-500',
+    iconBg:       'bg-rose-50 dark:bg-rose-900/30',
+    iconColor:    'text-rose-600 dark:text-rose-400',
+    badgeClass:   'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400',
+    Icon: TrendingUp,
+  },
   system: {
     key:          'system',
     label:        'System Event',
@@ -317,10 +393,24 @@ const EXACT: Record<string, EventCategory> = {
   'supplier.qualified':        C.supplierQualification,
   'supplier.approved':         C.supplierQualification,
   'supplier.audited':          C.supplierQualification,
-  'raw_material.released':     C.rawMaterial,
-  'packaging.completed':       C.packaging,
-  'packaging.started':         C.packaging,
-  'distribution.shipped':      C.distribution,
+  'raw_material.released':      C.rawMaterial,
+  'storage.entry':              C.storageEvent,
+  'storage.release':            C.storageEvent,
+  'warehouse.received':         C.storageEvent,
+  'warehouse.entry':            C.storageEvent,
+  'finished_goods.stored':      C.warehouseEvent,
+  'finished_goods.released':    C.warehouseEvent,
+  'warehouse.dispatch_ready':   C.warehouseEvent,
+  'distributor.received':       C.distributorEvent,
+  'distributor.released':       C.distributorEvent,
+  'distributor.delivered':      C.distributorEvent,
+  'market.listed':              C.marketEvent,
+  'market.active':              C.marketEvent,
+  'market.sold':                C.marketEvent,
+  'market.tracked':             C.marketEvent,
+  'packaging.completed':        C.packaging,
+  'packaging.started':          C.packaging,
+  'distribution.shipped':       C.distribution,
   'distribution.created':      C.distribution,
   'distribution.delivered':    C.distribution,
   'recall.issued':             C.recall,
@@ -344,6 +434,10 @@ export function classifyEvent(eventType: string): EventCategory {
     if (eventType.includes('failed'))                 return C.incomingQcFailed
     return C.incomingQcConditional
   }
+  if (eventType.startsWith('storage.'))               return C.storageEvent
+  if (eventType.startsWith('finished_goods.'))        return C.warehouseEvent
+  if (eventType.startsWith('distributor.'))           return C.distributorEvent
+  if (eventType.startsWith('market.'))                return C.marketEvent
   if (eventType.startsWith('packaging.'))             return C.packaging
   if (eventType.startsWith('qc') &&
       (eventType.includes('pass') || eventType.includes('passed'))) return C.qcPassed

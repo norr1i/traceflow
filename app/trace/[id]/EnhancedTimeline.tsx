@@ -2,6 +2,7 @@ import { Fragment, useState } from 'react'
 import {
   Layers, ClipboardList, ShieldCheck, Truck, FileWarning, Activity,
   ChevronRight, Award, Microscope, Box,
+  Archive, Warehouse, Store, TrendingUp,
   type LucideIcon,
 } from 'lucide-react'
 import {
@@ -42,10 +43,14 @@ const STAGE_ICONS: Record<StageGroup, LucideIcon> = {
   supplier:     Award,
   materials:    Layers,
   incoming_qc:  Microscope,
+  storage:      Archive,
   production:   ClipboardList,
-  packaging:    Box,
   quality:      ShieldCheck,
+  packaging:    Box,
+  warehouse:    Warehouse,
   distribution: Truck,
+  distributor:  Store,
+  market:       TrendingUp,
   compliance:   FileWarning,
   other:        Activity,
 }
@@ -135,6 +140,46 @@ const STAGE_COLORS: Record<StageGroup, {
     iconBg:      'bg-purple-100 dark:bg-purple-900/30',
     iconColor:   'text-purple-600 dark:text-purple-400',
   },
+  storage: {
+    bg:          'bg-stone-50 dark:bg-stone-900/20',
+    border:      'border-stone-200 dark:border-stone-700/40',
+    text:        'text-stone-700 dark:text-stone-400',
+    subtext:     'text-stone-500 dark:text-stone-500',
+    dotColor:    'bg-stone-500',
+    connectorBg: 'bg-stone-200 dark:bg-stone-700',
+    iconBg:      'bg-stone-100 dark:bg-stone-800/40',
+    iconColor:   'text-stone-600 dark:text-stone-400',
+  },
+  warehouse: {
+    bg:          'bg-sky-50 dark:bg-sky-900/10',
+    border:      'border-sky-200 dark:border-sky-800/30',
+    text:        'text-sky-700 dark:text-sky-400',
+    subtext:     'text-sky-500 dark:text-sky-500',
+    dotColor:    'bg-sky-500',
+    connectorBg: 'bg-sky-200 dark:bg-sky-800/40',
+    iconBg:      'bg-sky-100 dark:bg-sky-900/30',
+    iconColor:   'text-sky-600 dark:text-sky-400',
+  },
+  distributor: {
+    bg:          'bg-violet-50 dark:bg-violet-900/10',
+    border:      'border-violet-200 dark:border-violet-800/30',
+    text:        'text-violet-700 dark:text-violet-400',
+    subtext:     'text-violet-500 dark:text-violet-500',
+    dotColor:    'bg-violet-500',
+    connectorBg: 'bg-violet-200 dark:bg-violet-800/40',
+    iconBg:      'bg-violet-100 dark:bg-violet-900/30',
+    iconColor:   'text-violet-600 dark:text-violet-400',
+  },
+  market: {
+    bg:          'bg-rose-50 dark:bg-rose-900/10',
+    border:      'border-rose-200 dark:border-rose-800/30',
+    text:        'text-rose-700 dark:text-rose-400',
+    subtext:     'text-rose-500 dark:text-rose-500',
+    dotColor:    'bg-rose-500',
+    connectorBg: 'bg-rose-200 dark:bg-rose-800/40',
+    iconBg:      'bg-rose-100 dark:bg-rose-900/30',
+    iconColor:   'text-rose-600 dark:text-rose-400',
+  },
   other: {
     bg:          'bg-gray-50 dark:bg-gray-800/40',
     border:      'border-gray-200 dark:border-gray-700',
@@ -148,7 +193,10 @@ const STAGE_COLORS: Record<StageGroup, {
 }
 
 const LIFECYCLE_ORDER: StageGroup[] = [
-  'supplier', 'materials', 'incoming_qc', 'production', 'packaging', 'quality', 'distribution', 'compliance', 'other',
+  'supplier', 'materials', 'incoming_qc', 'storage',
+  'production', 'quality', 'packaging', 'warehouse',
+  'distribution', 'distributor', 'market',
+  'compliance', 'other',
 ]
 
 // Stages included in the "always show" flow — distribution is always rendered

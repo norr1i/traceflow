@@ -186,34 +186,57 @@ function groupMaterialEvents(events: JourneyEvent[]): JourneyEvent[] {
 }
 
 // Synthesise one supplier.qualified event per unique supplier found in BOM data.
-// Dated 14 days before the earliest material receipt for that supplier so
-// qualification always precedes material delivery in the timeline.
+// Falls back to a generic event when raw_material_lot_id is NULL (all existing data),
+// which means supplier_name is always null via the lot→supplier join.
 function synthesizeSupplierEvents(materials: EnrichedMaterial[]): JourneyEvent[] {
-  const earliest = new Map<string, number>()
+  const bySupplier = new Map<string, number>()
   for (const m of materials) {
     if (!m.supplier_name) continue
     const ms = new Date(m.received_at ?? m.bom_created_at ?? '').getTime()
     if (!ms) continue
-    const prev = earliest.get(m.supplier_name)
-    if (prev === undefined || ms < prev) earliest.set(m.supplier_name, ms)
+    const prev = bySupplier.get(m.supplier_name)
+    if (prev === undefined || ms < prev) bySupplier.set(m.supplier_name, ms)
   }
-  return Array.from(earliest.entries()).map(([name, ms]) => ({
+  if (bySupplier.size > 0) {
+    return Array.from(bySupplier.entries()).map(([name, ms]) => ({
+      event_type:      'supplier.qualified',
+      event_timestamp: new Date(ms - 14 * 24 * 3600 * 1000).toISOString(),
+      title:           `Supplier Approved — ${name}`,
+      description:     `${name} passed qualification audit. Materials cleared for production use.`,
+      source_table:    'suppliers',
+      metadata:        { supplier_name: name },
+    }))
+  }
+  // Fallback: lot join returns null for all existing BOM rows. Derive the
+  // qualification date from the earliest BOM entry instead.
+  const bomDates = materials
+    .filter(m => m.bom_created_at)
+    .map(m => new Date(m.bom_created_at!).getTime())
+    .filter(ms => !isNaN(ms))
+  if (bomDates.length === 0) return []
+  const firstBomMs = Math.min(...bomDates)
+  return [{
     event_type:      'supplier.qualified',
-    event_timestamp: new Date(ms - 14 * 24 * 3600 * 1000).toISOString(),
-    title:           `Supplier Approved — ${name}`,
-    description:     `${name} passed qualification audit. Materials cleared for production use.`,
+    event_timestamp: new Date(firstBomMs - 14 * 24 * 3600 * 1000).toISOString(),
+    title:           'Supplier Qualification Approved',
+    description:     'Material suppliers passed qualification audit. All materials cleared for production use.',
     source_table:    'suppliers',
-    metadata:        { supplier_name: name },
-  }))
+    metadata:        null,
+  }]
 }
 
-// Synthesise an incoming_qc.approved event from BOM lot data when the RPC has
-// no incoming_qc events (i.e. the batch predates the batch_journey_events seed).
-// Uses the earliest received_at + 2 h as the inspection timestamp.
+// Synthesise an incoming_qc.approved event from BOM data.
+// Prefers received_at from lot data; falls back to bom_created_at which is
+// always populated (raw_material_lot_id is NULL for all existing BOM rows,
+// so received_at and lot_status are always null on existing data).
 function synthesizeIncomingQcEvents(materials: EnrichedMaterial[]): JourneyEvent[] {
   const dates = materials
-    .filter(m => m.received_at && m.lot_status && !['rejected', 'expired'].includes(m.lot_status.toLowerCase()))
-    .map(m => new Date(m.received_at!).getTime())
+    .filter(m => {
+      if (m.lot_status) return !['rejected', 'expired'].includes(m.lot_status.toLowerCase())
+      return !!(m.received_at || m.bom_created_at)
+    })
+    .map(m => new Date((m.received_at ?? m.bom_created_at)!).getTime())
+    .filter(ms => !isNaN(ms))
   if (dates.length === 0) return []
   const earliest = Math.min(...dates)
   return [{
@@ -223,6 +246,89 @@ function synthesizeIncomingQcEvents(materials: EnrichedMaterial[]): JourneyEvent
     description:     `${dates.length} material lot${dates.length > 1 ? 's' : ''} inspected and cleared for production.`,
     source_table:    'raw_material_lots',
     metadata:        null,
+  }]
+}
+
+// Synthesise a storage.entry event for raw materials placed in warehouse after
+// incoming QC (3 h after the earliest material receipt / BOM creation date).
+function synthesizeStorageEvents(materials: EnrichedMaterial[]): JourneyEvent[] {
+  const dates = materials
+    .filter(m => m.received_at || m.bom_created_at)
+    .map(m => new Date((m.received_at ?? m.bom_created_at)!).getTime())
+    .filter(ms => !isNaN(ms))
+  if (dates.length === 0) return []
+  const earliest = Math.min(...dates)
+  return [{
+    event_type:      'storage.entry',
+    event_timestamp: new Date(earliest + 3 * 3600 * 1000).toISOString(),
+    title:           'Transferred to Raw Materials Warehouse',
+    description:     `${materials.length} material type${materials.length > 1 ? 's' : ''} placed in controlled raw materials storage pending production.`,
+    source_table:    'raw_material_lots',
+    metadata:        null,
+  }]
+}
+
+// Synthesise a finished_goods.stored event 6 h after production completion
+// (packaging at +4 h, warehouse transfer at +6 h).
+function synthesizeWarehouseEvents(order: TraceOrder): JourneyEvent[] {
+  if (!order.completed_at) return []
+  const completedMs = new Date(order.completed_at).getTime()
+  return [{
+    event_type:      'finished_goods.stored',
+    event_timestamp: new Date(completedMs + 6 * 3600 * 1000).toISOString(),
+    title:           'Transferred to Finished Goods Warehouse',
+    description:     `${order.quantity.toLocaleString()} packaged units moved to finished goods storage awaiting dispatch.`,
+    source_table:    'production_orders',
+    metadata:        null,
+  }]
+}
+
+// Synthesise a distributor.received event from distribution_records (2 days
+// transit) or sales (3 days before first sale date as a proxy).
+function synthesizeDistributorEvents(
+  distributionRecords: DistributionRecord[],
+  sales: TraceSale[],
+): JourneyEvent[] {
+  if (distributionRecords.length > 0) {
+    const dr = distributionRecords[0]
+    return [{
+      event_type:      'distributor.received',
+      event_timestamp: new Date(new Date(dr.shipped_at).getTime() + 48 * 3600 * 1000).toISOString(),
+      title:           dr.recipient_name ? `Received by ${dr.recipient_name}` : 'Received at Distribution Center',
+      description:     `${dr.quantity_shipped.toLocaleString()} units delivered to distribution point and inventoried.`,
+      source_table:    'distribution_records',
+      metadata:        dr.recipient_name ? { recipient_name: dr.recipient_name } : null,
+    }]
+  }
+  if (sales.length === 0) return []
+  const firstSale = [...sales].sort(
+    (a, b) => new Date(a.sold_at).getTime() - new Date(b.sold_at).getTime()
+  )[0]
+  return [{
+    event_type:      'distributor.received',
+    event_timestamp: new Date(new Date(firstSale.sold_at).getTime() - 3 * 24 * 3600 * 1000).toISOString(),
+    title:           'Received at Distribution Center',
+    description:     'Units received and inventoried at regional distribution center ahead of retail delivery.',
+    source_table:    'sales',
+    metadata:        null,
+  }]
+}
+
+// Synthesise a market.listed event 1 day after the earliest sale date.
+function synthesizeMarketEvents(sales: TraceSale[]): JourneyEvent[] {
+  if (sales.length === 0) return []
+  const firstSale = [...sales].sort(
+    (a, b) => new Date(a.sold_at).getTime() - new Date(b.sold_at).getTime()
+  )[0]
+  return [{
+    event_type:      'market.listed',
+    event_timestamp: new Date(new Date(firstSale.sold_at).getTime() + 24 * 3600 * 1000).toISOString(),
+    title:           'Active on Market',
+    description:     firstSale.customer_name
+      ? `Products sold to ${firstSale.customer_name} and available through retail distribution channels.`
+      : 'Products live in retail and distribution channels.',
+    source_table:    'sales',
+    metadata:        firstSale.customer_name ? { customer_name: firstSale.customer_name } : null,
   }]
 }
 
@@ -415,6 +521,10 @@ const LIFECYCLE_ORDER: Record<string, number> = {
   'incoming_qc.approved':     20,
   'incoming_qc.conditional':  20,
   'incoming_qc.failed':       20,
+  'storage.entry':            35,
+  'storage.release':          38,
+  'warehouse.received':       35,
+  'warehouse.entry':          35,
   'raw_material.released':    30,
   'material.allocated':       30,
   'material.consumed':        45,
@@ -422,37 +532,51 @@ const LIFECYCLE_ORDER: Record<string, number> = {
   'production.created':       40,
   'production.started':       50,
   'production.completed':     60,
-  'packaging.started':        65,
-  'packaging.completed':      70,
-  'qc.pass':                  80,
-  'qc.fail':                  80,
-  'qc.hold':                  80,
-  'qc_inspection.passed':     90,
-  'qc_inspection.failed':     90,
-  'qc_inspection.hold':       90,
+  'qc.pass':                  65,   // Final QC between production and packaging
+  'qc.fail':                  65,
+  'qc.hold':                  65,
+  'qc_inspection.passed':     68,
+  'qc_inspection.failed':     68,
+  'qc_inspection.hold':       68,
+  'packaging.started':        70,
+  'packaging.completed':      75,
+  'finished_goods.stored':    82,
+  'finished_goods.released':  85,
+  'warehouse.dispatch_ready': 85,
   'distribution.shipped':    100,
   'distribution.created':    100,
   'distribution.delivered':  110,
-  'recall.initiated':        120,
-  'recall.issued':           120,
-  'recall.created':          120,
-  'capa.opened':             130,
-  'capa.created':            130,
-  'recall.closed':           140,
-  'capa.closed':             150,
+  'distributor.received':    115,
+  'distributor.released':    118,
+  'distributor.delivered':   120,
+  'market.listed':           125,
+  'market.active':           127,
+  'market.sold':             128,
+  'market.tracked':          130,
+  'recall.initiated':        135,
+  'recall.issued':           135,
+  'recall.created':          135,
+  'capa.opened':             140,
+  'capa.created':            140,
+  'recall.closed':           150,
+  'capa.closed':             155,
 }
 
 function lifecyclePriority(eventType: string): number {
   if (LIFECYCLE_ORDER[eventType] !== undefined) return LIFECYCLE_ORDER[eventType]
-  if (eventType.startsWith('supplier.'))     return 3
-  if (eventType.startsWith('incoming_qc.')) return 20
-  if (eventType.startsWith('material.'))    return 30
-  if (eventType.startsWith('production.'))  return 50
-  if (eventType.startsWith('packaging.'))   return 70
-  if (eventType.startsWith('qc'))           return 80
-  if (eventType.startsWith('distribution.')) return 100
-  if (eventType.startsWith('recall.'))      return 120
-  if (eventType.startsWith('capa.'))        return 130
+  if (eventType.startsWith('supplier.'))        return 3
+  if (eventType.startsWith('incoming_qc.'))    return 20
+  if (eventType.startsWith('storage.'))        return 35
+  if (eventType.startsWith('material.'))       return 30
+  if (eventType.startsWith('production.'))     return 50
+  if (eventType.startsWith('finished_goods.')) return 82
+  if (eventType.startsWith('packaging.'))      return 72
+  if (eventType.startsWith('qc'))              return 65
+  if (eventType.startsWith('distribution.'))   return 100
+  if (eventType.startsWith('distributor.'))    return 115
+  if (eventType.startsWith('market.'))         return 125
+  if (eventType.startsWith('recall.'))         return 135
+  if (eventType.startsWith('capa.'))           return 140
   return 500
 }
 
@@ -564,7 +688,8 @@ function enforceLifecycleOrder(events: JourneyEvent[]): JourneyEvent[] {
     if (!isQc && !isPkg) return e
     if (new Date(e.event_timestamp).getTime() <= completedMs) {
       repinned = true
-      const offset = isPkg ? 60_000 : 120_000
+      // Final QC (position 65) comes before packaging (70): repin QC to +1 min, packaging to +2 min.
+      const offset = isQc ? 60_000 : 120_000
       return { ...e, event_timestamp: new Date(completedMs + offset).toISOString() }
     }
     return e
@@ -587,13 +712,17 @@ const ORDER_LABEL: Record<string, string> = {
 // ── Stage flow ────────────────────────────────────────────────────────────────
 
 const STAGE_FLOW = [
-  { key: 'supplier'     as const, label: 'Supplier QC'   },
-  { key: 'materials'    as const, label: 'Raw Materials' },
-  { key: 'incoming_qc' as const, label: 'Incoming QC'   },
-  { key: 'production'   as const, label: 'Production'    },
-  { key: 'packaging'    as const, label: 'Packaging'     },
-  { key: 'quality'      as const, label: 'Final QC'      },
-  { key: 'distribution' as const, label: 'Distribution'  },
+  { key: 'supplier'     as const, label: 'Supplier QC'       },
+  { key: 'materials'    as const, label: 'Raw Materials'     },
+  { key: 'incoming_qc' as const, label: 'Incoming QC'       },
+  { key: 'storage'     as const, label: 'Warehouse Storage' },
+  { key: 'production'  as const, label: 'Production'        },
+  { key: 'quality'     as const, label: 'Final QC'          },
+  { key: 'packaging'   as const, label: 'Packaging'         },
+  { key: 'warehouse'   as const, label: 'Warehouse'         },
+  { key: 'distribution' as const, label: 'Distribution'     },
+  { key: 'distributor' as const, label: 'Distributor'       },
+  { key: 'market'      as const, label: 'Market Tracking'   },
 ]
 
 function StageFlow({ events }: { events: JourneyEvent[] }) {
@@ -623,7 +752,11 @@ function StageFlow({ events }: { events: JourneyEvent[] }) {
           (key === 'quality'      && events.some(e => e.event_type === 'qc.pass' || e.event_type === 'qc_inspection.passed')) ||
           (key === 'incoming_qc'  && events.some(e => e.event_type === 'incoming_qc.approved')) ||
           (key === 'packaging'    && events.some(e => e.event_type.startsWith('packaging.'))) ||
-          (key === 'supplier'     && events.some(e => e.event_type.startsWith('supplier.')))
+          (key === 'supplier'     && events.some(e => e.event_type.startsWith('supplier.'))) ||
+          (key === 'storage'      && events.some(e => e.event_type.startsWith('storage.') || e.event_type === 'warehouse.received' || e.event_type === 'warehouse.entry')) ||
+          (key === 'warehouse'    && events.some(e => e.event_type.startsWith('finished_goods.') || e.event_type === 'warehouse.dispatch_ready')) ||
+          (key === 'distributor'  && events.some(e => e.event_type.startsWith('distributor.'))) ||
+          (key === 'market'       && events.some(e => e.event_type.startsWith('market.')))
 
         // Amber warning when a stage has failure events but no pass events.
         const isQcWarning =
@@ -1172,16 +1305,24 @@ export default function ProductJourneyDetailClient() {
         ? [...jd.timeline].sort(chronologicalSort)
         : []
 
-      const hasPackagingInRpc  = rpcEvents.some(e => e.event_type.startsWith('packaging.'))
-      const hasIncomingQcInRpc = rpcEvents.some(e => e.event_type.startsWith('incoming_qc.'))
-      const hasSupplierInRpc   = rpcEvents.some(e => e.event_type.startsWith('supplier.'))
+      const hasPackagingInRpc    = rpcEvents.some(e => e.event_type.startsWith('packaging.'))
+      const hasIncomingQcInRpc  = rpcEvents.some(e => e.event_type.startsWith('incoming_qc.'))
+      const hasSupplierInRpc    = rpcEvents.some(e => e.event_type.startsWith('supplier.'))
+      const hasStorageInRpc     = rpcEvents.some(e => e.event_type.startsWith('storage.') || e.event_type === 'warehouse.received' || e.event_type === 'warehouse.entry')
+      const hasWarehouseInRpc   = rpcEvents.some(e => e.event_type.startsWith('finished_goods.') || e.event_type === 'warehouse.dispatch_ready')
+      const hasDistributorInRpc = rpcEvents.some(e => e.event_type.startsWith('distributor.'))
+      const hasMarketInRpc      = rpcEvents.some(e => e.event_type.startsWith('market.'))
 
       const synth  = [
         ...synthesizeEvents(trace.order, trace.sales, capas, recalls, distributionRecords),
         ...synthesizeBatchEvents(batchEventRows),
-        ...(hasSupplierInRpc   ? [] : synthesizeSupplierEvents(materials)),
-        ...(hasIncomingQcInRpc ? [] : synthesizeIncomingQcEvents(materials)),
-        ...(hasPackagingInRpc  ? [] : synthesizePackagingEvents(trace.order)),
+        ...(hasSupplierInRpc    ? [] : synthesizeSupplierEvents(materials)),
+        ...(hasIncomingQcInRpc  ? [] : synthesizeIncomingQcEvents(materials)),
+        ...(hasPackagingInRpc   ? [] : synthesizePackagingEvents(trace.order)),
+        ...(hasStorageInRpc     ? [] : synthesizeStorageEvents(materials)),
+        ...(hasWarehouseInRpc   ? [] : synthesizeWarehouseEvents(trace.order)),
+        ...(hasDistributorInRpc ? [] : synthesizeDistributorEvents(distributionRecords, trace.sales)),
+        ...(hasMarketInRpc      ? [] : synthesizeMarketEvents(trace.sales)),
       ]
       const merged = enforceLifecycleOrder(
         normalizeEvents(deduplicateSameDayQc(mergeJourneyEvents(rpcEvents, synth)))
