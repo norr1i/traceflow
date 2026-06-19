@@ -12,6 +12,8 @@ import {
   FileWarning,
   Activity,
   Box,
+  Award,
+  Microscope,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -20,8 +22,11 @@ import {
 // and the stage-transition dividers in the timeline.
 
 export type StageGroup =
+  | 'supplier'
   | 'materials'
+  | 'incoming_qc'
   | 'production'
+  | 'packaging'
   | 'quality'
   | 'distribution'
   | 'compliance'
@@ -31,11 +36,23 @@ export const STAGE_META: Record<
   StageGroup,
   { label: string; dotColor: string; textColor: string; lineColor: string }
 > = {
+  supplier: {
+    label:     'Supplier QC',
+    dotColor:  'bg-indigo-400',
+    textColor: 'text-indigo-500 dark:text-indigo-400',
+    lineColor: 'bg-indigo-200 dark:bg-indigo-800/40',
+  },
   materials: {
     label:     'Raw Materials',
     dotColor:  'bg-orange-400',
     textColor: 'text-orange-500 dark:text-orange-400',
     lineColor: 'bg-orange-200 dark:bg-orange-800/40',
+  },
+  incoming_qc: {
+    label:     'Incoming QC',
+    dotColor:  'bg-yellow-500',
+    textColor: 'text-yellow-600 dark:text-yellow-400',
+    lineColor: 'bg-yellow-200 dark:bg-yellow-800/40',
   },
   production: {
     label:     'Production',
@@ -43,8 +60,14 @@ export const STAGE_META: Record<
     textColor: 'text-blue-600 dark:text-blue-400',
     lineColor: 'bg-blue-200 dark:bg-blue-800/40',
   },
+  packaging: {
+    label:     'Packaging',
+    dotColor:  'bg-cyan-500',
+    textColor: 'text-cyan-600 dark:text-cyan-400',
+    lineColor: 'bg-cyan-200 dark:bg-cyan-800/40',
+  },
   quality: {
-    label:     'Quality Control',
+    label:     'Final QC',
     dotColor:  'bg-emerald-500',
     textColor: 'text-emerald-600 dark:text-emerald-400',
     lineColor: 'bg-emerald-200 dark:bg-emerald-800/40',
@@ -174,6 +197,50 @@ const C = {
     badgeClass:   'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
     Icon: Clock,
   },
+  supplierQualification: {
+    key:          'supplier_qualification',
+    label:        'Supplier Qualification',
+    stageGroup:   'supplier' as StageGroup,
+    dotBg:        'bg-indigo-400',
+    borderAccent: 'border-l-indigo-400',
+    iconBg:       'bg-indigo-50 dark:bg-indigo-900/30',
+    iconColor:    'text-indigo-500 dark:text-indigo-400',
+    badgeClass:   'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
+    Icon: Award,
+  },
+  incomingQcApproved: {
+    key:          'incoming_qc_approved',
+    label:        'Incoming Inspection Passed',
+    stageGroup:   'incoming_qc' as StageGroup,
+    dotBg:        'bg-yellow-500',
+    borderAccent: 'border-l-yellow-500',
+    iconBg:       'bg-yellow-50 dark:bg-yellow-900/30',
+    iconColor:    'text-yellow-600 dark:text-yellow-400',
+    badgeClass:   'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+    Icon: Microscope,
+  },
+  incomingQcConditional: {
+    key:          'incoming_qc_conditional',
+    label:        'Incoming Inspection — Conditional',
+    stageGroup:   'incoming_qc' as StageGroup,
+    dotBg:        'bg-amber-400',
+    borderAccent: 'border-l-amber-400',
+    iconBg:       'bg-amber-50 dark:bg-amber-900/30',
+    iconColor:    'text-amber-500 dark:text-amber-400',
+    badgeClass:   'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+    Icon: Microscope,
+  },
+  incomingQcFailed: {
+    key:          'incoming_qc_failed',
+    label:        'Incoming Inspection Failed',
+    stageGroup:   'incoming_qc' as StageGroup,
+    dotBg:        'bg-red-500',
+    borderAccent: 'border-l-red-500',
+    iconBg:       'bg-red-50 dark:bg-red-900/30',
+    iconColor:    'text-red-600 dark:text-red-400',
+    badgeClass:   'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    Icon: Microscope,
+  },
   distribution: {
     key:          'distribution',
     label:        'Distribution',
@@ -199,12 +266,12 @@ const C = {
   packaging: {
     key:          'packaging',
     label:        'Packaging',
-    stageGroup:   'distribution' as StageGroup,
-    dotBg:        'bg-teal-400',
-    borderAccent: 'border-l-teal-400',
-    iconBg:       'bg-teal-50 dark:bg-teal-900/30',
-    iconColor:    'text-teal-500 dark:text-teal-400',
-    badgeClass:   'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',
+    stageGroup:   'packaging' as StageGroup,
+    dotBg:        'bg-cyan-400',
+    borderAccent: 'border-l-cyan-400',
+    iconBg:       'bg-cyan-50 dark:bg-cyan-900/30',
+    iconColor:    'text-cyan-500 dark:text-cyan-400',
+    badgeClass:   'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400',
     Icon: Box,
   },
   capa: {
@@ -234,31 +301,35 @@ const C = {
 // ── Exact event-type → category map ────────────────────────────────────────
 
 const EXACT: Record<string, EventCategory> = {
-  'production.order_created': C.productionCreated,
-  'production.created':       C.productionCreated,
-  'production.started':       C.productionStarted,
-  'production.completed':     C.productionCompleted,
-  'qc.pass':                  C.qcPassed,
-  'qc_inspection.passed':     C.qcPassed,
-  'qc.fail':                  C.qcFailed,
-  'qc_inspection.failed':     C.qcFailed,
-  'qc.hold':                  C.qcHold,
-  'qc_inspection.hold':       C.qcHold,
-  'incoming_qc.approved':     C.qcPassed,
-  'incoming_qc.conditional':  C.qcCheckpoint,
-  'incoming_qc.failed':       C.qcFailed,
-  'raw_material.released':    C.rawMaterial,
-  'packaging.completed':      C.packaging,
-  'distribution.shipped':     C.distribution,
-  'distribution.created':     C.distribution,
-  'distribution.delivered':   C.distribution,
-  'recall.issued':            C.recall,
-  'recall.created':           C.recall,
-  'recall.initiated':         C.recall,
-  'recall.closed':            C.recall,
-  'capa.created':             C.capa,
-  'capa.opened':              C.capa,
-  'capa.closed':              C.capa,
+  'production.order_created':  C.productionCreated,
+  'production.created':        C.productionCreated,
+  'production.started':        C.productionStarted,
+  'production.completed':      C.productionCompleted,
+  'qc.pass':                   C.qcPassed,
+  'qc_inspection.passed':      C.qcPassed,
+  'qc.fail':                   C.qcFailed,
+  'qc_inspection.failed':      C.qcFailed,
+  'qc.hold':                   C.qcHold,
+  'qc_inspection.hold':        C.qcHold,
+  'incoming_qc.approved':      C.incomingQcApproved,
+  'incoming_qc.conditional':   C.incomingQcConditional,
+  'incoming_qc.failed':        C.incomingQcFailed,
+  'supplier.qualified':        C.supplierQualification,
+  'supplier.approved':         C.supplierQualification,
+  'supplier.audited':          C.supplierQualification,
+  'raw_material.released':     C.rawMaterial,
+  'packaging.completed':       C.packaging,
+  'packaging.started':         C.packaging,
+  'distribution.shipped':      C.distribution,
+  'distribution.created':      C.distribution,
+  'distribution.delivered':    C.distribution,
+  'recall.issued':             C.recall,
+  'recall.created':            C.recall,
+  'recall.initiated':          C.recall,
+  'recall.closed':             C.recall,
+  'capa.created':              C.capa,
+  'capa.opened':               C.capa,
+  'capa.closed':               C.capa,
 }
 
 export function classifyEvent(eventType: string): EventCategory {
@@ -267,6 +338,13 @@ export function classifyEvent(eventType: string): EventCategory {
   if (eventType.startsWith('production.'))            return C.productionStarted
   if (eventType.startsWith('raw_material.') ||
       eventType.startsWith('material.'))              return C.rawMaterial
+  if (eventType.startsWith('supplier.'))              return C.supplierQualification
+  if (eventType.startsWith('incoming_qc.')) {
+    if (eventType.includes('approved') || eventType.includes('passed')) return C.incomingQcApproved
+    if (eventType.includes('failed'))                 return C.incomingQcFailed
+    return C.incomingQcConditional
+  }
+  if (eventType.startsWith('packaging.'))             return C.packaging
   if (eventType.startsWith('qc') &&
       (eventType.includes('pass') || eventType.includes('passed'))) return C.qcPassed
   if (eventType.startsWith('qc') &&

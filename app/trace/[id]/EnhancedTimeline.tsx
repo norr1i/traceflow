@@ -1,7 +1,7 @@
 import { Fragment, useState } from 'react'
 import {
   Layers, ClipboardList, ShieldCheck, Truck, FileWarning, Activity,
-  ChevronRight,
+  ChevronRight, Award, Microscope, Box,
   type LucideIcon,
 } from 'lucide-react'
 import {
@@ -39,8 +39,11 @@ const SOURCE_LABELS: Record<string, string> = {
 }
 
 const STAGE_ICONS: Record<StageGroup, LucideIcon> = {
+  supplier:     Award,
   materials:    Layers,
+  incoming_qc:  Microscope,
   production:   ClipboardList,
+  packaging:    Box,
   quality:      ShieldCheck,
   distribution: Truck,
   compliance:   FileWarning,
@@ -52,6 +55,16 @@ const STAGE_COLORS: Record<StageGroup, {
   bg: string; border: string; text: string; subtext: string
   dotColor: string; connectorBg: string; iconBg: string; iconColor: string
 }> = {
+  supplier: {
+    bg:          'bg-indigo-50 dark:bg-indigo-900/10',
+    border:      'border-indigo-200 dark:border-indigo-800/30',
+    text:        'text-indigo-700 dark:text-indigo-400',
+    subtext:     'text-indigo-500 dark:text-indigo-500',
+    dotColor:    'bg-indigo-400',
+    connectorBg: 'bg-indigo-200 dark:bg-indigo-800/40',
+    iconBg:      'bg-indigo-100 dark:bg-indigo-900/30',
+    iconColor:   'text-indigo-600 dark:text-indigo-400',
+  },
   materials: {
     bg:          'bg-orange-50 dark:bg-orange-900/10',
     border:      'border-orange-200 dark:border-orange-800/30',
@@ -62,6 +75,16 @@ const STAGE_COLORS: Record<StageGroup, {
     iconBg:      'bg-orange-100 dark:bg-orange-900/30',
     iconColor:   'text-orange-600 dark:text-orange-400',
   },
+  incoming_qc: {
+    bg:          'bg-yellow-50 dark:bg-yellow-900/10',
+    border:      'border-yellow-200 dark:border-yellow-800/30',
+    text:        'text-yellow-700 dark:text-yellow-400',
+    subtext:     'text-yellow-500 dark:text-yellow-500',
+    dotColor:    'bg-yellow-500',
+    connectorBg: 'bg-yellow-200 dark:bg-yellow-800/40',
+    iconBg:      'bg-yellow-100 dark:bg-yellow-900/30',
+    iconColor:   'text-yellow-600 dark:text-yellow-400',
+  },
   production: {
     bg:          'bg-blue-50 dark:bg-blue-900/10',
     border:      'border-blue-200 dark:border-blue-800/30',
@@ -71,6 +94,16 @@ const STAGE_COLORS: Record<StageGroup, {
     connectorBg: 'bg-blue-200 dark:bg-blue-800/40',
     iconBg:      'bg-blue-100 dark:bg-blue-900/30',
     iconColor:   'text-blue-600 dark:text-blue-400',
+  },
+  packaging: {
+    bg:          'bg-cyan-50 dark:bg-cyan-900/10',
+    border:      'border-cyan-200 dark:border-cyan-800/30',
+    text:        'text-cyan-700 dark:text-cyan-400',
+    subtext:     'text-cyan-500 dark:text-cyan-500',
+    dotColor:    'bg-cyan-500',
+    connectorBg: 'bg-cyan-200 dark:bg-cyan-800/40',
+    iconBg:      'bg-cyan-100 dark:bg-cyan-900/30',
+    iconColor:   'text-cyan-600 dark:text-cyan-400',
   },
   quality: {
     bg:          'bg-emerald-50 dark:bg-emerald-900/10',
@@ -115,7 +148,7 @@ const STAGE_COLORS: Record<StageGroup, {
 }
 
 const LIFECYCLE_ORDER: StageGroup[] = [
-  'materials', 'production', 'quality', 'distribution', 'compliance', 'other',
+  'supplier', 'materials', 'incoming_qc', 'production', 'packaging', 'quality', 'distribution', 'compliance', 'other',
 ]
 
 // Stages included in the "always show" flow — distribution is always rendered

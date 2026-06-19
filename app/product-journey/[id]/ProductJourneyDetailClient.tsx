@@ -185,6 +185,63 @@ function groupMaterialEvents(events: JourneyEvent[]): JourneyEvent[] {
   return [...rest, ...grouped].sort(chronologicalSort)
 }
 
+// Synthesise one supplier.qualified event per unique supplier found in BOM data.
+// Dated 14 days before the earliest material receipt for that supplier so
+// qualification always precedes material delivery in the timeline.
+function synthesizeSupplierEvents(materials: EnrichedMaterial[]): JourneyEvent[] {
+  const earliest = new Map<string, number>()
+  for (const m of materials) {
+    if (!m.supplier_name) continue
+    const ms = new Date(m.received_at ?? m.bom_created_at ?? '').getTime()
+    if (!ms) continue
+    const prev = earliest.get(m.supplier_name)
+    if (prev === undefined || ms < prev) earliest.set(m.supplier_name, ms)
+  }
+  return Array.from(earliest.entries()).map(([name, ms]) => ({
+    event_type:      'supplier.qualified',
+    event_timestamp: new Date(ms - 14 * 24 * 3600 * 1000).toISOString(),
+    title:           `Supplier Approved — ${name}`,
+    description:     `${name} passed qualification audit. Materials cleared for production use.`,
+    source_table:    'suppliers',
+    metadata:        { supplier_name: name },
+  }))
+}
+
+// Synthesise an incoming_qc.approved event from BOM lot data when the RPC has
+// no incoming_qc events (i.e. the batch predates the batch_journey_events seed).
+// Uses the earliest received_at + 2 h as the inspection timestamp.
+function synthesizeIncomingQcEvents(materials: EnrichedMaterial[]): JourneyEvent[] {
+  const dates = materials
+    .filter(m => m.received_at && m.lot_status && !['rejected', 'expired'].includes(m.lot_status.toLowerCase()))
+    .map(m => new Date(m.received_at!).getTime())
+  if (dates.length === 0) return []
+  const earliest = Math.min(...dates)
+  return [{
+    event_type:      'incoming_qc.approved',
+    event_timestamp: new Date(earliest + 2 * 3600 * 1000).toISOString(),
+    title:           'Incoming QC Inspection Passed',
+    description:     `${dates.length} material lot${dates.length > 1 ? 's' : ''} inspected and cleared for production.`,
+    source_table:    'raw_material_lots',
+    metadata:        null,
+  }]
+}
+
+// Synthesise a packaging.completed event for batches whose production has
+// finished but have no packaging event in the RPC journey data.
+// Timestamped 4 hours after production completion.
+function synthesizePackagingEvents(order: TraceOrder): JourneyEvent[] {
+  if (!order.completed_at) return []
+  const completedMs = new Date(order.completed_at).getTime()
+  return [{
+    event_type:      'packaging.completed',
+    event_timestamp: new Date(completedMs + 4 * 3600 * 1000).toISOString(),
+    title:           'Packaging Completed',
+    description:     `${order.quantity.toLocaleString()} units packaged, labelled, and sealed for distribution.`,
+    source_table:    'production_orders',
+    metadata:        null,
+  }]
+}
+
 // Synthesise events for data sources the RPC does not cover.
 //
 // distribution.shipped: prefer distribution_records (fetched client-side via
@@ -351,6 +408,9 @@ function synthesizeBatchEvents(rows: BatchEventRow[]): JourneyEvent[] {
 // the DB records events at minute precision (causing real collisions in seed
 // data and in production batches created/QC-ed in the same minute).
 const LIFECYCLE_ORDER: Record<string, number> = {
+  'supplier.qualified':       3,
+  'supplier.approved':        3,
+  'supplier.audited':         3,
   'raw_material.received':    10,
   'incoming_qc.approved':     20,
   'incoming_qc.conditional':  20,
@@ -362,6 +422,7 @@ const LIFECYCLE_ORDER: Record<string, number> = {
   'production.created':       40,
   'production.started':       50,
   'production.completed':     60,
+  'packaging.started':        65,
   'packaging.completed':      70,
   'qc.pass':                  80,
   'qc.fail':                  80,
@@ -383,13 +444,15 @@ const LIFECYCLE_ORDER: Record<string, number> = {
 
 function lifecyclePriority(eventType: string): number {
   if (LIFECYCLE_ORDER[eventType] !== undefined) return LIFECYCLE_ORDER[eventType]
-  if (eventType.startsWith('incoming_qc.'))  return 20
-  if (eventType.startsWith('material.'))     return 30
-  if (eventType.startsWith('production.'))   return 50
-  if (eventType.startsWith('qc'))            return 80
+  if (eventType.startsWith('supplier.'))     return 3
+  if (eventType.startsWith('incoming_qc.')) return 20
+  if (eventType.startsWith('material.'))    return 30
+  if (eventType.startsWith('production.'))  return 50
+  if (eventType.startsWith('packaging.'))   return 70
+  if (eventType.startsWith('qc'))           return 80
   if (eventType.startsWith('distribution.')) return 100
-  if (eventType.startsWith('recall.'))       return 120
-  if (eventType.startsWith('capa.'))         return 130
+  if (eventType.startsWith('recall.'))      return 120
+  if (eventType.startsWith('capa.'))        return 130
   return 500
 }
 
@@ -445,11 +508,21 @@ function normalizeEvents(events: JourneyEvent[]): JourneyEvent[] {
       ) ?? e.description
       return { ...e, title: fixedTitle, description: fixedDesc }
     }
-    // Rename "Incoming QC" → "Incoming Inspection" to clearly distinguish from
-    // production-stage quality inspections in the timeline.
+    // Normalise incoming QC titles.
+    if (e.event_type === 'incoming_qc.approved')    return { ...e, title: 'Incoming QC Passed' }
+    if (e.event_type === 'incoming_qc.conditional') return { ...e, title: 'Incoming QC — Conditional Release' }
+    if (e.event_type === 'incoming_qc.failed')      return { ...e, title: 'Incoming QC Failed' }
     if (e.event_type.startsWith('incoming_qc.')) {
-      return { ...e, title: (e.title ?? '').replace(/\bincoming qc\b/gi, 'Incoming Inspection') }
+      return { ...e, title: (e.title ?? '').replace(/\bincoming qc\b/gi, 'Incoming QC') }
     }
+    // Normalise supplier event titles.
+    if (e.event_type.startsWith('supplier.') && !(e.metadata?.title as string)) {
+      const name = (e.metadata?.supplier_name as string) ?? ''
+      return { ...e, title: name ? `Supplier Approved — ${name}` : 'Supplier Qualification Passed' }
+    }
+    // Normalise packaging titles.
+    if (e.event_type === 'packaging.completed' && !e.title) return { ...e, title: 'Packaging Completed' }
+    if (e.event_type === 'packaging.started'   && !e.title) return { ...e, title: 'Packaging Started' }
     // Distinguish final production QC (batch_qc_results) from post-cert audit
     // inspections (quality_inspections). Both previously surfaced as "QC Passed".
     if (e.event_type === 'qc.pass')              return { ...e, title: 'Final QC Passed' }
@@ -462,37 +535,37 @@ function normalizeEvents(events: JourneyEvent[]): JourneyEvent[] {
   })
 }
 
-// Hard lifecycle enforcement: final QC events must never appear before
+// Hard lifecycle enforcement: packaging and final QC must always follow
 // production.completed, regardless of what timestamps the database stores.
 //
-// Two rules:
-//   1. If production.completed is absent (batch still in-progress) → suppress
-//      all final QC events. An in-process quality check is not a final QC approval.
-//   2. If a QC event timestamp ≤ production.completed timestamp → pin it to
-//      production.completed + 1 minute so it always appears after completion.
-//
-// Applied after all other transforms so the sort after pinning is stable.
+// Rules:
+//   1. If production.completed is absent → suppress packaging and final QC events.
+//   2. If packaging/QC timestamp ≤ production.completed → repin just after.
+//      Packaging is repinned to +1 min; final QC to +2 min (so packaging sorts first).
 const FINAL_QC_TYPES = new Set([
   'qc.pass', 'qc.fail', 'qc.hold',
   'qc_inspection.passed', 'qc_inspection.failed', 'qc_inspection.hold',
 ])
+const PACKAGING_TYPES = new Set(['packaging.started', 'packaging.completed'])
 
 function enforceLifecycleOrder(events: JourneyEvent[]): JourneyEvent[] {
   const completedEvent = events.find(e => e.event_type === 'production.completed')
 
   if (!completedEvent) {
-    // Production hasn't finished — no final QC could have occurred yet.
-    return events.filter(e => !FINAL_QC_TYPES.has(e.event_type))
+    return events.filter(e => !FINAL_QC_TYPES.has(e.event_type) && !PACKAGING_TYPES.has(e.event_type))
   }
 
   const completedMs = new Date(completedEvent.event_timestamp).getTime()
   let repinned = false
 
   const fixed = events.map(e => {
-    if (!FINAL_QC_TYPES.has(e.event_type)) return e
+    const isQc  = FINAL_QC_TYPES.has(e.event_type)
+    const isPkg = PACKAGING_TYPES.has(e.event_type)
+    if (!isQc && !isPkg) return e
     if (new Date(e.event_timestamp).getTime() <= completedMs) {
       repinned = true
-      return { ...e, event_timestamp: new Date(completedMs + 60_000).toISOString() }
+      const offset = isPkg ? 60_000 : 120_000
+      return { ...e, event_timestamp: new Date(completedMs + offset).toISOString() }
     }
     return e
   })
@@ -514,10 +587,13 @@ const ORDER_LABEL: Record<string, string> = {
 // ── Stage flow ────────────────────────────────────────────────────────────────
 
 const STAGE_FLOW = [
-  { key: 'materials'    as const, label: 'Raw Materials'   },
-  { key: 'production'   as const, label: 'Production'      },
-  { key: 'quality'      as const, label: 'Quality Control' },
-  { key: 'distribution' as const, label: 'Distribution'    },
+  { key: 'supplier'     as const, label: 'Supplier QC'   },
+  { key: 'materials'    as const, label: 'Raw Materials' },
+  { key: 'incoming_qc' as const, label: 'Incoming QC'   },
+  { key: 'production'   as const, label: 'Production'    },
+  { key: 'packaging'    as const, label: 'Packaging'     },
+  { key: 'quality'      as const, label: 'Final QC'      },
+  { key: 'distribution' as const, label: 'Distribution'  },
 ]
 
 function StageFlow({ events }: { events: JourneyEvent[] }) {
@@ -541,18 +617,25 @@ function StageFlow({ events }: { events: JourneyEvent[] }) {
     <div className="mb-5 flex flex-wrap items-center gap-1.5">
       {visibleStages.map(({ key, label }, vi) => {
         const i = STAGE_FLOW.findIndex(s => s.key === key)
-        // QC stage should show as completed (green) as soon as QC passes —
-        // even before distribution events exist — so the flow doesn't stall
-        // on blue "current" after the batch has been approved.
-        const qcHasPassed = key === 'quality'
-          && events.some(e => e.event_type === 'qc.pass' || e.event_type === 'qc_inspection.passed')
-        // Quality Control shows amber when the only QC outcomes are fail/hold —
-        // do not present it as completed or in-progress when inspection failed.
-        const isQcWarning = key === 'quality'
-          && !events.some(e => e.event_type === 'qc.pass' || e.event_type === 'qc_inspection.passed')
-          && events.some(e => ['qc.fail', 'qc.hold', 'qc_inspection.failed', 'qc_inspection.hold'].includes(e.event_type))
-        const isCompleted = (allDone ? i <= currentIdx : i < currentIdx) || qcHasPassed
-        const isCurrent   = !allDone && i === currentIdx && !qcHasPassed && !isQcWarning
+        // Stages that can mark themselves complete independently of the "current index"
+        // ordering — e.g. QC passes before distribution events arrive.
+        const stageCompletedOverride =
+          (key === 'quality'      && events.some(e => e.event_type === 'qc.pass' || e.event_type === 'qc_inspection.passed')) ||
+          (key === 'incoming_qc'  && events.some(e => e.event_type === 'incoming_qc.approved')) ||
+          (key === 'packaging'    && events.some(e => e.event_type.startsWith('packaging.'))) ||
+          (key === 'supplier'     && events.some(e => e.event_type.startsWith('supplier.')))
+
+        // Amber warning when a stage has failure events but no pass events.
+        const isQcWarning =
+          (key === 'quality' &&
+            !events.some(e => e.event_type === 'qc.pass' || e.event_type === 'qc_inspection.passed') &&
+            events.some(e => ['qc.fail', 'qc.hold', 'qc_inspection.failed', 'qc_inspection.hold'].includes(e.event_type))) ||
+          (key === 'incoming_qc' &&
+            !events.some(e => e.event_type === 'incoming_qc.approved') &&
+            events.some(e => e.event_type === 'incoming_qc.failed'))
+
+        const isCompleted = (allDone ? i <= currentIdx : i < currentIdx) || stageCompletedOverride
+        const isCurrent   = !allDone && i === currentIdx && !stageCompletedOverride && !isQcWarning
 
         const pill = isQcWarning
           ? 'border-amber-200 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-900/20'
@@ -1089,9 +1172,16 @@ export default function ProductJourneyDetailClient() {
         ? [...jd.timeline].sort(chronologicalSort)
         : []
 
+      const hasPackagingInRpc  = rpcEvents.some(e => e.event_type.startsWith('packaging.'))
+      const hasIncomingQcInRpc = rpcEvents.some(e => e.event_type.startsWith('incoming_qc.'))
+      const hasSupplierInRpc   = rpcEvents.some(e => e.event_type.startsWith('supplier.'))
+
       const synth  = [
         ...synthesizeEvents(trace.order, trace.sales, capas, recalls, distributionRecords),
         ...synthesizeBatchEvents(batchEventRows),
+        ...(hasSupplierInRpc   ? [] : synthesizeSupplierEvents(materials)),
+        ...(hasIncomingQcInRpc ? [] : synthesizeIncomingQcEvents(materials)),
+        ...(hasPackagingInRpc  ? [] : synthesizePackagingEvents(trace.order)),
       ]
       const merged = enforceLifecycleOrder(
         normalizeEvents(deduplicateSameDayQc(mergeJourneyEvents(rpcEvents, synth)))
