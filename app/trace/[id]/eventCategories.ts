@@ -31,7 +31,8 @@ export type StageGroup =
   | 'incoming_qc'
   | 'storage'      // pre-production raw materials warehouse
   | 'production'
-  | 'quality'
+  | 'final_qc'     // final quality inspection between production and packaging
+  | 'quality'      // legacy alias kept for backward compat
   | 'packaging'
   | 'warehouse'    // post-packaging finished goods warehouse
   | 'distribution'
@@ -67,6 +68,12 @@ export const STAGE_META: Record<
     dotColor:  'bg-blue-500',
     textColor: 'text-blue-600 dark:text-blue-400',
     lineColor: 'bg-blue-200 dark:bg-blue-800/40',
+  },
+  final_qc: {
+    label:     'Final QC',
+    dotColor:  'bg-emerald-500',
+    textColor: 'text-emerald-600 dark:text-emerald-400',
+    lineColor: 'bg-emerald-200 dark:bg-emerald-800/40',
   },
   packaging: {
     label:     'Packaging',
@@ -188,7 +195,7 @@ const C = {
   qcPassed: {
     key:          'qc_passed',
     label:        'QC Passed',
-    stageGroup:   'quality' as StageGroup,
+    stageGroup:   'final_qc' as StageGroup,
     dotBg:        'bg-emerald-500',
     borderAccent: 'border-l-emerald-500',
     iconBg:       'bg-emerald-50 dark:bg-emerald-900/30',
@@ -199,7 +206,7 @@ const C = {
   qcFailed: {
     key:          'qc_failed',
     label:        'QC Failed',
-    stageGroup:   'quality' as StageGroup,
+    stageGroup:   'final_qc' as StageGroup,
     dotBg:        'bg-red-500',
     borderAccent: 'border-l-red-500',
     iconBg:       'bg-red-50 dark:bg-red-900/30',
@@ -210,7 +217,40 @@ const C = {
   qcHold: {
     key:          'qc_hold',
     label:        'QC Hold',
-    stageGroup:   'quality' as StageGroup,
+    stageGroup:   'final_qc' as StageGroup,
+    dotBg:        'bg-amber-400',
+    borderAccent: 'border-l-amber-400',
+    iconBg:       'bg-amber-50 dark:bg-amber-900/30',
+    iconColor:    'text-amber-500 dark:text-amber-400',
+    badgeClass:   'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+    Icon: ShieldAlert,
+  },
+  finalQcPassed: {
+    key:          'final_qc_passed',
+    label:        'Final QC Passed',
+    stageGroup:   'final_qc' as StageGroup,
+    dotBg:        'bg-emerald-500',
+    borderAccent: 'border-l-emerald-500',
+    iconBg:       'bg-emerald-50 dark:bg-emerald-900/30',
+    iconColor:    'text-emerald-600 dark:text-emerald-400',
+    badgeClass:   'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+    Icon: ShieldCheck,
+  },
+  finalQcFailed: {
+    key:          'final_qc_failed',
+    label:        'Final QC Failed',
+    stageGroup:   'final_qc' as StageGroup,
+    dotBg:        'bg-red-500',
+    borderAccent: 'border-l-red-500',
+    iconBg:       'bg-red-50 dark:bg-red-900/30',
+    iconColor:    'text-red-600 dark:text-red-400',
+    badgeClass:   'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    Icon: ShieldX,
+  },
+  finalQcHold: {
+    key:          'final_qc_hold',
+    label:        'Final QC On Hold',
+    stageGroup:   'final_qc' as StageGroup,
     dotBg:        'bg-amber-400',
     borderAccent: 'border-l-amber-400',
     iconBg:       'bg-amber-50 dark:bg-amber-900/30',
@@ -393,6 +433,9 @@ const EXACT: Record<string, EventCategory> = {
   'supplier.qualified':        C.supplierQualification,
   'supplier.approved':         C.supplierQualification,
   'supplier.audited':          C.supplierQualification,
+  'final_qc.passed':           C.finalQcPassed,
+  'final_qc.failed':           C.finalQcFailed,
+  'final_qc.hold':             C.finalQcHold,
   'raw_material.released':      C.rawMaterial,
   'storage.entry':              C.storageEvent,
   'storage.release':            C.storageEvent,
@@ -404,10 +447,13 @@ const EXACT: Record<string, EventCategory> = {
   'distributor.received':       C.distributorEvent,
   'distributor.released':       C.distributorEvent,
   'distributor.delivered':      C.distributorEvent,
-  'market.listed':              C.marketEvent,
-  'market.active':              C.marketEvent,
-  'market.sold':                C.marketEvent,
-  'market.tracked':             C.marketEvent,
+  'market.listed':                  C.marketEvent,
+  'market.active':                  C.marketEvent,
+  'market.sold':                    C.marketEvent,
+  'market.tracked':                 C.marketEvent,
+  'market.registered':              C.marketEvent,
+  'market.surveillance_started':    C.marketEvent,
+  'market.complaint_received':      C.marketEvent,
   'packaging.completed':        C.packaging,
   'packaging.started':          C.packaging,
   'distribution.shipped':       C.distribution,
@@ -433,6 +479,11 @@ export function classifyEvent(eventType: string): EventCategory {
     if (eventType.includes('approved') || eventType.includes('passed')) return C.incomingQcApproved
     if (eventType.includes('failed'))                 return C.incomingQcFailed
     return C.incomingQcConditional
+  }
+  if (eventType.startsWith('final_qc.')) {
+    if (eventType.includes('passed'))                 return C.finalQcPassed
+    if (eventType.includes('failed'))                 return C.finalQcFailed
+    return C.finalQcHold
   }
   if (eventType.startsWith('storage.'))               return C.storageEvent
   if (eventType.startsWith('finished_goods.'))        return C.warehouseEvent

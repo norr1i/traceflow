@@ -45,6 +45,7 @@ const STAGE_ICONS: Record<StageGroup, LucideIcon> = {
   incoming_qc:  Microscope,
   storage:      Archive,
   production:   ClipboardList,
+  final_qc:     ShieldCheck,
   quality:      ShieldCheck,
   packaging:    Box,
   warehouse:    Warehouse,
@@ -99,6 +100,16 @@ const STAGE_COLORS: Record<StageGroup, {
     connectorBg: 'bg-blue-200 dark:bg-blue-800/40',
     iconBg:      'bg-blue-100 dark:bg-blue-900/30',
     iconColor:   'text-blue-600 dark:text-blue-400',
+  },
+  final_qc: {
+    bg:          'bg-emerald-50 dark:bg-emerald-900/10',
+    border:      'border-emerald-200 dark:border-emerald-800/30',
+    text:        'text-emerald-700 dark:text-emerald-400',
+    subtext:     'text-emerald-500 dark:text-emerald-500',
+    dotColor:    'bg-emerald-500',
+    connectorBg: 'bg-emerald-200 dark:bg-emerald-800/40',
+    iconBg:      'bg-emerald-100 dark:bg-emerald-900/30',
+    iconColor:   'text-emerald-600 dark:text-emerald-400',
   },
   packaging: {
     bg:          'bg-cyan-50 dark:bg-cyan-900/10',
@@ -194,7 +205,7 @@ const STAGE_COLORS: Record<StageGroup, {
 
 const LIFECYCLE_ORDER: StageGroup[] = [
   'supplier', 'materials', 'incoming_qc', 'storage',
-  'production', 'quality', 'packaging', 'warehouse',
+  'production', 'final_qc', 'quality', 'packaging', 'warehouse',
   'distribution', 'distributor', 'market',
   'compliance', 'other',
 ]

@@ -56,9 +56,10 @@ SELECT '=== 1. batch_journey_events for new stages ===' AS section;
 SELECT event_type, COUNT(*) AS rows
 FROM   public.batch_journey_events
 WHERE  event_type IN (
-         'supplier.qualified', 'raw_material.received',
-         'incoming_qc.approved', 'storage.entry',
-         'finished_goods.stored', 'distributor.received', 'market.listed'
+         'supplier.qualified', 'raw_material.received', 'incoming_qc.approved',
+         'storage.entry', 'final_qc.passed',
+         'finished_goods.stored', 'distributor.received',
+         'market.listed', 'market.registered', 'market.surveillance_started'
        )
 GROUP  BY event_type ORDER BY event_type;
 
@@ -332,6 +333,35 @@ WHERE  po.completed_at  IS NOT NULL
 
 
 -- ────────────────────────────────────────────────────────────────
+-- STEP 4b — final_qc.passed
+-- Seeded in batch_journey_events (not batch_qc_results) so it appears
+-- as a distinct timeline event type alongside qc.pass from batch_qc_results.
+-- Timed 1 hour after production completion.
+-- ────────────────────────────────────────────────────────────────
+
+INSERT INTO public.batch_journey_events (
+  company_id, batch_id, event_type, event_timestamp, metadata
+)
+SELECT
+  po.company_id,
+  po.id,
+  'final_qc.passed',
+  po.completed_at + INTERVAL '1 hour',
+  jsonb_build_object(
+    'title',       'Final QC Passed',
+    'description', 'Finished products passed final quality inspection and were approved for packaging.'
+  )
+FROM   public.production_orders po
+WHERE  po.completed_at  IS NOT NULL
+  AND  po.company_id    IS NOT NULL
+  AND  NOT EXISTS (
+         SELECT 1 FROM public.batch_journey_events bje
+         WHERE  bje.batch_id   = po.id
+           AND  bje.event_type LIKE 'final_qc.%'
+       );
+
+
+-- ────────────────────────────────────────────────────────────────
 -- STEP 5 — storage.entry (raw materials warehouse after incoming QC)
 -- Timed 3 hours after the earliest BOM entry (incoming QC at +2h,
 -- warehouse transfer at +3h).
@@ -423,8 +453,7 @@ WHERE  po.completed_at  IS NOT NULL
 
 
 -- ────────────────────────────────────────────────────────────────
--- STEP 8 — market.listed
--- Timed 12 days after production completion.
+-- STEP 8a — market.listed  (+12 days after production)
 -- ────────────────────────────────────────────────────────────────
 
 INSERT INTO public.batch_journey_events (
@@ -445,7 +474,59 @@ WHERE  po.completed_at  IS NOT NULL
   AND  NOT EXISTS (
          SELECT 1 FROM public.batch_journey_events bje
          WHERE  bje.batch_id   = po.id
-           AND  bje.event_type LIKE 'market.%'
+           AND  bje.event_type = 'market.listed'
+       );
+
+
+-- ────────────────────────────────────────────────────────────────
+-- STEP 8b — market.registered  (+13 days)
+-- ────────────────────────────────────────────────────────────────
+
+INSERT INTO public.batch_journey_events (
+  company_id, batch_id, event_type, event_timestamp, metadata
+)
+SELECT
+  po.company_id,
+  po.id,
+  'market.registered',
+  po.completed_at + INTERVAL '13 days',
+  jsonb_build_object(
+    'title',       'Product Registered in Market',
+    'description', 'Product batch registered with market authorities and assigned a market registration number.'
+  )
+FROM   public.production_orders po
+WHERE  po.completed_at  IS NOT NULL
+  AND  po.company_id    IS NOT NULL
+  AND  NOT EXISTS (
+         SELECT 1 FROM public.batch_journey_events bje
+         WHERE  bje.batch_id   = po.id
+           AND  bje.event_type = 'market.registered'
+       );
+
+
+-- ────────────────────────────────────────────────────────────────
+-- STEP 8c — market.surveillance_started  (+16 days)
+-- ────────────────────────────────────────────────────────────────
+
+INSERT INTO public.batch_journey_events (
+  company_id, batch_id, event_type, event_timestamp, metadata
+)
+SELECT
+  po.company_id,
+  po.id,
+  'market.surveillance_started',
+  po.completed_at + INTERVAL '16 days',
+  jsonb_build_object(
+    'title',       'Market Surveillance Started',
+    'description', 'Post-market surveillance programme activated. Product performance being monitored in distribution channels.'
+  )
+FROM   public.production_orders po
+WHERE  po.completed_at  IS NOT NULL
+  AND  po.company_id    IS NOT NULL
+  AND  NOT EXISTS (
+         SELECT 1 FROM public.batch_journey_events bje
+         WHERE  bje.batch_id   = po.id
+           AND  bje.event_type = 'market.surveillance_started'
        );
 
 
@@ -458,9 +539,10 @@ SELECT '=== AFTER SEED: batch_journey_events ===' AS section;
 SELECT event_type, COUNT(*) AS rows
 FROM   public.batch_journey_events
 WHERE  event_type IN (
-         'supplier.qualified', 'raw_material.received',
-         'incoming_qc.approved', 'storage.entry',
-         'finished_goods.stored', 'distributor.received', 'market.listed'
+         'supplier.qualified', 'raw_material.received', 'incoming_qc.approved',
+         'storage.entry', 'final_qc.passed',
+         'finished_goods.stored', 'distributor.received',
+         'market.listed', 'market.registered', 'market.surveillance_started'
        )
 GROUP  BY event_type ORDER BY event_type;
 

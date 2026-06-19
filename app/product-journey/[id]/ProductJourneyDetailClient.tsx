@@ -9,7 +9,7 @@ import {
   ChevronLeft, Package, Layers, Truck,
   Activity, User, Calendar,
   Hash, Building2, Network, Copy, Check, ChevronDown, ChevronUp,
-  QrCode, Download, ExternalLink,
+  QrCode, Download, ExternalLink, AlertTriangle, FileWarning,
 } from 'lucide-react'
 import RootCausePanel from './RootCausePanel'
 import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react'
@@ -314,21 +314,59 @@ function synthesizeDistributorEvents(
   }]
 }
 
-// Synthesise a market.listed event 1 day after the earliest sale date.
+// Synthesise the full market tracking sequence from the earliest sale date:
+//   market.listed (+1 day)  → product goes live
+//   market.registered (+2d) → registered with market authorities
+//   market.surveillance_started (+5d) → post-market surveillance activated
 function synthesizeMarketEvents(sales: TraceSale[]): JourneyEvent[] {
   if (sales.length === 0) return []
   const firstSale = [...sales].sort(
     (a, b) => new Date(a.sold_at).getTime() - new Date(b.sold_at).getTime()
   )[0]
+  const saleMs  = new Date(firstSale.sold_at).getTime()
+  const customer = firstSale.customer_name
+  return [
+    {
+      event_type:      'market.listed',
+      event_timestamp: new Date(saleMs + 24 * 3600 * 1000).toISOString(),
+      title:           'Active on Market',
+      description:     customer
+        ? `Products sold to ${customer} and available through retail distribution channels.`
+        : 'Products live in retail and distribution channels.',
+      source_table:    'sales',
+      metadata:        customer ? { customer_name: customer } : null,
+    },
+    {
+      event_type:      'market.registered',
+      event_timestamp: new Date(saleMs + 2 * 24 * 3600 * 1000).toISOString(),
+      title:           'Product Registered in Market',
+      description:     'Product batch registered with market authorities and assigned a market registration number.',
+      source_table:    'sales',
+      metadata:        null,
+    },
+    {
+      event_type:      'market.surveillance_started',
+      event_timestamp: new Date(saleMs + 5 * 24 * 3600 * 1000).toISOString(),
+      title:           'Market Surveillance Started',
+      description:     'Post-market surveillance programme activated. Product performance being monitored in distribution channels.',
+      source_table:    'sales',
+      metadata:        null,
+    },
+  ]
+}
+
+// Synthesise a final_qc.passed event 1 hour after production completion when
+// no qc.pass / qc_inspection.passed / final_qc.passed event exists in the RPC data.
+function synthesizeFinalQcEvents(order: TraceOrder): JourneyEvent[] {
+  if (!order.completed_at) return []
+  const completedMs = new Date(order.completed_at).getTime()
   return [{
-    event_type:      'market.listed',
-    event_timestamp: new Date(new Date(firstSale.sold_at).getTime() + 24 * 3600 * 1000).toISOString(),
-    title:           'Active on Market',
-    description:     firstSale.customer_name
-      ? `Products sold to ${firstSale.customer_name} and available through retail distribution channels.`
-      : 'Products live in retail and distribution channels.',
-    source_table:    'sales',
-    metadata:        firstSale.customer_name ? { customer_name: firstSale.customer_name } : null,
+    event_type:      'final_qc.passed',
+    event_timestamp: new Date(completedMs + 60 * 60 * 1000).toISOString(),
+    title:           'Final QC Passed',
+    description:     'Finished products passed final quality inspection and were approved for packaging.',
+    source_table:    'production_orders',
+    metadata:        null,
   }]
 }
 
@@ -532,7 +570,10 @@ const LIFECYCLE_ORDER: Record<string, number> = {
   'production.created':       40,
   'production.started':       50,
   'production.completed':     60,
-  'qc.pass':                  65,   // Final QC between production and packaging
+  'final_qc.passed':          63,   // dedicated Final QC event type
+  'final_qc.failed':          63,
+  'final_qc.hold':            63,
+  'qc.pass':                  65,   // batch_qc_results (same stage, slightly later)
   'qc.fail':                  65,
   'qc.hold':                  65,
   'qc_inspection.passed':     68,
@@ -549,10 +590,13 @@ const LIFECYCLE_ORDER: Record<string, number> = {
   'distributor.received':    115,
   'distributor.released':    118,
   'distributor.delivered':   120,
-  'market.listed':           125,
-  'market.active':           127,
-  'market.sold':             128,
-  'market.tracked':          130,
+  'market.listed':                  125,
+  'market.registered':              126,
+  'market.active':                  127,
+  'market.surveillance_started':    128,
+  'market.sold':                    129,
+  'market.tracked':                 130,
+  'market.complaint_received':      131,
   'recall.initiated':        135,
   'recall.issued':           135,
   'recall.created':          135,
@@ -569,6 +613,7 @@ function lifecyclePriority(eventType: string): number {
   if (eventType.startsWith('storage.'))        return 35
   if (eventType.startsWith('material.'))       return 30
   if (eventType.startsWith('production.'))     return 50
+  if (eventType.startsWith('final_qc.'))       return 63
   if (eventType.startsWith('finished_goods.')) return 82
   if (eventType.startsWith('packaging.'))      return 72
   if (eventType.startsWith('qc'))              return 65
@@ -649,12 +694,18 @@ function normalizeEvents(events: JourneyEvent[]): JourneyEvent[] {
     if (e.event_type === 'packaging.started'   && !e.title) return { ...e, title: 'Packaging Started' }
     // Distinguish final production QC (batch_qc_results) from post-cert audit
     // inspections (quality_inspections). Both previously surfaced as "QC Passed".
-    if (e.event_type === 'qc.pass')              return { ...e, title: 'Final QC Passed' }
-    if (e.event_type === 'qc.fail')              return { ...e, title: 'Final QC Failed' }
-    if (e.event_type === 'qc.hold')              return { ...e, title: 'Final QC On Hold' }
-    if (e.event_type === 'qc_inspection.passed') return { ...e, title: 'Audit Inspection Passed' }
-    if (e.event_type === 'qc_inspection.failed') return { ...e, title: 'Audit Inspection Failed' }
-    if (e.event_type === 'qc_inspection.hold')   return { ...e, title: 'Audit Inspection On Hold' }
+    if (e.event_type === 'qc.pass')                      return { ...e, title: 'Final QC Passed' }
+    if (e.event_type === 'qc.fail')                      return { ...e, title: 'Final QC Failed' }
+    if (e.event_type === 'qc.hold')                      return { ...e, title: 'Final QC On Hold' }
+    if (e.event_type === 'qc_inspection.passed')         return { ...e, title: 'Audit Inspection Passed' }
+    if (e.event_type === 'qc_inspection.failed')         return { ...e, title: 'Audit Inspection Failed' }
+    if (e.event_type === 'qc_inspection.hold')           return { ...e, title: 'Audit Inspection On Hold' }
+    if (e.event_type === 'final_qc.passed')              return { ...e, title: e.title || 'Final QC Passed' }
+    if (e.event_type === 'final_qc.failed')              return { ...e, title: e.title || 'Final QC Failed' }
+    if (e.event_type === 'final_qc.hold')                return { ...e, title: e.title || 'Final QC On Hold' }
+    if (e.event_type === 'market.registered' && !e.title)       return { ...e, title: 'Product Registered in Market' }
+    if (e.event_type === 'market.surveillance_started' && !e.title) return { ...e, title: 'Market Surveillance Started' }
+    if (e.event_type === 'market.complaint_received' && !e.title)   return { ...e, title: 'Customer Complaint Received' }
     return e
   })
 }
@@ -669,6 +720,7 @@ function normalizeEvents(events: JourneyEvent[]): JourneyEvent[] {
 const FINAL_QC_TYPES = new Set([
   'qc.pass', 'qc.fail', 'qc.hold',
   'qc_inspection.passed', 'qc_inspection.failed', 'qc_inspection.hold',
+  'final_qc.passed', 'final_qc.failed', 'final_qc.hold',
 ])
 const PACKAGING_TYPES = new Set(['packaging.started', 'packaging.completed'])
 
@@ -717,7 +769,7 @@ const STAGE_FLOW = [
   { key: 'incoming_qc' as const, label: 'Incoming QC'       },
   { key: 'storage'     as const, label: 'Warehouse Storage' },
   { key: 'production'  as const, label: 'Production'        },
-  { key: 'quality'     as const, label: 'Final QC'          },
+  { key: 'final_qc'   as const, label: 'Final QC'          },
   { key: 'packaging'   as const, label: 'Packaging'         },
   { key: 'warehouse'   as const, label: 'Warehouse'         },
   { key: 'distribution' as const, label: 'Distribution'     },
@@ -749,20 +801,20 @@ function StageFlow({ events }: { events: JourneyEvent[] }) {
         // Stages that can mark themselves complete independently of the "current index"
         // ordering — e.g. QC passes before distribution events arrive.
         const stageCompletedOverride =
-          (key === 'quality'      && events.some(e => e.event_type === 'qc.pass' || e.event_type === 'qc_inspection.passed')) ||
-          (key === 'incoming_qc'  && events.some(e => e.event_type === 'incoming_qc.approved')) ||
-          (key === 'packaging'    && events.some(e => e.event_type.startsWith('packaging.'))) ||
-          (key === 'supplier'     && events.some(e => e.event_type.startsWith('supplier.'))) ||
-          (key === 'storage'      && events.some(e => e.event_type.startsWith('storage.') || e.event_type === 'warehouse.received' || e.event_type === 'warehouse.entry')) ||
-          (key === 'warehouse'    && events.some(e => e.event_type.startsWith('finished_goods.') || e.event_type === 'warehouse.dispatch_ready')) ||
-          (key === 'distributor'  && events.some(e => e.event_type.startsWith('distributor.'))) ||
-          (key === 'market'       && events.some(e => e.event_type.startsWith('market.')))
+          (key === 'final_qc'    && events.some(e => e.event_type === 'final_qc.passed' || e.event_type === 'qc.pass' || e.event_type === 'qc_inspection.passed')) ||
+          (key === 'incoming_qc' && events.some(e => e.event_type === 'incoming_qc.approved')) ||
+          (key === 'packaging'   && events.some(e => e.event_type.startsWith('packaging.'))) ||
+          (key === 'supplier'    && events.some(e => e.event_type.startsWith('supplier.'))) ||
+          (key === 'storage'     && events.some(e => e.event_type.startsWith('storage.') || e.event_type === 'warehouse.received' || e.event_type === 'warehouse.entry')) ||
+          (key === 'warehouse'   && events.some(e => e.event_type.startsWith('finished_goods.') || e.event_type === 'warehouse.dispatch_ready')) ||
+          (key === 'distributor' && events.some(e => e.event_type.startsWith('distributor.'))) ||
+          (key === 'market'      && events.some(e => e.event_type.startsWith('market.')))
 
         // Amber warning when a stage has failure events but no pass events.
         const isQcWarning =
-          (key === 'quality' &&
-            !events.some(e => e.event_type === 'qc.pass' || e.event_type === 'qc_inspection.passed') &&
-            events.some(e => ['qc.fail', 'qc.hold', 'qc_inspection.failed', 'qc_inspection.hold'].includes(e.event_type))) ||
+          (key === 'final_qc' &&
+            !events.some(e => e.event_type === 'final_qc.passed' || e.event_type === 'qc.pass' || e.event_type === 'qc_inspection.passed') &&
+            events.some(e => ['final_qc.failed', 'final_qc.hold', 'qc.fail', 'qc.hold', 'qc_inspection.failed', 'qc_inspection.hold'].includes(e.event_type))) ||
           (key === 'incoming_qc' &&
             !events.some(e => e.event_type === 'incoming_qc.approved') &&
             events.some(e => e.event_type === 'incoming_qc.failed'))
@@ -809,9 +861,15 @@ function StageFlow({ events }: { events: JourneyEvent[] }) {
 // ── Timeline event card ───────────────────────────────────────────────────────
 
 function TimelineEvent({ event, isLast }: { event: JourneyEvent; isLast: boolean }) {
-  const cat   = classifyEvent(event.event_type)
-  const actor = extractActor(event.metadata)
+  const cat      = classifyEvent(event.event_type)
+  const actor    = extractActor(event.metadata)
   const { Icon, iconBg, iconColor, borderAccent, dotBg } = cat
+
+  const isRecall = event.event_type.startsWith('recall.')
+  const isCapa   = event.event_type.startsWith('capa.')
+  const recallId = isRecall ? (event.metadata?.recall_id as string | undefined) ?? null : null
+  const capaId   = isCapa   ? (event.metadata?.capa_id   as string | undefined) ?? null : null
+
   return (
     <div className="flex gap-3 group">
       <div className="flex shrink-0 flex-col items-center" style={{ width: 36 }}>
@@ -835,6 +893,34 @@ function TimelineEvent({ event, isLast }: { event: JourneyEvent; isLast: boolean
             </span>
           )}
         </div>
+        {(recallId || capaId) && (
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            {recallId && (
+              <Link
+                href={`/recall/${recallId}`}
+                className="inline-flex items-center gap-1 rounded-md border border-red-200 dark:border-red-700/60 bg-red-50 dark:bg-red-900/20 px-2 py-1 text-[10px] font-semibold text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+              >
+                <AlertTriangle size={9} />View Recall
+              </Link>
+            )}
+            {capaId && (
+              <Link
+                href={`/capa/${capaId}`}
+                className="inline-flex items-center gap-1 rounded-md border border-purple-200 dark:border-purple-700/60 bg-purple-50 dark:bg-purple-900/20 px-2 py-1 text-[10px] font-semibold text-purple-700 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors"
+              >
+                <FileWarning size={9} />View CAPA
+              </Link>
+            )}
+            {recallId && (
+              <Link
+                href="/recall-impact"
+                className="inline-flex items-center gap-1 rounded-md border border-amber-200 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 text-[10px] font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
+              >
+                <Network size={9} />View Impact Analysis
+              </Link>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1308,6 +1394,7 @@ export default function ProductJourneyDetailClient() {
       const hasPackagingInRpc    = rpcEvents.some(e => e.event_type.startsWith('packaging.'))
       const hasIncomingQcInRpc  = rpcEvents.some(e => e.event_type.startsWith('incoming_qc.'))
       const hasSupplierInRpc    = rpcEvents.some(e => e.event_type.startsWith('supplier.'))
+      const hasFinalQcInRpc     = rpcEvents.some(e => e.event_type === 'qc.pass' || e.event_type.startsWith('final_qc.') || e.event_type.startsWith('qc_inspection.'))
       const hasStorageInRpc     = rpcEvents.some(e => e.event_type.startsWith('storage.') || e.event_type === 'warehouse.received' || e.event_type === 'warehouse.entry')
       const hasWarehouseInRpc   = rpcEvents.some(e => e.event_type.startsWith('finished_goods.') || e.event_type === 'warehouse.dispatch_ready')
       const hasDistributorInRpc = rpcEvents.some(e => e.event_type.startsWith('distributor.'))
@@ -1318,6 +1405,7 @@ export default function ProductJourneyDetailClient() {
         ...synthesizeBatchEvents(batchEventRows),
         ...(hasSupplierInRpc    ? [] : synthesizeSupplierEvents(materials)),
         ...(hasIncomingQcInRpc  ? [] : synthesizeIncomingQcEvents(materials)),
+        ...(hasFinalQcInRpc     ? [] : synthesizeFinalQcEvents(trace.order)),
         ...(hasPackagingInRpc   ? [] : synthesizePackagingEvents(trace.order)),
         ...(hasStorageInRpc     ? [] : synthesizeStorageEvents(materials)),
         ...(hasWarehouseInRpc   ? [] : synthesizeWarehouseEvents(trace.order)),
