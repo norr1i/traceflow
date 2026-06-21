@@ -875,8 +875,18 @@ function TimelineEvent({ event, isLast }: { event: JourneyEvent; isLast: boolean
 
   const hasRecallNav  = recallId !== null
   const hasImpactNav  = batchId !== null
-  const recallHref    = hasRecallNav ? `/recall?id=${recallId}` : '/recall'
+  const recallHref    = hasRecallNav ? `/recall/${recallId}` : '/recall'
   const impactHref    = hasImpactNav ? `/recall-impact?type=batch&q=${encodeURIComponent(batchId)}` : '/recall-impact'
+
+  if (isRecall) {
+    console.log('[TimelineEvent] recall event debug', {
+      event_type:    event.event_type,
+      recall_id:     recallId,
+      recall_number: recallNumber,
+      batch_id:      batchId,
+      href:          recallHref,
+    })
+  }
 
   return (
     <div className="flex gap-3 group">
