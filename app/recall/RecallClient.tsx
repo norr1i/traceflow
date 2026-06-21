@@ -650,7 +650,7 @@ function RecallRegistry() {
                   <th className="px-5 py-3 text-start">Title</th>
                   <th className="px-5 py-3 text-start">Severity</th>
                   <th className="px-5 py-3 text-start">Status</th>
-                  <th className="px-5 py-3 text-start">CAPA</th>
+                  <th className="px-5 py-3 text-start">Open CAPAs</th>
                   <th className="px-5 py-3 text-start">Initiated</th>
                   <th className="px-5 py-3 text-start">Affected</th>
                   <th className="px-5 py-3" />
@@ -667,8 +667,13 @@ function RecallRegistry() {
                         : 'hover:bg-blue-50/40 dark:hover:bg-blue-900/10'
                     }`}
                   >
-                    <td className="px-5 py-3.5 font-mono text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                      {recall.recall_number ?? `#${recall.id.slice(0, 8)}`}
+                    <td className="px-5 py-3.5 whitespace-nowrap">
+                      <a
+                        href={`/recall/${recall.id}`}
+                        className="font-mono text-xs font-semibold text-[#3a6f8f] dark:text-[#7ab3d0] hover:underline hover:text-[#2d5a74] dark:hover:text-[#9fcce8] transition-colors"
+                      >
+                        {recall.recall_number ?? `#${recall.id.slice(0, 8)}`}
+                      </a>
                     </td>
                     <td className="px-5 py-3.5 max-w-xs">
                       <p className="font-medium text-gray-900 dark:text-white leading-snug">{recall.title}</p>
@@ -685,10 +690,21 @@ function RecallRegistry() {
                       </span>
                     </td>
                     <td className="px-5 py-3.5">
-                      <CapaCell
-                        capas={recall.linked_capas ?? []}
-                        onOpen={id => router.push(`/capa/${id}`)}
-                      />
+                      {(() => {
+                        const openCount = (recall.linked_capas ?? []).filter(c => c.status !== 'closed').length
+                        return openCount > 0 ? (
+                          <button
+                            onClick={() => recall.linked_capas?.[0] && router.push(`/capa/${recall.linked_capas[0].id}`)}
+                            className="inline-flex items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400 hover:opacity-80 transition-opacity"
+                          >
+                            {openCount} open
+                          </button>
+                        ) : (recall.linked_capas?.length ?? 0) > 0 ? (
+                          <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">All closed</span>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )
+                      })()}
                     </td>
                     <td className="px-5 py-3.5 text-gray-600 dark:text-gray-400 whitespace-nowrap text-xs">
                       {new Date(recall.initiated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}

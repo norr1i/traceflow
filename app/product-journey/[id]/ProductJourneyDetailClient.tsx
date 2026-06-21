@@ -1,10 +1,10 @@
 'use client'
 
-import { Fragment, useState, useEffect, useRef } from 'react'
+import { Fragment, useState, useEffect, useRef, createContext, useContext } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../lib/supabase'
-import { classifyEvent } from '../../trace/[id]/eventCategories'
+import { classifyEvent, type StageGroup } from '../../trace/[id]/eventCategories'
 import {
   ChevronLeft, Package, Layers, Truck,
   Activity, User, Calendar,
@@ -764,22 +764,33 @@ const ORDER_LABEL: Record<string, string> = {
 }
 // ── Stage flow ────────────────────────────────────────────────────────────────
 
+// Provides recall + CAPA records from the main component into deeply nested TimelineEvent
+// without prop-drilling through every intermediate render call.
+const JourneyCtx = createContext<{ recalls: RecallRecord[]; capas: CapaRecord[] }>({
+  recalls: [], capas: [],
+})
+
 const STAGE_FLOW = [
-  { key: 'supplier'     as const, label: 'Supplier QC'       },
-  { key: 'materials'    as const, label: 'Raw Materials'     },
-  { key: 'incoming_qc' as const, label: 'Incoming QC'       },
-  { key: 'storage'     as const, label: 'Warehouse Storage' },
-  { key: 'production'  as const, label: 'Production'        },
-  { key: 'final_qc'   as const, label: 'Final QC'          },
-  { key: 'packaging'   as const, label: 'Packaging'         },
-  { key: 'warehouse'   as const, label: 'Warehouse'         },
-  { key: 'distribution' as const, label: 'Distribution'     },
-  { key: 'distributor' as const, label: 'Distributor'       },
-  { key: 'market'      as const, label: 'Market Tracking'   },
+  { key: 'supplier'      as const, label: 'Supplier Qualification'    },
+  { key: 'incoming_qc'  as const, label: 'Incoming QC'               },
+  { key: 'storage'      as const, label: 'Raw Materials Warehouse'    },
+  { key: 'production'   as const, label: 'Production'                 },
+  { key: 'final_qc'    as const, label: 'Final QC'                   },
+  { key: 'packaging'   as const, label: 'Packaging'                   },
+  { key: 'warehouse'   as const, label: 'Finished Goods Warehouse'    },
+  { key: 'distribution' as const, label: 'Distribution'               },
+  { key: 'distributor' as const, label: 'Customer Receipt'            },
+  { key: 'market'      as const, label: 'Market Surveillance'         },
 ]
 
 function StageFlow({ events }: { events: JourneyEvent[] }) {
-  const present = new Set(events.map(e => classifyEvent(e.event_type).stageGroup))
+  // Normalize: materials → storage (folded into "Raw Materials Warehouse" pill)
+  //            quality   → final_qc (backward-compat alias)
+  const rawPresent = new Set(events.map(e => classifyEvent(e.event_type).stageGroup))
+  const present = new Set<StageGroup>()
+  for (const sg of rawPresent) {
+    present.add(sg === 'materials' ? 'storage' : sg === 'quality' ? 'final_qc' : sg)
+  }
   const hasCompliance = present.has('compliance')
 
   // Only show stages that have at least one supporting event — never render
@@ -806,7 +817,7 @@ function StageFlow({ events }: { events: JourneyEvent[] }) {
           (key === 'incoming_qc' && events.some(e => e.event_type === 'incoming_qc.approved')) ||
           (key === 'packaging'   && events.some(e => e.event_type.startsWith('packaging.'))) ||
           (key === 'supplier'    && events.some(e => e.event_type.startsWith('supplier.'))) ||
-          (key === 'storage'     && events.some(e => e.event_type.startsWith('storage.') || e.event_type === 'warehouse.received' || e.event_type === 'warehouse.entry')) ||
+          (key === 'storage'     && events.some(e => e.event_type.startsWith('storage.') || e.event_type === 'warehouse.received' || e.event_type === 'warehouse.entry' || e.event_type.startsWith('raw_material.') || e.event_type.startsWith('material.'))) ||
           (key === 'warehouse'   && events.some(e => e.event_type.startsWith('finished_goods.') || e.event_type === 'warehouse.dispatch_ready')) ||
           (key === 'distributor' && events.some(e => e.event_type.startsWith('distributor.'))) ||
           (key === 'market'      && events.some(e => e.event_type.startsWith('market.')))
@@ -859,12 +870,29 @@ function StageFlow({ events }: { events: JourneyEvent[] }) {
   )
 }
 
+// ── Recall / CAPA status badge helpers ───────────────────────────────────────
+
+const RECALL_STATUS_CLS: Record<string, string> = {
+  open:        'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  in_progress: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+  closed:      'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+}
+const CAPA_STATUS_CLS: Record<string, string> = {
+  open:              'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  investigation:     'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+  corrective_action: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  verification:      'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400',
+  closed:            'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+}
+
 // ── Timeline event card ───────────────────────────────────────────────────────
 
 function TimelineEvent({ event, isLast }: { event: JourneyEvent; isLast: boolean }) {
+  const { recalls, capas } = useContext(JourneyCtx)
   const cat      = classifyEvent(event.event_type)
   const actor    = extractActor(event.metadata)
   const { Icon, iconBg, iconColor, borderAccent, dotBg } = cat
+  const [cardOpen, setCardOpen] = useState(false)
 
   const isRecall      = event.event_type.startsWith('recall.')
   const isCapa        = event.event_type.startsWith('capa.')
@@ -878,15 +906,10 @@ function TimelineEvent({ event, isLast }: { event: JourneyEvent; isLast: boolean
   const recallHref    = hasRecallNav ? `/recall/${recallId}` : '/recall'
   const impactHref    = hasImpactNav ? `/recall-impact?type=batch&q=${encodeURIComponent(batchId)}` : '/recall-impact'
 
-  if (isRecall) {
-    console.log('[TimelineEvent] recall event debug', {
-      event_type:    event.event_type,
-      recall_id:     recallId,
-      recall_number: recallNumber,
-      batch_id:      batchId,
-      href:          recallHref,
-    })
-  }
+  // Look up pre-loaded records so we can show inline summary cards without a fetch
+  const recallEntry = recallId ? recalls.find(r => r.id === recallId) ?? null : null
+  const capaEntry   = capaId   ? capas.find(c => c.id === capaId)     ?? null : null
+  const hasCard     = recallEntry !== null || capaEntry !== null
 
   return (
     <div className="flex gap-3 group">
@@ -898,7 +921,7 @@ function TimelineEvent({ event, isLast }: { event: JourneyEvent; isLast: boolean
           <div className={`mt-1 w-0.5 flex-1 ${dotBg} opacity-20`} style={{ minHeight: 24 }} />
         )}
       </div>
-      <div className={`min-w-0 flex-1 rounded-xl border border-gray-100 dark:border-gray-700/60 border-l-2 ${borderAccent} bg-white dark:bg-gray-800/60 px-3.5 py-3 shadow-sm hover:shadow-md transition-shadow ${isLast ? 'mb-0.5' : 'mb-3'}`}>
+      <div className={`min-w-0 flex-1 rounded-xl border border-gray-100 dark:border-gray-700/60 border-l-2 ${borderAccent} bg-white dark:bg-gray-800/60 px-3.5 py-3 shadow-sm hover:shadow-md transition-shadow ${isLast ? 'mb-0.5' : 'mb-2'}`}>
         <p className="text-sm font-semibold text-gray-900 dark:text-white leading-snug">{event.title}</p>
         {event.description && (
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{event.description}</p>
@@ -911,50 +934,90 @@ function TimelineEvent({ event, isLast }: { event: JourneyEvent; isLast: boolean
             </span>
           )}
         </div>
+
+        {/* Action buttons */}
         {(isRecall || capaId) && (
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
+          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
             {isRecall && (
               hasRecallNav ? (
-                <Link
-                  href={recallHref}
-                  className="inline-flex items-center gap-1 rounded-md border border-red-200 dark:border-red-700/60 bg-red-50 dark:bg-red-900/20 px-2 py-1 text-[10px] font-semibold text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
-                >
+                <Link href={recallHref} className="inline-flex items-center gap-1 rounded-md border border-red-200 dark:border-red-700/60 bg-red-50 dark:bg-red-900/20 px-2 py-1 text-[10px] font-semibold text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors">
                   <AlertTriangle size={9} />View Recall{recallNumber ? ` ${recallNumber}` : ''}
                 </Link>
               ) : (
-                <span
-                  title="Recall ID not available"
-                  className="inline-flex items-center gap-1 rounded-md border border-red-100 dark:border-red-900/40 bg-red-50/50 dark:bg-red-900/10 px-2 py-1 text-[10px] font-semibold text-red-300 dark:text-red-700 cursor-not-allowed"
-                >
+                <span title="Recall ID not available" className="inline-flex items-center gap-1 rounded-md border border-red-100 dark:border-red-900/40 bg-red-50/50 dark:bg-red-900/10 px-2 py-1 text-[10px] font-semibold text-red-300 dark:text-red-700 cursor-not-allowed">
                   <AlertTriangle size={9} />View Recall
                 </span>
               )
             )}
             {capaId && (
-              <Link
-                href={`/capa/${capaId}`}
-                className="inline-flex items-center gap-1 rounded-md border border-purple-200 dark:border-purple-700/60 bg-purple-50 dark:bg-purple-900/20 px-2 py-1 text-[10px] font-semibold text-purple-700 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors"
-              >
+              <Link href={`/capa/${capaId}`} className="inline-flex items-center gap-1 rounded-md border border-purple-200 dark:border-purple-700/60 bg-purple-50 dark:bg-purple-900/20 px-2 py-1 text-[10px] font-semibold text-purple-700 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors">
                 <FileWarning size={9} />View CAPA
               </Link>
             )}
             {isRecall && (
               hasImpactNav ? (
-                <Link
-                  href={impactHref}
-                  className="inline-flex items-center gap-1 rounded-md border border-amber-200 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 text-[10px] font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
-                >
+                <Link href={impactHref} className="inline-flex items-center gap-1 rounded-md border border-amber-200 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 text-[10px] font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors">
                   <Network size={9} />View Impact Analysis
                 </Link>
               ) : (
-                <span
-                  title="Batch ID not available for impact analysis"
-                  className="inline-flex items-center gap-1 rounded-md border border-amber-100 dark:border-amber-900/40 bg-amber-50/50 dark:bg-amber-900/10 px-2 py-1 text-[10px] font-semibold text-amber-300 dark:text-amber-700 cursor-not-allowed"
-                >
+                <span title="Batch ID not available for impact analysis" className="inline-flex items-center gap-1 rounded-md border border-amber-100 dark:border-amber-900/40 bg-amber-50/50 dark:bg-amber-900/10 px-2 py-1 text-[10px] font-semibold text-amber-300 dark:text-amber-700 cursor-not-allowed">
                   <Network size={9} />View Impact Analysis
                 </span>
               )
             )}
+            {/* Toggle for inline relationship summary card */}
+            {hasCard && (
+              <button
+                onClick={() => setCardOpen(v => !v)}
+                className="ml-auto flex items-center gap-0.5 text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+              >
+                {cardOpen ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                {cardOpen ? 'Hide' : 'Show'} details
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Inline relationship summary card */}
+        {cardOpen && recallEntry && (
+          <div className="mt-2.5 rounded-lg border border-red-100 dark:border-red-900/40 bg-red-50/50 dark:bg-red-900/10 p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-[10px] font-bold text-red-600 dark:text-red-400">
+                {recallEntry.recall_number ?? `RC-${recallEntry.id.slice(0, 8)}`}
+              </span>
+              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${RECALL_STATUS_CLS[recallEntry.status] ?? ''}`}>
+                {recallEntry.status.replace('_', ' ')}
+              </span>
+            </div>
+            <p className="text-xs font-medium text-gray-800 dark:text-gray-200 leading-snug">{recallEntry.title}</p>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-gray-500 dark:text-gray-400">
+              <span>Initiated {new Date(recallEntry.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+              {recallEntry.closed_at && (
+                <span className="text-emerald-600 dark:text-emerald-400">
+                  Closed {new Date(recallEntry.closed_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {cardOpen && capaEntry && (
+          <div className="mt-2.5 rounded-lg border border-purple-100 dark:border-purple-900/40 bg-purple-50/50 dark:bg-purple-900/10 p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-[10px] font-bold text-purple-600 dark:text-purple-400">CAPA</span>
+              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${CAPA_STATUS_CLS[capaEntry.status] ?? ''}`}>
+                {capaEntry.status.replace('_', ' ')}
+              </span>
+            </div>
+            <p className="text-xs font-medium text-gray-800 dark:text-gray-200 leading-snug">{capaEntry.title}</p>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-gray-500 dark:text-gray-400">
+              <span>Opened {new Date(capaEntry.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+              {capaEntry.closed_at && (
+                <span className="text-emerald-600 dark:text-emerald-400">
+                  Closed {new Date(capaEntry.closed_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </span>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -1538,6 +1601,7 @@ export default function ProductJourneyDetailClient() {
   const sysEvents = journey.filter(e => isSystemEvent(e))
 
   return (
+    <JourneyCtx.Provider value={{ recalls: recallRecords, capas: capaRecords }}>
     <div className="px-6 py-5">
       {/* Breadcrumb + page title — one compact row */}
       <div className="mb-4">
@@ -1655,5 +1719,6 @@ export default function ProductJourneyDetailClient() {
       <RootCausePanel batchId={id} />
       <ProductStoryPanel batchId={id} />
     </div>
+    </JourneyCtx.Provider>
   )
 }

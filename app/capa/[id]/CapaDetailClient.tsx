@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, Fragment } from 'react'
 import Link from 'next/link'
 import {
   ArrowLeft, FileWarning, ArrowRight, CheckCircle2,
@@ -338,10 +338,10 @@ function LinkedRecallPanel({ recall, impact }: { recall: RecallForCapa; impact: 
                 </p>
               </div>
               <a
-                href="/recall"
+                href={`/recall/${recall.id}`}
                 className="flex items-center gap-1 self-end rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/55 transition-colors whitespace-nowrap"
               >
-                <ExternalLink size={11} />Recall Registry
+                <ExternalLink size={11} />View Recall
               </a>
             </div>
           </div>
@@ -704,7 +704,7 @@ export default function CapaDetailClient({ id }: { id: string }) {
             <div>
               <p className={label}>Linked Recall</p>
               <a
-                href={`/recall`}
+                href={`/recall/${capa.recall_id}`}
                 className="flex items-center gap-1 text-sm text-[#3a6f8f] dark:text-[#7ab3d0] hover:underline"
               >
                 <ExternalLink size={12} />View Recall
@@ -732,6 +732,101 @@ export default function CapaDetailClient({ id }: { id: string }) {
           </div>
         )}
       </div>
+
+      {/* KPI strip */}
+      {(() => {
+        const openedDate = new Date(capa.created_at)
+        const closedDate = capa.closed_at ? new Date(capa.closed_at) : null
+        const refDate    = closedDate ?? new Date()
+        const daysOpen   = Math.floor((refDate.getTime() - openedDate.getTime()) / 86_400_000)
+        return (
+          <div className="mb-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              {
+                label: 'Days Open',
+                value: String(daysOpen),
+                cls:   isOverdue ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white',
+                sub:   isOverdue ? 'Overdue' : capa.status === 'closed' ? 'Resolved' : 'Active',
+              },
+              {
+                label: 'Risk Level',
+                value: (pm?.label ?? '—'),
+                cls:   capa.severity === 'critical' ? 'text-red-600 dark:text-red-400'
+                     : capa.severity === 'major'    ? 'text-orange-600 dark:text-orange-400'
+                     : 'text-amber-600 dark:text-amber-400',
+                sub:   'Severity',
+              },
+              {
+                label: 'Stage',
+                value: sm?.label ?? '—',
+                cls:   capa.status === 'closed' ? 'text-emerald-600 dark:text-emerald-400'
+                     : capa.status === 'verification' ? 'text-violet-600 dark:text-violet-400'
+                     : 'text-blue-600 dark:text-blue-400',
+                sub:   'Current',
+              },
+              {
+                label: 'Recall Link',
+                value: linkedRecall ? (linkedRecall.recall_number ?? 'Linked') : '—',
+                cls:   linkedRecall ? 'text-red-600 dark:text-red-400' : 'text-gray-400 dark:text-gray-600',
+                sub:   linkedRecall ? linkedRecall.status.replace('_', ' ') : 'None',
+              },
+            ].map(k => (
+              <div key={k.label} className={`${card} px-4 py-3`}>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{k.label}</p>
+                <p className={`text-xl font-bold leading-snug mt-0.5 ${k.cls}`}>{k.value}</p>
+                <p className="text-[10px] text-gray-400 dark:text-gray-500 capitalize mt-0.5">{k.sub}</p>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
+
+      {/* CAPA lifecycle progress tracker */}
+      {(() => {
+        type CSt = 'open' | 'investigation' | 'corrective_action' | 'verification' | 'closed'
+        const STAGES: { key: CSt; label: string }[] = [
+          { key: 'open',              label: 'Opened'            },
+          { key: 'investigation',     label: 'Investigation'     },
+          { key: 'corrective_action', label: 'Corrective Action' },
+          { key: 'verification',      label: 'Verification'      },
+          { key: 'closed',            label: 'Closed'            },
+        ]
+        const ORDER: Record<CSt, number> = {
+          open: 0, investigation: 1, corrective_action: 2, verification: 3, closed: 4,
+        }
+        const currentIdx = ORDER[capa.status as CSt] ?? 0
+        return (
+          <div className={`${card} mb-5 px-5 py-4`}>
+            <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">Lifecycle Progress</p>
+            <div className="flex items-center gap-0">
+              {STAGES.map(({ key, label }, i) => {
+                const done    = ORDER[key] < currentIdx
+                const current = ORDER[key] === currentIdx
+                const dotCls  = done    ? 'bg-emerald-500 border-emerald-500'
+                              : current ? 'bg-[#3a6f8f] border-[#3a6f8f]'
+                              :           'bg-transparent border-gray-300 dark:border-gray-600'
+                const txtCls  = done    ? 'text-emerald-600 dark:text-emerald-400'
+                              : current ? 'text-[#3a6f8f] dark:text-[#7ab3d0] font-semibold'
+                              :           'text-gray-400 dark:text-gray-600'
+                const lineCls = done    ? 'bg-emerald-400' : 'bg-gray-200 dark:bg-gray-700'
+                return (
+                  <Fragment key={key}>
+                    <div className="flex flex-col items-center gap-1 min-w-0">
+                      <div className={`h-3 w-3 shrink-0 rounded-full border-2 ${dotCls} ${current ? 'ring-2 ring-[#3a6f8f]/30 dark:ring-[#3a6f8f]/40' : ''}`}>
+                        {done && <span className="flex h-full w-full items-center justify-center text-white text-[6px]">✓</span>}
+                      </div>
+                      <span className={`text-[9px] leading-tight text-center whitespace-nowrap ${txtCls}`}>{label}</span>
+                    </div>
+                    {i < STAGES.length - 1 && (
+                      <div className={`flex-1 h-0.5 mx-1 mb-3 ${lineCls}`} />
+                    )}
+                  </Fragment>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Linked Recall panel — shown when CAPA was auto-created from a recall */}
       {linkedRecall && (

@@ -160,6 +160,74 @@ export default function RecallDetailClient({ id }: { id: string }) {
         </div>
       </div>
 
+      {/* KPI strip */}
+      {(() => {
+        const openedDate  = new Date(recall.initiated_at)
+        const closedDate  = recall.closed_at ? new Date(recall.closed_at) : null
+        const refDate     = closedDate ?? new Date()
+        const daysOpen    = Math.floor((refDate.getTime() - openedDate.getTime()) / 86_400_000)
+        // Recovery is 100% when closed; for in-progress recalls we show "Tracking"
+        const recoveryPct = recall.status === 'closed' ? 100 : null
+
+        return (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className={`${card} px-4 py-3`}>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Affected Units</p>
+                <p className="text-xl font-bold text-gray-900 dark:text-white mt-0.5">
+                  {recall.affected_units != null ? recall.affected_units.toLocaleString() : '—'}
+                </p>
+                <p className="text-[10px] text-gray-400 mt-0.5">Total impacted</p>
+              </div>
+              <div className={`${card} px-4 py-3`}>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Recovery Rate</p>
+                <p className={`text-xl font-bold mt-0.5 ${recoveryPct === 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                  {recoveryPct != null ? `${recoveryPct}%` : 'Tracking'}
+                </p>
+                <p className="text-[10px] text-gray-400 mt-0.5">
+                  {recall.status === 'closed' ? 'Fully recovered' : 'In progress'}
+                </p>
+              </div>
+              <div className={`${card} px-4 py-3`}>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Days Open</p>
+                <p className="text-xl font-bold text-gray-900 dark:text-white mt-0.5">{daysOpen}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">
+                  {recall.status === 'closed' ? 'Time to close' : 'Ongoing'}
+                </p>
+              </div>
+              <div className={`${card} px-4 py-3`}>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Open CAPAs</p>
+                <p className={`text-xl font-bold mt-0.5 ${capas.filter(c => c.status !== 'closed').length > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                  {capas.filter(c => c.status !== 'closed').length}
+                </p>
+                <p className="text-[10px] text-gray-400 mt-0.5">of {capas.length} total</p>
+              </div>
+            </div>
+
+            {/* Recovery progress bar */}
+            <div className={`${card} px-5 py-4`}>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">Recovery Progress</p>
+                <span className={`text-[10px] font-bold ${recall.status === 'closed' ? 'text-emerald-600 dark:text-emerald-400' : recall.status === 'in_progress' ? 'text-amber-600 dark:text-amber-400' : 'text-blue-600 dark:text-blue-400'}`}>
+                  {recall.status === 'closed' ? 'CLOSED' : recall.status.replace('_', ' ').toUpperCase()}
+                </span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700/50">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${recall.status === 'closed' ? 'bg-emerald-500' : recall.status === 'in_progress' ? 'bg-amber-400' : 'bg-blue-500'}`}
+                  style={{ width: recall.status === 'closed' ? '100%' : recall.status === 'in_progress' ? '60%' : '20%' }}
+                />
+              </div>
+              <div className="mt-2 flex justify-between text-[9px] text-gray-400 dark:text-gray-600">
+                <span>Initiated</span>
+                <span>In Progress</span>
+                <span>Closed</span>
+              </div>
+            </div>
+          </>
+        )
+      })()}
+
       {/* Details grid */}
       <div className={`${card} px-5 py-4 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5`}>
         <Field label="Reason">
