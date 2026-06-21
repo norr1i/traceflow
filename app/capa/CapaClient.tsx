@@ -87,11 +87,12 @@ function SourceBadge({ sourceType }: { sourceType: CapaSourceType | null }) {
   )
 }
 
-function KpiCard({ label, value, color }: { label: string; value: number | string; color: string }) {
+function KpiCard({ label, value, color, sub }: { label: string; value: number | string; color: string; sub?: string }) {
   return (
-    <div className="rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-4 py-3 shadow-sm">
+    <div className="rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-4 py-3 shadow-sm">
       <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">{label}</p>
       <p className={`mt-1 text-2xl font-bold tabular-nums leading-none ${color}`}>{value}</p>
+      {sub && <p className="mt-0.5 text-[10px] text-gray-400 dark:text-gray-500">{sub}</p>}
     </div>
   )
 }
@@ -203,7 +204,7 @@ function AnalyticsPanel() {
               ))}
             </div>
           ) : !data ? (
-            <p className="text-sm italic text-gray-400 dark:text-gray-500">Analytics unavailable — deploy get_capa_analytics RPC.</p>
+            <p className="text-sm italic text-gray-400 dark:text-gray-500">Analytics summary not yet available.</p>
           ) : (
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
 
@@ -742,16 +743,17 @@ export default function CapaClient() {
 
       {/* KPI cards */}
       <div className={`mb-5 grid gap-3 ${!loading && openIsZero ? 'sm:grid-cols-2 xl:grid-cols-4' : 'sm:grid-cols-3 xl:grid-cols-5'}`}>
-        <KpiCard label="Total"       value={loading ? '—' : totalCount}        color="text-gray-800 dark:text-gray-100" />
+        <KpiCard label="Total"       value={loading ? '—' : totalCount}        color="text-gray-800 dark:text-gray-100" sub="all time" />
         {(!loading && !openIsZero) && (
-          <KpiCard label="Open"      value={stats?.open ?? 0}                  color="text-blue-600 dark:text-blue-400" />
+          <KpiCard label="Open"      value={stats?.open ?? 0}                  color="text-blue-600 dark:text-blue-400" sub="needs action" />
         )}
-        <KpiCard label="In Progress" value={loading ? '—' : (inProgressCount ?? '—')} color="text-amber-600 dark:text-amber-400" />
-        <KpiCard label="Closed"      value={loading ? '—' : (stats?.closed ?? 0)}     color="text-emerald-600 dark:text-emerald-400" />
+        <KpiCard label="In Progress" value={loading ? '—' : (inProgressCount ?? '—')} color="text-amber-600 dark:text-amber-400" sub="investigation · CA · verify" />
+        <KpiCard label="Closed"      value={loading ? '—' : (stats?.closed ?? 0)}     color="text-emerald-600 dark:text-emerald-400" sub="resolved" />
         <KpiCard
           label="Overdue"
           value={loading ? '—' : (stats?.overdue ?? 0)}
           color={(stats?.overdue ?? 0) > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'}
+          sub={loading ? '' : (stats?.overdue ?? 0) > 0 ? 'past due date' : 'none overdue'}
         />
       </div>
 
@@ -913,7 +915,7 @@ export default function CapaClient() {
                             >
                               {advancing === capa.id
                                 ? <><RefreshCw size={11} className="animate-spin" /><span>…</span></>
-                                : <><ArrowRight size={11} /><span>Next Stage</span></>
+                                : <><ArrowRight size={11} /><span>{advanceLabel}</span></>
                               }
                             </button>
                           )}
@@ -944,7 +946,7 @@ export default function CapaClient() {
         )}
 
         {!loading && (
-          <div className="border-t border-gray-100 dark:border-[#B3B7BA]/[0.10] px-5 py-3 text-xs text-gray-400 dark:text-gray-500">
+          <div className="border-t border-gray-100 dark:border-[#B3B7BA]/[0.10] px-5 py-3.5 text-xs text-gray-400 dark:text-gray-500">
             Showing {filtered.length} of {totalCount} CAPA{totalCount !== 1 ? 's' : ''}
             {(stats?.closed ?? 0) > 0 && ` · ${stats?.closed} closed`}
             {(stats?.overdue ?? 0) > 0 && ` · ${stats?.overdue} overdue`}

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import {
   ArrowLeft, AlertTriangle, FileWarning, GitBranch,
   Clock, CheckCircle2, Loader2, AlertCircle, ExternalLink,
-  Users, Package, ClipboardList,
+  Users, Package, ClipboardList, ShieldAlert,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/auth-context'
@@ -29,6 +29,22 @@ const STATUS_BADGE: Record<string, string> = {
   open:        'bg-blue-100    text-blue-700    dark:bg-blue-900/20    dark:text-blue-400',
   in_progress: 'bg-amber-100   text-amber-700   dark:bg-amber-900/20   dark:text-amber-400',
   closed:      'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400',
+}
+
+const RISK_LEVEL_BADGE: Record<string, string> = {
+  low:      'bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400',
+  medium:   'bg-amber-100 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400',
+  high:     'bg-orange-100 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400',
+  critical: 'bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400',
+}
+
+function computeRecallRisk(severity: string, openCapas: number, daysOpen: number, isClosed: boolean): string {
+  if (isClosed) return 'low'
+  const base: Record<string, number> = { low: 1, medium: 2, high: 3, critical: 4 }
+  let score = base[severity] ?? 2
+  if (openCapas > 0) score = Math.min(4, score + 1)
+  if (daysOpen > 30) score = Math.min(4, score + 1)
+  return ['low', 'medium', 'high', 'critical'][Math.min(3, score - 1)]
 }
 
 const CAPA_STATUS_CLS: Record<string, string> = {
@@ -125,13 +141,23 @@ export default function RecallDetailClient({ id }: { id: string }) {
   return (
     <div className="px-4 sm:px-6 py-8 max-w-4xl mx-auto space-y-5">
 
-      {/* Back */}
-      <Link
-        href="/recall"
-        className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
-      >
-        <ArrowLeft size={14} />Back to Recall Registry
-      </Link>
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+        <Link href="/recall" className="hover:text-[#3a6f8f] dark:hover:text-[#7ab3d0] transition-colors">
+          Recall Registry
+        </Link>
+        <span>/</span>
+        <span className="font-mono text-[#3a6f8f] dark:text-[#7ab3d0]">
+          {recall.recall_number ?? `#${recall.id.slice(0, 8)}`}
+        </span>
+      </div>
+
+      {/* Status accent line */}
+      <div className={`-mt-2 h-1 rounded-full ${
+        recall.status === 'closed'        ? 'bg-emerald-400 dark:bg-emerald-600'
+        : recall.status === 'in_progress' ? 'bg-amber-400 dark:bg-amber-600'
+        : 'bg-red-400 dark:bg-red-600'
+      }`} />
 
       {/* Header */}
       <div className={`${card} px-5 py-4`}>
@@ -142,7 +168,7 @@ export default function RecallDetailClient({ id }: { id: string }) {
             </div>
             <div className="min-w-0">
               <p className="text-xs font-mono text-gray-400 dark:text-gray-500">
-                {recall.recall_number ?? `#${recall.id.slice(0, 8)}`}
+                <span className="mr-1 font-sans text-[10px] font-semibold uppercase tracking-widest not-italic">Audit Ref.</span>{recall.recall_number ?? `#${recall.id.slice(0, 8)}`}
               </p>
               <h1 className="text-lg font-bold text-gray-900 dark:text-white leading-snug truncate">
                 {recall.title}
@@ -156,9 +182,60 @@ export default function RecallDetailClient({ id }: { id: string }) {
             <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_BADGE[recall.status] ?? ''}`}>
               {recall.status.replace('_', ' ')}
             </span>
+            {(recall.severity === 'critical' || recall.severity === 'high') && (
+              <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                recall.status === 'closed'
+                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400'
+                  : 'bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400'
+              }`}>
+                <ShieldAlert size={10} />
+                {recall.status === 'closed' ? 'SFDA Notified' : 'SFDA Notification Required'}
+              </span>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Executive Summary */}
+      {(() => {
+        const oDate   = new Date(recall.initiated_at)
+        const cDate   = recall.closed_at ? new Date(recall.closed_at) : null
+        const days    = Math.floor(((cDate ?? new Date()).getTime() - oDate.getTime()) / 86_400_000)
+        const openC   = capas.filter(c => c.status !== 'closed').length
+        const risk    = computeRecallRisk(recall.severity, openC, days, recall.status === 'closed')
+        const borderL = recall.status === 'closed'
+          ? 'border-l-emerald-400 dark:border-l-emerald-600'
+          : recall.status === 'in_progress'
+          ? 'border-l-amber-400 dark:border-l-amber-600'
+          : 'border-l-red-400 dark:border-l-red-600'
+        const s1 = recall.reason
+          ? `${recall.title} was issued following ${recall.reason.charAt(0).toLowerCase() + recall.reason.slice(1).replace(/\.?$/, '')} — covering ${recall.affected_units != null ? `${recall.affected_units.toLocaleString()} units` : 'a scope under assessment'}.`
+          : `${recall.title} covers ${recall.affected_units != null ? `${recall.affected_units.toLocaleString()} units` : 'a scope under assessment'}.`
+        const s2 = recall.status === 'closed'
+          ? `Recall closed after ${days} day${days !== 1 ? 's' : ''}.`
+          : recall.status === 'in_progress'
+          ? `Recall has been open for ${days} day${days !== 1 ? 's' : ''} and is under active management.`
+          : `Recall initiated on ${fmt(recall.initiated_at)} and is pending root cause investigation.`
+        const s3 = recall.status === 'closed'
+          ? 'All corrective and preventive actions have been resolved. No immediate action required.'
+          : openC > 0
+          ? `${openC} open CAPA${openC !== 1 ? 's' : ''} must be resolved before this recall can be closed.`
+          : capas.length > 0
+          ? 'All linked corrective actions are closed. This recall is eligible for closure review.'
+          : 'No corrective actions are linked. Consider opening a CAPA to document root cause and preventive measures.'
+        return (
+          <div className={`rounded-xl border border-l-4 ${borderL} border-[#B3B7BA]/40 dark:border-[#B3B7BA]/[0.08] bg-[#F1EFEC]/60 dark:bg-[#1a2530]/50 px-4 py-3.5`}>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">Executive Summary</p>
+              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${RISK_LEVEL_BADGE[risk] ?? ''}`}>
+                {risk} risk
+              </span>
+            </div>
+            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{s1} {s2}</p>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-400 leading-relaxed">{s3}</p>
+          </div>
+        )
+      })()}
 
       {/* KPI strip */}
       {(() => {
@@ -185,14 +262,14 @@ export default function RecallDetailClient({ id }: { id: string }) {
                   {recoveryPct != null ? `${recoveryPct}%` : 'Tracking'}
                 </p>
                 <p className="text-[10px] text-gray-400 mt-0.5">
-                  {recall.status === 'closed' ? 'Fully recovered' : 'In progress'}
+                  {recall.status === 'closed' ? 'Fully recovered' : recall.status === 'in_progress' ? 'In progress' : 'Pending'}
                 </p>
               </div>
               <div className={`${card} px-4 py-3`}>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Days Open</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{recall.status === 'closed' ? 'Days to Close' : 'Days Open'}</p>
                 <p className="text-xl font-bold text-gray-900 dark:text-white mt-0.5">{daysOpen}</p>
                 <p className="text-[10px] text-gray-400 mt-0.5">
-                  {recall.status === 'closed' ? 'Time to close' : 'Ongoing'}
+                  {recall.status === 'closed' ? 'Time to resolve' : 'Ongoing'}
                 </p>
               </div>
               <div className={`${card} px-4 py-3`}>
@@ -215,10 +292,10 @@ export default function RecallDetailClient({ id }: { id: string }) {
               <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700/50">
                 <div
                   className={`h-full rounded-full transition-all duration-500 ${recall.status === 'closed' ? 'bg-emerald-500' : recall.status === 'in_progress' ? 'bg-amber-400' : 'bg-blue-500'}`}
-                  style={{ width: recall.status === 'closed' ? '100%' : recall.status === 'in_progress' ? '60%' : '20%' }}
+                  style={{ width: recall.status === 'closed' ? '100%' : recall.status === 'in_progress' ? '60%' : '5%' }}
                 />
               </div>
-              <div className="mt-2 flex justify-between text-[9px] text-gray-400 dark:text-gray-600">
+              <div className="mt-2 flex justify-between text-[10px] text-gray-400 dark:text-gray-600">
                 <span>Initiated</span>
                 <span>In Progress</span>
                 <span>Closed</span>
@@ -301,9 +378,9 @@ export default function RecallDetailClient({ id }: { id: string }) {
       )}
 
       {/* Linked CAPAs */}
-      {capas.length > 0 && (
-        <div className={`${card} px-5 py-4`}>
-          <p className={`${lbl} mb-3`}>Linked CAPAs ({capas.length})</p>
+      <div className={`${card} px-5 py-4`}>
+        <p className={`${lbl} mb-3`}>Linked CAPAs{capas.length > 0 ? ` (${capas.length})` : ''}</p>
+        {capas.length > 0 ? (
           <div className="space-y-2">
             {capas.map(c => (
               <Link
@@ -322,8 +399,10 @@ export default function RecallDetailClient({ id }: { id: string }) {
               </Link>
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          <p className={valMuted}>No CAPA actions have been linked to this recall.</p>
+        )}
+      </div>
 
       {/* Impact Analysis shortcut */}
       {batchId && (

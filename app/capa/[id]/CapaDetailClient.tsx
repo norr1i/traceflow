@@ -79,8 +79,8 @@ function bytes(n: number | null) {
 
 // ── Collapsible section wrapper ───────────────────────────────────────────────
 
-function Section({ title, icon: Icon, count, defaultOpen = true, children }: {
-  title: string; icon: React.ElementType; count?: number
+function Section({ title, icon: Icon, count, badgeText, defaultOpen = true, children }: {
+  title: string; icon: React.ElementType; count?: number; badgeText?: string
   defaultOpen?: boolean; children: React.ReactNode
 }) {
   const [open, setOpen] = useState(defaultOpen)
@@ -92,9 +92,9 @@ function Section({ title, icon: Icon, count, defaultOpen = true, children }: {
       >
         <Icon size={15} className="shrink-0 text-gray-400 dark:text-gray-500" />
         <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">{title}</span>
-        {count !== undefined && count > 0 && (
+        {(count !== undefined && count > 0 || badgeText) && (
           <span className="rounded-full bg-[#3a6f8f]/15 dark:bg-[#3a6f8f]/25 px-2 py-0.5 text-xs font-semibold text-[#3a6f8f] dark:text-[#7ab3d0]">
-            {count}
+            {badgeText ?? count}
           </span>
         )}
         <span className="ml-auto text-gray-400 dark:text-gray-600">
@@ -454,10 +454,10 @@ function LinkedRecallPanel({ recall, impact }: { recall: RecallForCapa; impact: 
           )}
 
           {!impact && recall.batch_id && (
-            <p className="text-xs italic text-gray-400">Recall impact data not available — batch may not have distribution records yet.</p>
+            <p className="text-xs italic text-gray-400">No distribution records are available for this recall's affected batch yet.</p>
           )}
           {!impact && !recall.batch_id && (
-            <p className="text-xs italic text-gray-400">No batch linked to this recall — search affected products in the Recall Impact page.</p>
+            <p className="text-xs italic text-gray-400">No production batch is linked to this recall. Use Impact Analysis to search by material or lot number.</p>
           )}
         </div>
       )}
@@ -538,7 +538,7 @@ export default function CapaDetailClient({ id }: { id: string }) {
   async function handleUpload(file: File, notes: string) {
     const ok = await uploadEvidence(file, notes)
     if (ok) { setShowUpload(false); toast.success('Evidence uploaded') }
-    else    toast.error('Upload failed — ensure the "capa-evidence" storage bucket exists in Supabase')
+    else    toast.error('File upload failed. Contact your administrator if the issue persists.')
   }
 
   async function handleDeleteEvidence(ev: CapaEvidence) {
@@ -622,6 +622,48 @@ export default function CapaDetailClient({ id }: { id: string }) {
           {capa.capa_number ?? `#${capa.id.slice(0, 8)}`}
         </span>
       </div>
+
+      {/* Executive Summary */}
+      {(() => {
+        const openedDate  = new Date(capa.created_at)
+        const closedDate  = capa.closed_at ? new Date(capa.closed_at) : null
+        const days        = Math.floor(((closedDate ?? new Date()).getTime() - openedDate.getTime()) / 86_400_000)
+        const doneActions = actions.filter(a => a.status === 'completed').length
+        const capaRef     = capa.capa_number ?? `CAPA-${capa.id.slice(0, 8)}`
+        const recallRef   = linkedRecall ? (linkedRecall.recall_number ?? linkedRecall.id.slice(0, 8)) : null
+        const borderL     = capa.status === 'closed'
+          ? 'border-l-emerald-400 dark:border-l-emerald-600'
+          : capa.severity === 'critical'
+          ? 'border-l-red-400 dark:border-l-red-600'
+          : isOverdue
+          ? 'border-l-orange-400 dark:border-l-orange-600'
+          : 'border-l-blue-400 dark:border-l-blue-600'
+        const s1 = linkedRecall && recallRef
+          ? `${capaRef} was opened in response to Recall ${recallRef} — a ${linkedRecall.severity}-severity field recall${linkedRecall.affected_units != null ? ` covering ${linkedRecall.affected_units.toLocaleString()} units` : ''}.`
+          : `${capaRef}: ${capa.title}.`
+        const s2 = capa.status === 'closed'
+          ? `Resolved in ${days} day${days !== 1 ? 's' : ''}${doneActions > 0 ? ` with ${doneActions} action${doneActions !== 1 ? 's' : ''} completed` : ''}.`
+          : isOverdue
+          ? `This CAPA is overdue — ${days} day${days !== 1 ? 's' : ''} have elapsed since opening, past the target due date.`
+          : `Open for ${days} day${days !== 1 ? 's' : ''}, currently at the ${sm.label} stage.`
+        const s3 = capa.status === 'closed'
+          ? 'All corrective actions are resolved. Record retained for audit and regulatory review.'
+          : next
+          ? `Required: ${ADVANCE_LABEL[capa.status]} to advance this CAPA toward closure.`
+          : 'Lifecycle complete — finalise evidence and close this CAPA.'
+        return (
+          <div className={`mb-5 rounded-xl border border-l-4 ${borderL} border-[#B3B7BA]/40 dark:border-[#B3B7BA]/[0.08] bg-[#F1EFEC]/60 dark:bg-[#1a2530]/50 px-4 py-3.5`}>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">Executive Summary</p>
+              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${pm.cls}`}>
+                {pm.label} Priority
+              </span>
+            </div>
+            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{s1} {s2}</p>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-400 leading-relaxed">{s3}</p>
+          </div>
+        )
+      })()}
 
       {/* Header card */}
       <div className={`${card} mb-5 p-5`}>
@@ -743,10 +785,10 @@ export default function CapaDetailClient({ id }: { id: string }) {
           <div className="mb-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
               {
-                label: 'Days Open',
+                label: capa.status === 'closed' ? 'Days to Resolve' : 'Days Open',
                 value: String(daysOpen),
                 cls:   isOverdue ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white',
-                sub:   isOverdue ? 'Overdue' : capa.status === 'closed' ? 'Resolved' : 'Active',
+                sub:   isOverdue ? 'Overdue' : capa.status === 'closed' ? 'Fully resolved' : 'Active',
               },
               {
                 label: 'Risk Level',
@@ -781,6 +823,19 @@ export default function CapaDetailClient({ id }: { id: string }) {
         )
       })()}
 
+      {/* Closed CAPA completion banner */}
+      {capa.status === 'closed' && (
+        <div className="mb-5 flex items-center gap-3 rounded-xl border border-emerald-200 dark:border-emerald-700/50 bg-emerald-50 dark:bg-emerald-900/15 px-5 py-3">
+          <CheckCircle2 size={16} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">CAPA Resolved</p>
+            <p className="text-xs text-emerald-600 dark:text-emerald-400">
+              This corrective action was closed{capa.closed_at ? ` on ${new Date(capa.closed_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}` : ''}.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* CAPA lifecycle progress tracker */}
       {(() => {
         type CSt = 'open' | 'investigation' | 'corrective_action' | 'verification' | 'closed'
@@ -812,13 +867,13 @@ export default function CapaDetailClient({ id }: { id: string }) {
                 return (
                   <Fragment key={key}>
                     <div className="flex flex-col items-center gap-1 min-w-0">
-                      <div className={`h-3 w-3 shrink-0 rounded-full border-2 ${dotCls} ${current ? 'ring-2 ring-[#3a6f8f]/30 dark:ring-[#3a6f8f]/40' : ''}`}>
-                        {done && <span className="flex h-full w-full items-center justify-center text-white text-[6px]">✓</span>}
+                      <div className={`h-5 w-5 shrink-0 rounded-full border-2 ${dotCls} ${current ? 'ring-2 ring-[#3a6f8f]/30 dark:ring-[#3a6f8f]/40' : ''}`}>
+                        {done && <span className="flex h-full w-full items-center justify-center text-white text-[8px]">✓</span>}
                       </div>
                       <span className={`text-[9px] leading-tight text-center whitespace-nowrap ${txtCls}`}>{label}</span>
                     </div>
                     {i < STAGES.length - 1 && (
-                      <div className={`flex-1 h-0.5 mx-1 mb-3 ${lineCls}`} />
+                      <div className={`flex-1 h-0.5 mx-0.5 mb-3.5 ${lineCls}`} />
                     )}
                   </Fragment>
                 )
@@ -851,7 +906,12 @@ export default function CapaDetailClient({ id }: { id: string }) {
             )}
           </Section>
 
-          <Section title="Actions Taken" icon={CheckCircle2} count={actions.length}>
+          <Section
+            title="Actions Taken"
+            icon={CheckCircle2}
+            count={actions.length}
+            badgeText={actions.length > 0 ? `${actions.filter(a => a.status === 'completed').length}/${actions.length} complete` : undefined}
+          >
             {actions.length === 0 && !showAddAction && (
               <p className="text-sm italic text-gray-400 dark:text-gray-500">No action items recorded.</p>
             )}

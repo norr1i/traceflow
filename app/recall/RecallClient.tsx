@@ -371,44 +371,6 @@ const EMPTY_RECALL: RecallFormData = {
   batch_id: null, product_id: null,
 }
 
-// ── CAPA status badge ───────────────────────────────────────────────────────
-
-const CAPA_STATUS_CLS: Record<string, string> = {
-  open:              'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  investigation:     'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-  corrective_action: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-  verification:      'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400',
-  closed:            'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-}
-
-function CapaCell({ capas, onOpen }: { capas: LinkedCapaSummary[]; onOpen: (id: string) => void }) {
-  if (capas.length === 0) {
-    return <span className="text-xs text-gray-300 dark:text-gray-600">—</span>
-  }
-  const first    = capas[0]
-  const openCount = capas.filter(c => c.status !== 'closed').length
-  return (
-    <div className="flex flex-col gap-1">
-      <button
-        onClick={() => onOpen(first.id)}
-        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider hover:opacity-80 transition-opacity ${CAPA_STATUS_CLS[first.status] ?? CAPA_STATUS_CLS.open}`}
-        title={`Open CAPA: ${first.capa_number ?? first.id.slice(0, 8)}`}
-      >
-        <FileWarning size={9} />
-        {first.capa_number ?? `#${first.id.slice(0, 8)}`}
-      </button>
-      {openCount > 0 && (
-        <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-600 dark:text-amber-400 font-medium">
-          {openCount} open
-        </span>
-      )}
-      {capas.length > 1 && (
-        <span className="text-[10px] text-gray-400">+{capas.length - 1} more</span>
-      )}
-    </div>
-  )
-}
-
 function RecallCreateModal({ onClose, onSave, saving }: {
   onClose: () => void
   onSave:  (d: RecallFormData) => Promise<void>

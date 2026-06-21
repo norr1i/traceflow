@@ -111,7 +111,7 @@ const STATUS_BADGE: Record<string, string> = {
 const SEARCH_OPTIONS: { key: SearchType; label: string; placeholder: string }[] = [
   { key: 'lot',      label: 'Lot Number',    placeholder: 'e.g. LOT-2025-SS316-0891' },
   { key: 'material', label: 'Material Name', placeholder: 'e.g. Stainless Steel'     },
-  { key: 'batch',    label: 'Batch ID',      placeholder: 'Production order UUID'    },
+  { key: 'batch',    label: 'Batch ID',      placeholder: 'Enter production batch ID' },
 ]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -233,7 +233,7 @@ function SummaryCard({ label, value, icon: Icon, valueClass }: {
   label: string; value: string | number; icon: React.ElementType; valueClass?: string
 }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-5 py-4 shadow-sm">
+    <div className="flex flex-col gap-1.5 rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-5 py-4 shadow-sm">
       <div className="flex items-center gap-1.5">
         <Icon size={12} className="shrink-0 text-gray-400 dark:text-gray-500" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
@@ -252,10 +252,10 @@ function TableSection({ title, icon: Icon, count, children }: {
 }) {
   const [open, setOpen] = useState(true)
   return (
-    <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
+    <div className="rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 shadow-sm overflow-hidden">
       <button
         onClick={() => setOpen(o => !o)}
-        className="flex w-full items-center gap-2.5 border-b border-gray-100 dark:border-gray-700 px-5 py-3.5 text-left hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
+        className="flex w-full items-center gap-2.5 border-b border-[#B3B7BA]/30 dark:border-[#B3B7BA]/[0.10] px-5 py-3.5 text-left hover:bg-[#D1CFC9]/20 dark:hover:bg-[#262E36]/25 transition-colors"
       >
         <Icon size={15} className="shrink-0 text-gray-400 dark:text-gray-500" />
         <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">{title}</span>
@@ -433,27 +433,9 @@ export default function RecallImpactClient() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  async function handleSearch(e: React.FormEvent) {
+  function handleSearch(e: React.FormEvent) {
     e.preventDefault()
-    const q = query.trim()
-    if (!q) return
-
-    setLoading(true)
-    setResult(null)
-    setSearched(false)
-
-    const params: Record<string, unknown> = {}
-    if (searchType === 'lot')      params.p_lot_number    = q
-    if (searchType === 'material') params.p_material_name = q
-    if (searchType === 'batch')    params.p_batch_id      = q
-
-    const { data, error } = await supabase.rpc('get_recall_impact', params)
-
-    setLoading(false)
-    setSearched(true)
-
-    if (error) { toast.error(error.message); return }
-    setResult(data as ImpactResult | null)
+    runSearch(searchType, query)
   }
 
   const activeOption = SEARCH_OPTIONS.find(o => o.key === searchType)!
@@ -464,7 +446,7 @@ export default function RecallImpactClient() {
     <div className="space-y-5">
 
       {/* ── Search card ── */}
-      <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm p-5">
+      <div className="rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 shadow-sm p-5">
         <div className="mb-4 flex w-fit gap-1 rounded-xl bg-gray-100 dark:bg-gray-900/50 p-1">
           {SEARCH_OPTIONS.map(opt => (
             <button
@@ -515,7 +497,7 @@ export default function RecallImpactClient() {
 
       {/* ── Empty state ── */}
       {searched && !loading && !hasResults && (
-        <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm px-5 py-14 text-center">
+        <div className="rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 shadow-sm px-5 py-14 text-center">
           <ShieldCheck size={36} className="mx-auto mb-3 text-gray-200 dark:text-gray-700" />
           <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">No affected products found</p>
           <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
@@ -546,6 +528,38 @@ export default function RecallImpactClient() {
               {result.risk_level}
             </span>
           </div>
+
+          {/* Impact Assessment executive summary */}
+          {(() => {
+            const scope = `${result.total_batches} production batch${result.total_batches !== 1 ? 'es' : ''}`
+            const distLine = result.total_distributors > 0
+              ? `${result.total_affected_units.toLocaleString()} units distributed to ${result.total_distributors} recipient${result.total_distributors !== 1 ? 's' : ''}.`
+              : 'No distribution records are linked to affected batches.'
+            const actionLine = result.has_open_recall
+              ? 'Active recall in progress. Notify all affected distributors and initiate field recovery immediately.'
+              : result.risk_level === 'critical' || result.risk_level === 'high'
+              ? 'Risk level warrants immediate review. Assess need for recall notification and SFDA regulatory reporting.'
+              : result.risk_level === 'medium'
+              ? 'Review all affected batches and verify quality disposition before further distribution.'
+              : 'No immediate action required. Monitor affected batches for quality indicators.'
+            const needsRegulatory = result.has_open_recall || result.risk_level === 'critical' || result.risk_level === 'high'
+            return (
+              <div className="rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC]/60 dark:bg-[#262E36]/30 px-5 py-4">
+                <div className="mb-2 flex items-start justify-between gap-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">Impact Assessment</p>
+                  {needsRegulatory && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400 px-2.5 py-0.5 text-[10px] font-bold whitespace-nowrap">
+                      <ShieldAlert size={9} />SFDA Notification Required
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                  Analysis identified {scope} and {result.total_products} affected product{result.total_products !== 1 ? 's' : ''}. {distLine}
+                </p>
+                <p className="mt-1 text-sm font-medium text-gray-700 dark:text-gray-300 leading-relaxed">{actionLine}</p>
+              </div>
+            )
+          })()}
 
           {/* Summary cards */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -611,7 +625,7 @@ export default function RecallImpactClient() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-gray-100 dark:border-gray-700 text-xs text-gray-400">
+                      <tr className="border-b border-[#B3B7BA]/30 dark:border-[#B3B7BA]/[0.10] text-xs text-gray-400">
                         <th className="pb-2 text-left font-medium">Product Name</th>
                         <th className="pb-2 text-left font-medium">SKU</th>
                         <th className="pb-2 text-right font-medium">Batch Count</th>
@@ -646,7 +660,7 @@ export default function RecallImpactClient() {
                     <a
                       key={i}
                       href={`/product-journey/${b.batch_id}`}
-                      className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 dark:border-gray-700/60 bg-gray-50 dark:bg-gray-700/30 px-4 py-3 transition-colors hover:bg-gray-100 dark:hover:bg-gray-700/60 group"
+                      className="flex items-center justify-between gap-3 rounded-xl border border-[#B3B7BA]/40 dark:border-[#B3B7BA]/[0.08] bg-[#F1EFEC] dark:bg-[#262E36]/55 px-4 py-3 transition-colors hover:bg-[#D1CFC9]/40 dark:hover:bg-[#262E36]/70 group"
                     >
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-gray-900 dark:text-white group-hover:text-red-600 dark:group-hover:text-red-400 transition-colors">
@@ -678,7 +692,7 @@ export default function RecallImpactClient() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-gray-100 dark:border-gray-700 text-xs text-gray-400">
+                      <tr className="border-b border-[#B3B7BA]/30 dark:border-[#B3B7BA]/[0.10] text-xs text-gray-400">
                         <th className="pb-2 text-left font-medium">Recipient Name</th>
                         <th className="pb-2 text-left font-medium">Recipient Type</th>
                         <th className="pb-2 text-right font-medium">Quantity</th>

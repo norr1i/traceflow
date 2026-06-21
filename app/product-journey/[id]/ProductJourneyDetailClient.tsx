@@ -852,7 +852,7 @@ function StageFlow({ events }: { events: JourneyEvent[] }) {
               <span className={`text-[10px] font-bold uppercase tracking-wider ${text}`}>{label}</span>
             </div>
             {vi < visibleStages.length - 1 && (
-              <span className={`text-[10px] select-none ${arrow}`}>→</span>
+              <span className={`text-xs select-none ${arrow}`}>›</span>
             )}
           </Fragment>
         )
@@ -911,6 +911,12 @@ function TimelineEvent({ event, isLast }: { event: JourneyEvent; isLast: boolean
   const capaEntry   = capaId   ? capas.find(c => c.id === capaId)     ?? null : null
   const hasCard     = recallEntry !== null || capaEntry !== null
 
+  const cardCls = isRecall
+    ? `min-w-0 flex-1 rounded-xl border border-red-100 dark:border-red-900/40 border-l-[3px] border-l-red-400 dark:border-l-red-600 bg-red-50/30 dark:bg-red-900/10 px-3.5 py-3 shadow-sm hover:shadow-md transition-shadow ${isLast ? 'mb-0.5' : 'mb-2'}`
+    : isCapa
+    ? `min-w-0 flex-1 rounded-xl border border-purple-100 dark:border-purple-900/40 border-l-[3px] border-l-purple-400 dark:border-l-purple-600 bg-purple-50/30 dark:bg-purple-900/10 px-3.5 py-3 shadow-sm hover:shadow-md transition-shadow ${isLast ? 'mb-0.5' : 'mb-2'}`
+    : `min-w-0 flex-1 rounded-xl border border-gray-100 dark:border-gray-700/60 border-l-2 ${borderAccent} bg-white dark:bg-gray-800/60 px-3.5 py-3 shadow-sm hover:shadow-md transition-shadow ${isLast ? 'mb-0.5' : 'mb-2'}`
+
   return (
     <div className="flex gap-3 group">
       <div className="flex shrink-0 flex-col items-center" style={{ width: 36 }}>
@@ -921,7 +927,7 @@ function TimelineEvent({ event, isLast }: { event: JourneyEvent; isLast: boolean
           <div className={`mt-1 w-0.5 flex-1 ${dotBg} opacity-20`} style={{ minHeight: 24 }} />
         )}
       </div>
-      <div className={`min-w-0 flex-1 rounded-xl border border-gray-100 dark:border-gray-700/60 border-l-2 ${borderAccent} bg-white dark:bg-gray-800/60 px-3.5 py-3 shadow-sm hover:shadow-md transition-shadow ${isLast ? 'mb-0.5' : 'mb-2'}`}>
+      <div className={cardCls}>
         <p className="text-sm font-semibold text-gray-900 dark:text-white leading-snug">{event.title}</p>
         {event.description && (
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{event.description}</p>
@@ -1085,6 +1091,15 @@ function BatchHeader({ order, qcResults, materials, sales, recalls }: {
 
   return (
     <div className="mb-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3 shadow-sm">
+      {/* Active recall alert banner */}
+      {activeRecall && (
+        <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-red-200 dark:border-red-700/50 bg-red-50 dark:bg-red-900/15 px-3 py-2">
+          <AlertTriangle size={13} className="shrink-0 text-red-600 dark:text-red-400" />
+          <p className="text-xs font-semibold text-red-700 dark:text-red-400">
+            Active recall in progress — {activeRecall.recall_number ?? activeRecall.title}
+          </p>
+        </div>
+      )}
       {/* Name + SKU + badges — all on one line */}
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
         <div className="flex min-w-0 items-baseline gap-2">
@@ -1623,6 +1638,50 @@ export default function ProductJourneyDetailClient() {
         sales={traceData.sales}
         recalls={recallRecords}
       />
+
+      {/* Batch Summary */}
+      {(() => {
+        const activeR  = recallRecords.find(r => r.status !== 'closed') ?? null
+        const latestQc = [...traceData.qc_results].sort(
+          (a, b) => new Date(b.inspected_at).getTime() - new Date(a.inspected_at).getTime()
+        )[0] ?? null
+        const risk = activeR ? 'high' : latestQc?.status === 'fail' ? 'medium' : 'low'
+        const RISK_B: Record<string, string> = {
+          low:      'bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400',
+          medium:   'bg-amber-100 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400',
+          high:     'bg-orange-100 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400',
+          critical: 'bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400',
+        }
+        const s1 = `Production batch of ${traceData.order.quantity.toLocaleString()} units of ${traceData.order.product_name} (${traceData.order.sku}).`
+        const s2 = activeR
+          ? `An active recall (${activeR.recall_number ?? activeR.title}) is in progress for this batch.`
+          : traceData.order.status === 'completed' && traceData.sales.length > 0
+          ? `Batch shipped — ${traceData.sales.length} distribution record${traceData.sales.length !== 1 ? 's' : ''} on file.`
+          : traceData.order.status === 'completed'
+          ? 'Production complete. Awaiting distribution.'
+          : traceData.order.started_at
+          ? `Batch in production since ${fmtDate(traceData.order.started_at)}.`
+          : 'Batch ordered, pending production start.'
+        const s3 = activeR
+          ? `Required: manage recall and notify all affected distributors (${traceData.sales.length} shipment${traceData.sales.length !== 1 ? 's' : ''} recorded).`
+          : latestQc?.status === 'fail'
+          ? 'Quality inspection failed. Review findings and initiate corrective action before further distribution.'
+          : latestQc?.status === 'hold'
+          ? 'Batch on QC hold — clearance required before release.'
+          : null
+        return (
+          <div className="mb-5 rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC]/60 dark:bg-[#1a2530]/50 px-4 py-3.5">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">Batch Summary</p>
+              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${RISK_B[risk]}`}>
+                {risk} risk
+              </span>
+            </div>
+            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{s1} {s2}</p>
+            {s3 && <p className="mt-1 text-sm font-medium text-gray-700 dark:text-gray-300 leading-relaxed">{s3}</p>}
+          </div>
+        )
+      })()}
 
       {/* Timeline — primary feature, full width */}
       <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
