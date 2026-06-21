@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import { useAuth, useRole } from '../lib/auth-context'
 import { useT, fmtNum } from '../lib/i18n'
@@ -487,13 +487,21 @@ function RecallCreateModal({ onClose, onSave, saving }: {
 
 function RecallRegistry() {
   const { user, companyId } = useAuth()
-  const role    = useRole()
-  const toast   = useToast()
-  const confirm = useConfirm()
-  const router  = useRouter()
+  const role         = useRole()
+  const toast        = useToast()
+  const confirm      = useConfirm()
+  const router       = useRouter()
+  const searchParams = useSearchParams()
+  const highlightId  = searchParams.get('id')
   const canEditRecall = canEdit(role, 'recall')
 
   const { recalls, stats, loading, error, refresh, createRecall, updateStatus, deleteRecall } = useRecalls()
+
+  useEffect(() => {
+    if (!highlightId || loading) return
+    const el = document.getElementById(`recall-${highlightId}`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [highlightId, loading])
 
   const [showCreate, setShowCreate] = useState(false)
   const [saving,     setSaving]     = useState(false)
@@ -650,7 +658,15 @@ function RecallRegistry() {
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-[#B3B7BA]/[0.07]">
                 {recalls.map(recall => (
-                  <tr key={recall.id} className="hover:bg-blue-50/40 dark:hover:bg-blue-900/10 transition-colors">
+                  <tr
+                    key={recall.id}
+                    id={`recall-${recall.id}`}
+                    className={`transition-colors ${
+                      highlightId === recall.id
+                        ? 'bg-red-50/60 dark:bg-red-900/15 ring-1 ring-inset ring-red-200 dark:ring-red-800'
+                        : 'hover:bg-blue-50/40 dark:hover:bg-blue-900/10'
+                    }`}
+                  >
                     <td className="px-5 py-3.5 font-mono text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
                       {recall.recall_number ?? `#${recall.id.slice(0, 8)}`}
                     </td>

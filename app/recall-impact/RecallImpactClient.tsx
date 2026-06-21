@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import { useAuth, useRole } from '../lib/auth-context'
 import { canEdit } from '../lib/permissions'
@@ -393,6 +394,7 @@ export default function RecallImpactClient() {
   const role          = useRole()
   const toast         = useToast()
   const canCreate     = canEdit(role, 'recall')
+  const urlParams     = useSearchParams()
 
   const [searchType, setSearchType] = useState<SearchType>('lot')
   const [query,      setQuery]      = useState('')
@@ -400,6 +402,36 @@ export default function RecallImpactClient() {
   const [result,     setResult]     = useState<ImpactResult | null>(null)
   const [searched,   setSearched]   = useState(false)
   const [showModal,  setShowModal]  = useState(false)
+
+  async function runSearch(type: SearchType, q: string) {
+    if (!q.trim()) return
+    setLoading(true)
+    setResult(null)
+    setSearched(false)
+
+    const params: Record<string, unknown> = {}
+    if (type === 'lot')      params.p_lot_number    = q.trim()
+    if (type === 'material') params.p_material_name = q.trim()
+    if (type === 'batch')    params.p_batch_id      = q.trim()
+
+    const { data, error } = await supabase.rpc('get_recall_impact', params)
+    setLoading(false)
+    setSearched(true)
+    if (error) { toast.error('Search failed'); return }
+    setResult(data as ImpactResult)
+  }
+
+  useEffect(() => {
+    const type  = (urlParams.get('type') ?? '') as SearchType
+    const q     = urlParams.get('q') ?? ''
+    const valid: SearchType[] = ['lot', 'material', 'batch']
+    if (q && valid.includes(type)) {
+      setSearchType(type)
+      setQuery(q)
+      runSearch(type, q)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault()

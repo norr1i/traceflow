@@ -86,11 +86,12 @@ type CapaRecord = {
   closed_at:  string | null
 }
 type RecallRecord = {
-  id:         string
-  title:      string
-  status:     string
-  created_at: string
-  closed_at:  string | null
+  id:            string
+  title:         string
+  status:        string
+  created_at:    string
+  closed_at:     string | null
+  recall_number: string | null
 }
 type DistributionRecord = {
   id:               string
@@ -487,7 +488,7 @@ function synthesizeEvents(
       title:           'Recall Initiated',
       description:     recall.title,
       source_table:    'recalls',
-      metadata:        { recall_id: recall.id, status: recall.status },
+      metadata:        { recall_id: recall.id, recall_number: recall.recall_number ?? null, batch_id: order.id, status: recall.status },
     })
     if (recall.closed_at) {
       out.push({
@@ -496,7 +497,7 @@ function synthesizeEvents(
         title:           'Recall Closed',
         description:     `${recall.title} — resolved.`,
         source_table:    'recalls',
-        metadata:        { recall_id: recall.id },
+        metadata:        { recall_id: recall.id, recall_number: recall.recall_number ?? null, batch_id: order.id },
       })
     }
   }
@@ -865,10 +866,17 @@ function TimelineEvent({ event, isLast }: { event: JourneyEvent; isLast: boolean
   const actor    = extractActor(event.metadata)
   const { Icon, iconBg, iconColor, borderAccent, dotBg } = cat
 
-  const isRecall = event.event_type.startsWith('recall.')
-  const isCapa   = event.event_type.startsWith('capa.')
-  const recallId = isRecall ? (event.metadata?.recall_id as string | undefined) ?? null : null
-  const capaId   = isCapa   ? (event.metadata?.capa_id   as string | undefined) ?? null : null
+  const isRecall      = event.event_type.startsWith('recall.')
+  const isCapa        = event.event_type.startsWith('capa.')
+  const recallId      = isRecall ? (event.metadata?.recall_id      as string | undefined) ?? null : null
+  const recallNumber  = isRecall ? (event.metadata?.recall_number  as string | undefined) ?? null : null
+  const batchId       = isRecall ? (event.metadata?.batch_id       as string | undefined) ?? null : null
+  const capaId        = isCapa   ? (event.metadata?.capa_id        as string | undefined) ?? null : null
+
+  const hasRecallNav  = recallId !== null
+  const hasImpactNav  = batchId !== null
+  const recallHref    = hasRecallNav ? `/recall?id=${recallId}` : '/recall'
+  const impactHref    = hasImpactNav ? `/recall-impact?type=batch&q=${encodeURIComponent(batchId)}` : '/recall-impact'
 
   return (
     <div className="flex gap-3 group">
@@ -893,15 +901,24 @@ function TimelineEvent({ event, isLast }: { event: JourneyEvent; isLast: boolean
             </span>
           )}
         </div>
-        {(recallId || capaId) && (
+        {(isRecall || capaId) && (
           <div className="mt-2.5 flex flex-wrap gap-1.5">
-            {recallId && (
-              <Link
-                href={`/recall/${recallId}`}
-                className="inline-flex items-center gap-1 rounded-md border border-red-200 dark:border-red-700/60 bg-red-50 dark:bg-red-900/20 px-2 py-1 text-[10px] font-semibold text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
-              >
-                <AlertTriangle size={9} />View Recall
-              </Link>
+            {isRecall && (
+              hasRecallNav ? (
+                <Link
+                  href={recallHref}
+                  className="inline-flex items-center gap-1 rounded-md border border-red-200 dark:border-red-700/60 bg-red-50 dark:bg-red-900/20 px-2 py-1 text-[10px] font-semibold text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                >
+                  <AlertTriangle size={9} />View Recall{recallNumber ? ` ${recallNumber}` : ''}
+                </Link>
+              ) : (
+                <span
+                  title="Recall ID not available"
+                  className="inline-flex items-center gap-1 rounded-md border border-red-100 dark:border-red-900/40 bg-red-50/50 dark:bg-red-900/10 px-2 py-1 text-[10px] font-semibold text-red-300 dark:text-red-700 cursor-not-allowed"
+                >
+                  <AlertTriangle size={9} />View Recall
+                </span>
+              )
             )}
             {capaId && (
               <Link
@@ -911,13 +928,22 @@ function TimelineEvent({ event, isLast }: { event: JourneyEvent; isLast: boolean
                 <FileWarning size={9} />View CAPA
               </Link>
             )}
-            {recallId && (
-              <Link
-                href="/recall-impact"
-                className="inline-flex items-center gap-1 rounded-md border border-amber-200 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 text-[10px] font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
-              >
-                <Network size={9} />View Impact Analysis
-              </Link>
+            {isRecall && (
+              hasImpactNav ? (
+                <Link
+                  href={impactHref}
+                  className="inline-flex items-center gap-1 rounded-md border border-amber-200 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 text-[10px] font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
+                >
+                  <Network size={9} />View Impact Analysis
+                </Link>
+              ) : (
+                <span
+                  title="Batch ID not available for impact analysis"
+                  className="inline-flex items-center gap-1 rounded-md border border-amber-100 dark:border-amber-900/40 bg-amber-50/50 dark:bg-amber-900/10 px-2 py-1 text-[10px] font-semibold text-amber-300 dark:text-amber-700 cursor-not-allowed"
+                >
+                  <Network size={9} />View Impact Analysis
+                </span>
+              )
             )}
           </div>
         )}
@@ -1314,7 +1340,7 @@ export default function ProductJourneyDetailClient() {
       supabase.rpc('get_batch_trace',   { p_batch_id: id }).single(),
       supabase.rpc('get_batch_journey', { p_batch_id: id }).single(),
       supabase.from('capas').select('id, title, status, created_at, closed_at').eq('batch_id', id),
-      supabase.from('recalls').select('id, title, status, created_at, closed_at').eq('batch_id', id),
+      supabase.from('recalls').select('id, title, status, created_at, closed_at, recall_number').eq('batch_id', id),
       supabase
         .from('bill_of_materials')
         .select('id, material_name, lot_number, quantity, unit, created_at, raw_material_lots(id, lot_number, received_at, status, suppliers(name))')
