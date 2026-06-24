@@ -385,7 +385,7 @@
     "affected_batches": "Affected Batches",
     "affected_products": "Affected Products",
     "failed_qc": "Failed QC",
-    "sale_records": "Sale Records",
+    "sale_records": "Shipment Records",
     "lineage_graph": "Batch Lineage Graph",
     "first_n_of": "Showing first 30 of {{total}}",
     "export_csv": "Export CSV",

@@ -35,11 +35,10 @@ type Material = {
   unit: string
 }
 
-type SaleEntry = {
-  customer_name: string | null
-  quantity: number
-  total_price: number
-  sold_at: string
+type DistributionEntry = {
+  recipient_name:   string | null
+  quantity_shipped: number
+  shipped_at:       string
 }
 
 type RecallBatch = {
@@ -54,7 +53,7 @@ type RecallBatch = {
   completed_at: string | null
   qc_results: QcEntry[]
   materials: Material[]
-  sales: SaleEntry[]
+  shipments: DistributionEntry[]
   scan_count: number
 }
 
@@ -316,7 +315,7 @@ function exportToCSV(batches: RecallBatch[]) {
   const cols = [
     'Batch ID', 'Product', 'SKU', 'Quantity', 'Status',
     'Latest QC', 'QC Inspector', 'Materials',
-    'Sale Records', 'Scan Count', 'Created At', 'Completed At',
+    'Shipment Records', 'Scan Count', 'Created At', 'Completed At',
   ]
   const rows = batches.map(b => {
     const qc = b.qc_results[0]
@@ -329,7 +328,7 @@ function exportToCSV(batches: RecallBatch[]) {
       qc?.status ?? '',
       qc?.inspector_name ?? '',
       b.materials.map(m => `${m.material_name}${m.lot_number ? `(lot:${m.lot_number})` : ''}`).join('; '),
-      b.sales.length,
+      b.shipments.length,
       b.scan_count,
       b.created_at,
       b.completed_at ?? '',
@@ -739,15 +738,15 @@ export default function RecallClient() {
   const summary = useMemo(() => {
     if (!batches) return null
     return {
-      totalBatches:   batches.length,
-      uniqueProducts: new Set(batches.map(b => b.product_id)).size,
-      failedQc:       batches.filter(b => b.qc_results.some(q => q.status === 'fail')).length,
-      totalSales:     batches.reduce((s, b) => s + b.sales.length, 0),
+      totalBatches:    batches.length,
+      uniqueProducts:  new Set(batches.map(b => b.product_id)).size,
+      failedQc:        batches.filter(b => b.qc_results.some(q => q.status === 'fail')).length,
+      totalShipments:  batches.reduce((s, b) => s + b.shipments.length, 0),
     }
   }, [batches])
 
   const highRiskBatches = useMemo(
-    () => (batches ?? []).filter(b => b.qc_results.some(q => q.status === 'fail') && b.sales.length > 0),
+    () => (batches ?? []).filter(b => b.qc_results.some(q => q.status === 'fail') && b.shipments.length > 0),
     [batches],
   )
 
@@ -816,7 +815,21 @@ export default function RecallClient() {
         return
       }
 
-      const productIds = [...new Set(orders.map(o => o.product_id as string))]
+      // Resolve batches.id for distribution join.
+      // distribution_records.batch_id → batches.id (not production_orders.id).
+      // Mirrors the v_dist_batch_ids resolution inside get_recall_impact() RPC.
+      const { data: batchRows } = await supabase
+        .from('batches')
+        .select('id, production_order_id')
+        .in('production_order_id', batchIds)
+        .eq('company_id', companyId)
+
+      const distBatchIds = (batchRows ?? []).map(b => b.id as string)
+
+      // Reverse map: batch_id → production_order_id (used in assembly to group shipments by order)
+      const batchToPoId = new Map<string, string>(
+        (batchRows ?? []).map(b => [b.id as string, b.production_order_id as string])
+      )
 
       // ── Step 3: parallel fetch of related data ──────────────────────────
 
@@ -824,7 +837,7 @@ export default function RecallClient() {
         { data: qcData },
         { data: matData },
         { data: scanData },
-        { data: salesData },
+        { data: distData },
       ] = await Promise.all([
         supabase
           .from('batch_qc_results')
@@ -839,12 +852,19 @@ export default function RecallClient() {
           .from('scan_events')
           .select('batch_id')
           .in('batch_id', batchIds),
-        supabase
-          .from('sales')
-          .select('customer_name, quantity, total_price, sold_at, product_id')
-          .in('product_id', productIds)
-          .order('sold_at', { ascending: false })
-          .limit(500),
+        distBatchIds.length > 0
+          ? supabase
+              .from('distribution_records')
+              .select('batch_id, recipient_name, quantity_shipped, shipped_at')
+              .in('batch_id', distBatchIds)
+              .eq('company_id', companyId)
+              .order('shipped_at', { ascending: false })
+          : Promise.resolve({ data: [] as Array<{
+              batch_id: string
+              recipient_name: string | null
+              quantity_shipped: number
+              shipped_at: string
+            }> }),
       ])
 
       // ── Step 4: lineage edges (table may not exist yet) ─────────────────
@@ -883,13 +903,12 @@ export default function RecallClient() {
             quantity:      m.quantity,
             unit:          m.unit,
           })),
-        sales: (salesData ?? [])
-          .filter(s => s.product_id === o.product_id)
-          .map(s => ({
-            customer_name: s.customer_name ?? null,
-            quantity:      s.quantity,
-            total_price:   s.total_price,
-            sold_at:       s.sold_at,
+        shipments: (distData ?? [])
+          .filter(d => batchToPoId.get(d.batch_id) === o.id)
+          .map(d => ({
+            recipient_name:   d.recipient_name ?? null,
+            quantity_shipped: d.quantity_shipped,
+            shipped_at:       d.shipped_at,
           })),
         scan_count: (scanData ?? []).filter(s => s.batch_id === o.id).length,
       }))
@@ -1028,7 +1047,7 @@ export default function RecallClient() {
             },
             {
               label: t('recall.sale_records'),
-              value: fmtNum(summary.totalSales, lang),
+              value: fmtNum(summary.totalShipments, lang),
               icon: <ShoppingCart size={16} />,
               color: 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400',
             },
@@ -1087,7 +1106,7 @@ export default function RecallClient() {
             {batches.map(batch => {
               const latestQc  = batch.qc_results[0]
               const isExpanded = expandedId === batch.id
-              const hasRisk   = batch.qc_results.some(q => q.status === 'fail') && batch.sales.length > 0
+              const hasRisk   = batch.qc_results.some(q => q.status === 'fail') && batch.shipments.length > 0
 
               return (
                 <div key={batch.id}>
@@ -1195,26 +1214,26 @@ export default function RecallClient() {
                       {/* Distribution */}
                       <div>
                         <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                          <ShoppingCart size={12} /> {t('recall.distribution_section')} ({fmtNum(batch.sales.length, lang)})
+                          <ShoppingCart size={12} /> {t('recall.distribution_section')} ({fmtNum(batch.shipments.length, lang)})
                         </h3>
-                        {batch.sales.length === 0
+                        {batch.shipments.length === 0
                           ? <p className="text-xs italic text-gray-400">{t('recall.no_distribution')}</p>
                           : (
                             <div className="space-y-1">
-                              {batch.sales.slice(0, 8).map((s, i) => (
+                              {batch.shipments.slice(0, 8).map((d, i) => (
                                 <div key={i} className="flex items-center justify-between gap-3 text-xs">
                                   <span className="font-medium text-gray-900 dark:text-white">
-                                    {s.customer_name ?? t('common.customer')}
+                                    {d.recipient_name ?? t('common.customer')}
                                   </span>
-                                  <span className="text-gray-400">{fmt(s.sold_at, locale)}</span>
+                                  <span className="text-gray-400">{fmt(d.shipped_at, locale)}</span>
                                   <span className="font-medium text-gray-700 dark:text-gray-300">
-                                    {fmtNum(s.quantity, lang)} {t('recall.units')}
+                                    {fmtNum(d.quantity_shipped, lang)} {t('recall.units')}
                                   </span>
                                 </div>
                               ))}
-                              {batch.sales.length > 8 && (
+                              {batch.shipments.length > 8 && (
                                 <p className="text-[10px] text-gray-400">
-                                  {t('recall.more_records', { n: fmtNum(batch.sales.length - 8, lang) })}
+                                  {t('recall.more_records', { n: fmtNum(batch.shipments.length - 8, lang) })}
                                 </p>
                               )}
                             </div>

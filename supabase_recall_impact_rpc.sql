@@ -59,8 +59,9 @@ DECLARE
   v_products        jsonb;
   v_batches         jsonb;
   v_distribution    jsonb;
-  v_total_units     bigint  := 0;
-  v_has_recall      boolean := false;
+  v_total_units       bigint  := 0;
+  v_unique_recipients bigint  := 0;
+  v_has_recall        boolean := false;
 BEGIN
   -- ── Step 1: resolve via session (normal authenticated path) ──────
   v_company_id := get_my_company_id();
@@ -142,6 +143,7 @@ BEGIN
       'total_batches',         0,
       'total_products',        0,
       'total_distributors',    0,
+      'total_shipments',       0,
       'risk_level',            'none',
       'has_open_recall',       false
     );
@@ -179,27 +181,41 @@ BEGIN
   WHERE po.id         = ANY(v_batch_ids)
     AND po.company_id = v_company_id;
 
-  -- ── Affected products (SUM in subquery to avoid nested aggregates)
+  -- ── Affected products — produced_units (made) vs distributed_units (in field)
+  -- produced_units  = SUM(production_orders.quantity)  — total manufactured
+  -- distributed_units = SUM(distribution_records.quantity_shipped) per product
+  -- These are intentionally different: produced − distributed = still in facility
   SELECT COALESCE(
     jsonb_agg(
       jsonb_build_object(
-        'product_name',   sub.product_name,
-        'sku',            sub.sku,
-        'affected_units', sub.affected_units,
-        'batch_count',    sub.batch_count
-      ) ORDER BY sub.affected_units DESC
+        'product_name',      sub.product_name,
+        'sku',               sub.sku,
+        'produced_units',    sub.produced_units,
+        'distributed_units', sub.distributed_units,
+        'batch_count',       sub.batch_count
+      ) ORDER BY sub.distributed_units DESC
     ),
     '[]'::jsonb
   )
   INTO v_products
   FROM (
     SELECT
-      p.name               AS product_name,
-      p.sku                AS sku,
-      SUM(po.quantity)::bigint AS affected_units,
-      COUNT(po.id)         AS batch_count
+      p.name                                  AS product_name,
+      p.sku                                   AS sku,
+      SUM(po.quantity)::bigint                AS produced_units,
+      COALESCE(SUM(dist.shipped), 0)::bigint  AS distributed_units,
+      COUNT(DISTINCT po.id)                   AS batch_count
     FROM  production_orders po
-    JOIN  products          p  ON p.id = po.product_id
+    JOIN  products          p    ON p.id = po.product_id
+    LEFT  JOIN (
+      -- Pre-aggregate distributed qty per production order to avoid fan-out
+      SELECT b.production_order_id, SUM(d.quantity_shipped) AS shipped
+      FROM   distribution_records d
+      JOIN   batches              b ON b.id = d.batch_id
+      WHERE  d.batch_id   = ANY(v_dist_batch_ids)
+        AND  d.company_id = v_company_id
+      GROUP  BY b.production_order_id
+    ) dist ON dist.production_order_id = po.id
     WHERE po.id         = ANY(v_batch_ids)
       AND po.company_id = v_company_id
     GROUP BY p.id, p.name, p.sku
@@ -237,6 +253,13 @@ BEGIN
   WHERE  dr.company_id = v_company_id
     AND  dr.batch_id   = ANY(v_dist_batch_ids);
 
+  -- Unique recipients to notify (distinct names, not shipment row count)
+  SELECT COALESCE(COUNT(DISTINCT dr.recipient_name), 0)
+  INTO   v_unique_recipients
+  FROM   distribution_records dr
+  WHERE  dr.company_id = v_company_id
+    AND  dr.batch_id   = ANY(v_dist_batch_ids);
+
   -- ── Open recall check ────────────────────────────────────────────
   SELECT EXISTS(
     SELECT 1 FROM recalls
@@ -253,7 +276,8 @@ BEGIN
     'total_affected_units',  v_total_units,
     'total_batches',         jsonb_array_length(v_batches),
     'total_products',        jsonb_array_length(v_products),
-    'total_distributors',    jsonb_array_length(v_distribution),
+    'total_distributors',    v_unique_recipients,
+    'total_shipments',       jsonb_array_length(v_distribution),
     'risk_level',            CASE
                                WHEN v_has_recall AND v_total_units > 0 THEN 'critical'
                                WHEN v_has_recall                       THEN 'high'

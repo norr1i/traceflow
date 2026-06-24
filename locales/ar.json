@@ -382,7 +382,7 @@
     "affected_batches": "الدُفعات المتضررة",
     "affected_products": "المنتجات المتضررة",
     "failed_qc": "دُفعات فاشلة في الجودة",
-    "sale_records": "سجلات البيع",
+    "sale_records": "سجلات الشحنات",
     "lineage_graph": "مخطط سلسلة الدُفعات",
     "first_n_of": "عرض أول 30 من {{total}}",
     "export_csv": "تصدير CSV",

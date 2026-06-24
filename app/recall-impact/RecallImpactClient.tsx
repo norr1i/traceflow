@@ -15,10 +15,11 @@ import {
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type AffectedProduct = {
-  product_name:   string
-  sku:            string
-  affected_units: number
-  batch_count:    number
+  product_name:      string
+  sku:               string
+  produced_units:    number
+  distributed_units: number
+  batch_count:       number
 }
 
 type AffectedBatch = {
@@ -48,6 +49,7 @@ type ImpactResult = {
   total_batches:         number
   total_products:        number
   total_distributors:    number
+  total_shipments:       number
   risk_level:            'none' | 'low' | 'medium' | 'high' | 'critical'
   has_open_recall:       boolean
 }
@@ -130,9 +132,9 @@ function exportCSV(result: ImpactResult, query: string, searchType: SearchType) 
   rows.push([`Generated: ${new Date().toLocaleString()}`])
   rows.push([])
   rows.push(['AFFECTED PRODUCTS'])
-  rows.push(['Product Name', 'SKU', 'Affected Units', 'Batch Count'])
+  rows.push(['Product Name', 'SKU', 'Produced Units', 'Distributed (In Field)', 'Batch Count'])
   result.affected_products.forEach(p =>
-    rows.push([p.product_name, p.sku, String(p.affected_units), String(p.batch_count)])
+    rows.push([p.product_name, p.sku, String(p.produced_units), String(p.distributed_units), String(p.batch_count)])
   )
   rows.push([])
   rows.push(['AFFECTED BATCHES'])
@@ -154,7 +156,8 @@ function exportCSV(result: ImpactResult, query: string, searchType: SearchType) 
   rows.push(['Total Products',          String(result.total_products)])
   rows.push(['Total Batches',           String(result.total_batches)])
   rows.push(['Total Distributed Units', String(result.total_affected_units)])
-  rows.push(['Total Distributors',      String(result.total_distributors)])
+  rows.push(['Total Recipients',        String(result.total_distributors)])
+  rows.push(['Total Shipment Records',  String(result.total_shipments)])
   rows.push(['Risk Level',              result.risk_level.toUpperCase()])
   rows.push(['Active Recall',           result.has_open_recall ? 'YES' : 'No'])
 
@@ -182,6 +185,7 @@ function exportJSON(result: ImpactResult, query: string, searchType: SearchType)
       total_batches:         result.total_batches,
       total_affected_units:  result.total_affected_units,
       total_distributors:    result.total_distributors,
+      total_shipments:       result.total_shipments,
     },
     affected_products:     result.affected_products,
     affected_batches:      result.affected_batches,
@@ -520,7 +524,7 @@ export default function RecallImpactClient() {
               <p className={`mt-0.5 text-xs ${risk!.text} opacity-80`}>
                 {result.total_batches} batch{result.total_batches !== 1 ? 'es' : ''} affected
                 {result.total_affected_units > 0 && ` · ${result.total_affected_units.toLocaleString()} units distributed`}
-                {result.total_distributors   > 0 && ` · ${result.total_distributors} distributor${result.total_distributors !== 1 ? 's' : ''}`}
+                {result.total_distributors   > 0 && ` · ${result.total_distributors} recipient${result.total_distributors !== 1 ? 's' : ''} · ${result.total_shipments} shipment${result.total_shipments !== 1 ? 's' : ''}`}
                 {result.has_open_recall && ' · ACTIVE RECALL IN PROGRESS'}
               </p>
             </div>
@@ -590,12 +594,22 @@ export default function RecallImpactClient() {
           {/* Action row */}
           <div className="flex flex-wrap gap-2 print:hidden">
             {canCreate && (
-              <button
-                onClick={() => setShowModal(true)}
-                className="flex items-center gap-1.5 rounded-xl bg-red-600 hover:bg-red-700 px-4 py-2 text-sm font-semibold text-white transition-colors"
-              >
-                <Plus size={14} /> Create Recall
-              </button>
+              result.affected_batches.length > 1 ? (
+                <div className="flex items-center gap-2 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 px-4 py-2 text-xs text-amber-700 dark:text-amber-400">
+                  <AlertTriangle size={13} className="shrink-0" />
+                  <span>
+                    <strong>{result.affected_batches.length} batches affected.</strong>{' '}
+                    Search by individual Batch ID to create a targeted recall.
+                  </span>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowModal(true)}
+                  className="flex items-center gap-1.5 rounded-xl bg-red-600 hover:bg-red-700 px-4 py-2 text-sm font-semibold text-white transition-colors"
+                >
+                  <Plus size={14} /> Create Recall
+                </button>
+              )
             )}
             <button
               onClick={() => exportCSV(result, query, searchType)}
@@ -629,7 +643,8 @@ export default function RecallImpactClient() {
                         <th className="pb-2 text-left font-medium">Product Name</th>
                         <th className="pb-2 text-left font-medium">SKU</th>
                         <th className="pb-2 text-right font-medium">Batch Count</th>
-                        <th className="pb-2 text-right font-medium">Affected Units</th>
+                        <th className="pb-2 text-right font-medium">Produced</th>
+                        <th className="pb-2 text-right font-medium">In Field</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
@@ -638,9 +653,8 @@ export default function RecallImpactClient() {
                           <td className="py-2.5 font-medium text-gray-900 dark:text-white">{p.product_name}</td>
                           <td className="py-2.5 font-mono text-xs text-gray-500 dark:text-gray-400">{p.sku}</td>
                           <td className="py-2.5 text-right text-gray-700 dark:text-gray-300">{p.batch_count}</td>
-                          <td className="py-2.5 text-right font-semibold text-gray-900 dark:text-white">
-                            {p.affected_units.toLocaleString()}
-                          </td>
+                          <td className="py-2.5 text-right text-gray-500 dark:text-gray-400">{p.produced_units.toLocaleString()}</td>
+                          <td className="py-2.5 text-right font-semibold text-gray-900 dark:text-white">{p.distributed_units.toLocaleString()}</td>
                         </tr>
                       ))}
                     </tbody>
