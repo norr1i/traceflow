@@ -43,9 +43,10 @@
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION get_recall_impact(
-  p_lot_number    text DEFAULT NULL,
-  p_material_name text DEFAULT NULL,
-  p_batch_id      uuid DEFAULT NULL
+  p_lot_number          text DEFAULT NULL,
+  p_material_name       text DEFAULT NULL,
+  p_batch_id            uuid DEFAULT NULL,
+  p_raw_material_lot_id uuid DEFAULT NULL   -- exact FK match; takes priority over p_lot_number
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -73,6 +74,13 @@ BEGIN
       INTO   v_company_id
       FROM   production_orders
       WHERE  id = p_batch_id
+      LIMIT  1;
+
+    ELSIF p_raw_material_lot_id IS NOT NULL THEN
+      SELECT rml.company_id
+      INTO   v_company_id
+      FROM   raw_material_lots rml
+      WHERE  rml.id = p_raw_material_lot_id
       LIMIT  1;
 
     ELSIF p_lot_number IS NOT NULL THEN
@@ -103,7 +111,14 @@ BEGIN
   IF v_company_id IS NULL THEN RETURN NULL; END IF;
 
   -- ── Resolve batch IDs (production_orders.id) ─────────────────────
-  IF p_batch_id IS NOT NULL THEN
+  IF p_raw_material_lot_id IS NOT NULL THEN
+    SELECT ARRAY_AGG(DISTINCT bom.production_order_id)
+    INTO   v_batch_ids
+    FROM   bill_of_materials bom
+    WHERE  bom.company_id          = v_company_id
+      AND  bom.raw_material_lot_id  = p_raw_material_lot_id;
+
+  ELSIF p_batch_id IS NOT NULL THEN
     SELECT ARRAY_AGG(DISTINCT id)
     INTO   v_batch_ids
     FROM   production_orders

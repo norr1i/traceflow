@@ -1582,79 +1582,82 @@ export default function ProductJourneyDetailClient() {
         return
       }
 
-      // Determine the most precise matching strategy available.
-      //   Priority 1 — raw_material_lot_id: exact lot FK — single-lot scope
-      //   Priority 2 — lot_number text: still lot-specific but cross-check needed
-      //   Priority 3 — material_name: broadest; may include unrelated supplier lots
-      const rawLotIds    = [...new Set(materials.map(m => m.raw_material_lot_id).filter(Boolean))] as string[]
-      const lotNumbers   = [...new Set(materials.map(m => m.lot_number).filter(Boolean))]         as string[]
-      const materialNames = [...new Set(materials.map(m => m.material_name))]
-
-      let matchMode: 'lot_id' | 'lot_number' | 'material_name'
-      let impactRows: any[] | null = null
-
-      if (rawLotIds.length > 0) {
-        matchMode = 'lot_id'
-        const { data } = await supabase
-          .from('bill_of_materials')
-          .select('production_order_id, material_name, raw_material_lot_id, production_orders(id, status, created_at, products(name, sku))')
-          .in('raw_material_lot_id', rawLotIds)
-          .neq('production_order_id', id)
-          .limit(201)
-        impactRows = data
-      } else if (lotNumbers.length > 0) {
-        matchMode = 'lot_number'
-        const { data } = await supabase
-          .from('bill_of_materials')
-          .select('production_order_id, material_name, production_orders(id, status, created_at, products(name, sku))')
-          .in('lot_number', lotNumbers)
-          .neq('production_order_id', id)
-          .limit(201)
-        impactRows = data
-      } else {
-        matchMode = 'material_name'
-        const { data } = await supabase
-          .from('bill_of_materials')
-          .select('production_order_id, material_name, production_orders(id, status, created_at, products(name, sku))')
-          .in('material_name', materialNames)
-          .neq('production_order_id', id)
-          .limit(201)
-        impactRows = data
+      // Per-material RPC calls — uses the same get_recall_impact logic as the formal
+      // Recall Impact Analysis module, guaranteeing identical affected-batch sets.
+      // Each unique lot identifier gets one call; results are merged by material_name.
+      type LotCall = {
+        param:         Record<string, string>
+        materialNames: string[]
+        mode:          'lot_id' | 'lot_number' | 'material_name'
+      }
+      const callsByKey = new Map<string, LotCall>()
+      const addToCall = (key: string, call: LotCall, materialName: string) => {
+        if (!callsByKey.has(key)) callsByKey.set(key, call)
+        const entry = callsByKey.get(key)!
+        if (!entry.materialNames.includes(materialName)) entry.materialNames.push(materialName)
+      }
+      for (const m of materials) {
+        if (m.raw_material_lot_id) {
+          addToCall(`lot_id:${m.raw_material_lot_id}`, {
+            param: { p_raw_material_lot_id: m.raw_material_lot_id },
+            materialNames: [],
+            mode: 'lot_id',
+          }, m.material_name)
+        } else if (m.lot_number) {
+          addToCall(`lot_num:${m.lot_number}`, {
+            param: { p_lot_number: m.lot_number },
+            materialNames: [],
+            mode: 'lot_number',
+          }, m.material_name)
+        } else {
+          addToCall(`mat:${m.material_name}`, {
+            param: { p_material_name: m.material_name },
+            materialNames: [],
+            mode: 'material_name',
+          }, m.material_name)
+        }
       }
 
-      setImpactMatchMode(matchMode)
+      const calls   = Array.from(callsByKey.values())
+      const results = await Promise.all(calls.map(c => supabase.rpc('get_recall_impact', c.param)))
 
-      if (impactRows) {
-        const truncated = impactRows.length > 200
-        setImpactTruncated(truncated)
-        const rows = truncated ? impactRows.slice(0, 200) : impactRows
+      const modePriority = { lot_id: 0, lot_number: 1, material_name: 2 } as const
+      let worstMode: 'lot_id' | 'lot_number' | 'material_name' = 'lot_id'
+      const byMaterial: Record<string, AffectedBatch[]> = {}
 
-        const byMaterial: Record<string, AffectedBatch[]> = {}
-        for (const row of rows as any[]) {
-          const po   = Array.isArray(row.production_orders) ? row.production_orders[0] : row.production_orders
-          if (!po) continue
-          const prod = Array.isArray(po.products) ? po.products[0] : po.products
-          const batch: AffectedBatch = {
-            production_order_id: row.production_order_id,
-            product_name:        prod?.name ?? 'Unknown',
-            status:              po.status,
-            created_at:          po.created_at,
-          }
-          if (!byMaterial[row.material_name]) byMaterial[row.material_name] = []
-          if (!byMaterial[row.material_name].some(b => b.production_order_id === batch.production_order_id)) {
-            byMaterial[row.material_name].push(batch)
+      for (let i = 0; i < calls.length; i++) {
+        const call   = calls[i]
+        const impact = results[i].data as { affected_batches?: Array<{ batch_id: string; product_name: string; status: string; created_at: string }> } | null
+        if (!impact) continue
+        if (modePriority[call.mode] > modePriority[worstMode]) worstMode = call.mode
+
+        for (const b of impact.affected_batches ?? []) {
+          if (b.batch_id === id) continue  // exclude the batch we're viewing
+          for (const matName of call.materialNames) {
+            if (!byMaterial[matName]) byMaterial[matName] = []
+            if (!byMaterial[matName].some(x => x.production_order_id === b.batch_id)) {
+              byMaterial[matName].push({
+                production_order_id: b.batch_id,
+                product_name:        b.product_name,
+                status:              b.status,
+                created_at:          b.created_at,
+              })
+            }
           }
         }
-
-        setImpactData(
-          Object.entries(byMaterial).map(([material_name, affected_batches]) => ({
-            material_name,
-            affected_batches: affected_batches.sort(
-              (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-            ),
-          })),
-        )
       }
+
+      const uniqueCount = new Set(Object.values(byMaterial).flat().map(b => b.production_order_id)).size
+      setImpactMatchMode(worstMode)
+      setImpactTruncated(uniqueCount > 200)
+      setImpactData(
+        Object.entries(byMaterial).map(([material_name, affected_batches]) => ({
+          material_name,
+          affected_batches: affected_batches.slice(0, 200).sort(
+            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+          ),
+        })),
+      )
 
       setImpactLoading(false)
     })
