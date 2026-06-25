@@ -56,17 +56,19 @@ type JourneyEvent = {
   description:     string | null
   source_table:    string
   metadata:        Record<string, unknown> | null
+  synthesized?:    boolean
 }
 type EnrichedMaterial = {
-  id:            string
-  material_name: string
-  lot_number:    string | null
-  quantity:      number
-  unit:          string
-  supplier_name: string | null
-  received_at:   string | null
-  lot_status:    string | null
-  bom_created_at: string | null
+  id:                  string
+  material_name:       string
+  lot_number:          string | null
+  quantity:            number
+  unit:                string
+  supplier_name:       string | null
+  received_at:         string | null
+  lot_status:          string | null
+  bom_created_at:      string | null
+  raw_material_lot_id: string | null
 }
 type AffectedBatch = {
   production_order_id: string
@@ -206,6 +208,7 @@ function synthesizeSupplierEvents(materials: EnrichedMaterial[]): JourneyEvent[]
       description:     `${name} passed qualification audit. Materials cleared for production use.`,
       source_table:    'suppliers',
       metadata:        { supplier_name: name },
+      synthesized:     true,
     }))
   }
   // Fallback: lot join returns null for all existing BOM rows. Derive the
@@ -223,6 +226,7 @@ function synthesizeSupplierEvents(materials: EnrichedMaterial[]): JourneyEvent[]
     description:     'Material suppliers passed qualification audit. All materials cleared for production use.',
     source_table:    'suppliers',
     metadata:        null,
+    synthesized:     true,
   }]
 }
 
@@ -247,6 +251,7 @@ function synthesizeIncomingQcEvents(materials: EnrichedMaterial[]): JourneyEvent
     description:     `${dates.length} material lot${dates.length > 1 ? 's' : ''} inspected and cleared for production.`,
     source_table:    'raw_material_lots',
     metadata:        null,
+    synthesized:     true,
   }]
 }
 
@@ -266,6 +271,7 @@ function synthesizeStorageEvents(materials: EnrichedMaterial[]): JourneyEvent[] 
     description:     `${materials.length} material type${materials.length > 1 ? 's' : ''} placed in controlled raw materials storage pending production.`,
     source_table:    'raw_material_lots',
     metadata:        null,
+    synthesized:     true,
   }]
 }
 
@@ -281,6 +287,7 @@ function synthesizeWarehouseEvents(order: TraceOrder): JourneyEvent[] {
     description:     `${order.quantity.toLocaleString()} packaged units moved to finished goods storage awaiting dispatch.`,
     source_table:    'production_orders',
     metadata:        null,
+    synthesized:     true,
   }]
 }
 
@@ -299,6 +306,7 @@ function synthesizeDistributorEvents(
       description:     `${dr.quantity_shipped.toLocaleString()} units delivered to distribution point and inventoried.`,
       source_table:    'distribution_records',
       metadata:        dr.recipient_name ? { recipient_name: dr.recipient_name } : null,
+      synthesized:     true,
     }]
   }
   if (sales.length === 0) return []
@@ -312,6 +320,7 @@ function synthesizeDistributorEvents(
     description:     'Units received and inventoried at regional distribution center ahead of retail delivery.',
     source_table:    'sales',
     metadata:        null,
+    synthesized:     true,
   }]
 }
 
@@ -336,6 +345,7 @@ function synthesizeMarketEvents(sales: TraceSale[]): JourneyEvent[] {
         : 'Products live in retail and distribution channels.',
       source_table:    'sales',
       metadata:        customer ? { customer_name: customer } : null,
+      synthesized:     true,
     },
     {
       event_type:      'market.registered',
@@ -344,6 +354,7 @@ function synthesizeMarketEvents(sales: TraceSale[]): JourneyEvent[] {
       description:     'Product batch registered with market authorities and assigned a market registration number.',
       source_table:    'sales',
       metadata:        null,
+      synthesized:     true,
     },
     {
       event_type:      'market.surveillance_started',
@@ -352,6 +363,7 @@ function synthesizeMarketEvents(sales: TraceSale[]): JourneyEvent[] {
       description:     'Post-market surveillance programme activated. Product performance being monitored in distribution channels.',
       source_table:    'sales',
       metadata:        null,
+      synthesized:     true,
     },
   ]
 }
@@ -368,6 +380,7 @@ function synthesizeFinalQcEvents(order: TraceOrder): JourneyEvent[] {
     description:     'Finished products passed final quality inspection and were approved for packaging.',
     source_table:    'production_orders',
     metadata:        null,
+    synthesized:     true,
   }]
 }
 
@@ -384,6 +397,7 @@ function synthesizePackagingEvents(order: TraceOrder): JourneyEvent[] {
     description:     `${order.quantity.toLocaleString()} units packaged, labelled, and sealed for distribution.`,
     source_table:    'production_orders',
     metadata:        null,
+    synthesized:     true,
   }]
 }
 
@@ -934,6 +948,11 @@ function TimelineEvent({ event, isLast }: { event: JourneyEvent; isLast: boolean
         )}
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500 tabular-nums">{fmtDateTime(event.event_timestamp)}</span>
+          {event.synthesized && (
+            <span className="inline-flex items-center rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500" title="Timestamp estimated from production data — not a recorded event">
+              est.
+            </span>
+          )}
           {actor && (
             <span className="inline-flex items-center gap-1 rounded-md bg-gray-100 dark:bg-gray-700/60 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:text-gray-300">
               <User size={9} />{actor}
@@ -1058,8 +1077,8 @@ function TimelineSkeleton() {
 
 // ── Batch header ──────────────────────────────────────────────────────────────
 
-function BatchHeader({ order, qcResults, materials, sales, recalls }: {
-  order: TraceOrder; qcResults: TraceQc[]; materials: TraceMaterial[]; sales: TraceSale[]; recalls: RecallRecord[]
+function BatchHeader({ order, qcResults, materials, shipmentCount, recalls }: {
+  order: TraceOrder; qcResults: TraceQc[]; materials: TraceMaterial[]; shipmentCount: number; recalls: RecallRecord[]
 }) {
   const [copied, setCopied] = useState(false)
   const latestQc = [...qcResults].sort(
@@ -1079,9 +1098,9 @@ function BatchHeader({ order, qcResults, materials, sales, recalls }: {
   // Recall status overrides all other stage labels. A batch under active
   // field recall must never show "Shipped" — that hides a safety-critical event.
   const stageBadge = (() => {
-    if (activeRecall)                     return { label: 'Under Recall',         cls: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' }
-    if (resolvedRecall && sales.length > 0) return { label: 'Recall Resolved',   cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' }
-    if (sales.length > 0)                 return { label: 'Shipped',             cls: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400' }
+    if (activeRecall)                          return { label: 'Under Recall',       cls: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' }
+    if (resolvedRecall && shipmentCount > 0)   return { label: 'Recall Resolved',   cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' }
+    if (shipmentCount > 0)                     return { label: 'Shipped',           cls: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400' }
     if (latestQc?.status === 'pass')      return { label: 'Ready for Shipment',  cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' }
     if (qcResults.length > 0)            return { label: 'Quality Review',       cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' }
     if (order.started_at)                return { label: 'In Production',        cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' }
@@ -1134,12 +1153,12 @@ function BatchHeader({ order, qcResults, materials, sales, recalls }: {
             </span>
           </>
         )}
-        {sales.length > 0 && (
+        {shipmentCount > 0 && (
           <>
             <span className="select-none text-gray-300 dark:text-gray-600">·</span>
             <span className="inline-flex items-center gap-1.5">
               <Truck size={11} className="shrink-0 text-gray-400" />
-              {sales.length} {sales.length === 1 ? 'shipment' : 'shipments'}
+              {shipmentCount} {shipmentCount === 1 ? 'shipment' : 'shipments'}
             </span>
           </>
         )}
@@ -1221,7 +1240,14 @@ function MaterialsUsed({ materials }: { materials: EnrichedMaterial[] }) {
 
 // ── Impact analysis ───────────────────────────────────────────────────────────
 
-function ImpactAnalysis({ impacts, loading }: { impacts: MaterialImpact[]; loading: boolean }) {
+function ImpactAnalysis({
+  impacts, loading, truncated, matchMode,
+}: {
+  impacts:   MaterialImpact[]
+  loading:   boolean
+  truncated: boolean
+  matchMode: 'lot_id' | 'lot_number' | 'material_name'
+}) {
   const totalAffected = impacts.reduce((n, m) => n + m.affected_batches.length, 0)
 
   return (
@@ -1230,11 +1256,17 @@ function ImpactAnalysis({ impacts, loading }: { impacts: MaterialImpact[]; loadi
         <Network size={15} className="text-violet-500 dark:text-violet-400" />
         <div>
           <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Impact Analysis</h2>
-          <p className="text-[10px] text-gray-400 dark:text-gray-500">If a material is defective, which batches are affected?</p>
+          <p className="text-[10px] text-gray-400 dark:text-gray-500">
+            {matchMode === 'lot_id'
+              ? 'Scope: exact lot ID — precise recall boundary'
+              : matchMode === 'lot_number'
+              ? 'Scope: lot number match — verify across suppliers'
+              : 'Scope: material name — lot IDs unavailable, result may be over-inclusive'}
+          </p>
         </div>
         {!loading && totalAffected > 0 && (
           <span className="ml-auto rounded-full bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-400">
-            {totalAffected} batch{totalAffected !== 1 ? 'es' : ''} at risk
+            {totalAffected}{truncated ? '+' : ''} batch{totalAffected !== 1 ? 'es' : ''} at risk
           </span>
         )}
         {!loading && totalAffected === 0 && (
@@ -1245,6 +1277,14 @@ function ImpactAnalysis({ impacts, loading }: { impacts: MaterialImpact[]; loadi
       </div>
 
       <div className="px-4 py-4">
+        {truncated && !loading && (
+          <div className="mb-3 flex items-center gap-2 rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+            <AlertTriangle size={12} className="shrink-0" />
+            <span>
+              Result limited to 200 batches. Additional affected batches may exist — use Recall Impact Analysis for a complete scope.
+            </span>
+          </div>
+        )}
         {loading ? (
           <div className="space-y-3">
             {[70, 50, 80].map((w, i) => (
@@ -1418,6 +1458,9 @@ export default function ProductJourneyDetailClient() {
   const [impactData,        setImpactData]        = useState<MaterialImpact[]>([])
   const [impactLoading,     setImpactLoading]     = useState(true)
   const [showSysEvents,     setShowSysEvents]     = useState(false)
+  const [distRecords,       setDistRecords]       = useState<DistributionRecord[]>([])
+  const [impactTruncated,   setImpactTruncated]   = useState(false)
+  const [impactMatchMode,   setImpactMatchMode]   = useState<'lot_id' | 'lot_number' | 'material_name'>('material_name')
 
   useEffect(() => {
     if (!id) return
@@ -1458,15 +1501,16 @@ export default function ProductJourneyDetailClient() {
         const lots     = Array.isArray(row.raw_material_lots) ? row.raw_material_lots[0] : row.raw_material_lots
         const supplier = lots ? (Array.isArray(lots.suppliers) ? lots.suppliers[0] : lots.suppliers) : null
         return {
-          id:            row.id,
-          material_name: row.material_name,
-          lot_number:    row.lot_number ?? null,
-          quantity:      row.quantity,
-          unit:          row.unit,
-          supplier_name: supplier?.name ?? null,
-          received_at:    lots?.received_at ?? null,
-          lot_status:     lots?.status     ?? null,
-          bom_created_at: row.created_at   ?? null,
+          id:                  row.id,
+          material_name:       row.material_name,
+          lot_number:          row.lot_number ?? null,
+          quantity:            row.quantity,
+          unit:                row.unit,
+          supplier_name:       supplier?.name ?? null,
+          received_at:         lots?.received_at ?? null,
+          lot_status:          lots?.status     ?? null,
+          bom_created_at:      row.created_at   ?? null,
+          raw_material_lot_id: lots?.id          ?? null,
         }
       })
       setEnrichedMaterials(materials)
@@ -1499,6 +1543,7 @@ export default function ProductJourneyDetailClient() {
 
       const distributionRecords = (distResult.data ?? []) as DistributionRecord[]
       const batchEventRows      = (batchEvResult.data ?? []) as BatchEventRow[]
+      setDistRecords(distributionRecords)
 
       const jd = journeyRes.data as { timeline?: JourneyEvent[] } | null
       const rpcEvents: JourneyEvent[] = (jd?.timeline && Array.isArray(jd.timeline))
@@ -1532,22 +1577,60 @@ export default function ProductJourneyDetailClient() {
       setJourney(merged)
       setLoading(false)
 
-      const materialNames = [...new Set(materials.map(m => m.material_name))]
-      if (materialNames.length === 0) {
+      if (materials.length === 0) {
         setImpactLoading(false)
         return
       }
 
-      const { data: impactRows } = await supabase
-        .from('bill_of_materials')
-        .select('production_order_id, material_name, production_orders(id, status, created_at, products(name, sku))')
-        .in('material_name', materialNames)
-        .neq('production_order_id', id)
-        .limit(200)
+      // Determine the most precise matching strategy available.
+      //   Priority 1 — raw_material_lot_id: exact lot FK — single-lot scope
+      //   Priority 2 — lot_number text: still lot-specific but cross-check needed
+      //   Priority 3 — material_name: broadest; may include unrelated supplier lots
+      const rawLotIds    = [...new Set(materials.map(m => m.raw_material_lot_id).filter(Boolean))] as string[]
+      const lotNumbers   = [...new Set(materials.map(m => m.lot_number).filter(Boolean))]         as string[]
+      const materialNames = [...new Set(materials.map(m => m.material_name))]
+
+      let matchMode: 'lot_id' | 'lot_number' | 'material_name'
+      let impactRows: any[] | null = null
+
+      if (rawLotIds.length > 0) {
+        matchMode = 'lot_id'
+        const { data } = await supabase
+          .from('bill_of_materials')
+          .select('production_order_id, material_name, raw_material_lot_id, production_orders(id, status, created_at, products(name, sku))')
+          .in('raw_material_lot_id', rawLotIds)
+          .neq('production_order_id', id)
+          .limit(201)
+        impactRows = data
+      } else if (lotNumbers.length > 0) {
+        matchMode = 'lot_number'
+        const { data } = await supabase
+          .from('bill_of_materials')
+          .select('production_order_id, material_name, production_orders(id, status, created_at, products(name, sku))')
+          .in('lot_number', lotNumbers)
+          .neq('production_order_id', id)
+          .limit(201)
+        impactRows = data
+      } else {
+        matchMode = 'material_name'
+        const { data } = await supabase
+          .from('bill_of_materials')
+          .select('production_order_id, material_name, production_orders(id, status, created_at, products(name, sku))')
+          .in('material_name', materialNames)
+          .neq('production_order_id', id)
+          .limit(201)
+        impactRows = data
+      }
+
+      setImpactMatchMode(matchMode)
 
       if (impactRows) {
+        const truncated = impactRows.length > 200
+        setImpactTruncated(truncated)
+        const rows = truncated ? impactRows.slice(0, 200) : impactRows
+
         const byMaterial: Record<string, AffectedBatch[]> = {}
-        for (const row of impactRows as any[]) {
+        for (const row of rows as any[]) {
           const po   = Array.isArray(row.production_orders) ? row.production_orders[0] : row.production_orders
           if (!po) continue
           const prod = Array.isArray(po.products) ? po.products[0] : po.products
@@ -1635,7 +1718,7 @@ export default function ProductJourneyDetailClient() {
         order={traceData.order}
         qcResults={traceData.qc_results}
         materials={traceData.materials}
-        sales={traceData.sales}
+        shipmentCount={distRecords.length}
         recalls={recallRecords}
       />
 
@@ -1655,15 +1738,15 @@ export default function ProductJourneyDetailClient() {
         const s1 = `Production batch of ${traceData.order.quantity.toLocaleString()} units of ${traceData.order.product_name} (${traceData.order.sku}).`
         const s2 = activeR
           ? `An active recall (${activeR.recall_number ?? activeR.title}) is in progress for this batch.`
-          : traceData.order.status === 'completed' && traceData.sales.length > 0
-          ? `Batch shipped — ${traceData.sales.length} distribution record${traceData.sales.length !== 1 ? 's' : ''} on file.`
+          : traceData.order.status === 'completed' && distRecords.length > 0
+          ? `Batch shipped — ${distRecords.length} distribution record${distRecords.length !== 1 ? 's' : ''} on file.`
           : traceData.order.status === 'completed'
           ? 'Production complete. Awaiting distribution.'
           : traceData.order.started_at
           ? `Batch in production since ${fmtDate(traceData.order.started_at)}.`
           : 'Batch ordered, pending production start.'
         const s3 = activeR
-          ? `Required: manage recall and notify all affected distributors (${traceData.sales.length} shipment${traceData.sales.length !== 1 ? 's' : ''} recorded).`
+          ? `Required: manage recall and notify all affected distributors (${distRecords.length} shipment${distRecords.length !== 1 ? 's' : ''} recorded).`
           : latestQc?.status === 'fail'
           ? 'Quality inspection failed. Review findings and initiate corrective action before further distribution.'
           : latestQc?.status === 'hold'
@@ -1773,7 +1856,12 @@ export default function ProductJourneyDetailClient() {
 
       <MaterialsUsed materials={enrichedMaterials} />
       {enrichedMaterials.length > 0 && (
-        <ImpactAnalysis impacts={impactData} loading={impactLoading} />
+        <ImpactAnalysis
+          impacts={impactData}
+          loading={impactLoading}
+          truncated={impactTruncated}
+          matchMode={impactMatchMode}
+        />
       )}
       <RootCausePanel batchId={id} />
       <ProductStoryPanel batchId={id} />
