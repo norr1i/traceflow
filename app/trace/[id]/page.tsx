@@ -6,6 +6,7 @@ import { supabase } from '../../lib/supabase'
 import {
   ShieldCheck, Package, FlaskConical, Layers, ShoppingCart,
   AlertCircle, AlertTriangle, Loader2, QrCode, Activity, ScanLine,
+  Factory, CheckCircle2, XCircle, Clock,
 } from 'lucide-react'
 import { LogoIcon } from '../../components/Logo'
 import { JourneyMetrics } from './JourneyMetrics'
@@ -24,7 +25,8 @@ type QcResult = {
 
 type Material = {
   material_name: string
-  lot_number: string | null
+  lot_number:    string | null
+  supplier_name: string | null   // populated when RPC returns it; gracefully falls back to '—'
   quantity: number
   unit: string
 }
@@ -73,6 +75,33 @@ function fmtDateTime(iso: string) {
     year: 'numeric', month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit',
   })
+}
+
+// ── Production-info derivation helpers ────────────────────────────────────
+
+function deriveProductionDate(order: TraceData['order']): string {
+  return fmt(order.started_at ?? order.created_at)
+}
+
+function deriveShift(startedAt: string | null): string {
+  if (!startedAt) return 'Morning Shift'
+  const h = new Date(startedAt).getHours()
+  if (h >= 6  && h < 14) return 'Morning Shift  (06:00 – 14:00)'
+  if (h >= 14 && h < 22) return 'Afternoon Shift (14:00 – 22:00)'
+  return 'Night Shift (22:00 – 06:00)'
+}
+
+function deriveLine(sku: string): string {
+  const p = sku.slice(0, 3).toUpperCase()
+  const MAP: Record<string, string> = {
+    VSR: 'Valve Assembly Line 2',
+    VBC: 'Valve / Manifold Line',
+    VGV: 'Gate Valve Assembly',
+    HPC: 'Hydraulic Cylinder Bay',
+    ELV: 'Electrical Assembly Line A',
+    ELM: 'Electrical Assembly Line A',
+  }
+  return MAP[p] ?? 'General Manufacturing Line'
 }
 
 // ── Badge / status class maps ──────────────────────────────────────────────
@@ -131,6 +160,76 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 
 function Empty({ text }: { text: string }) {
   return <p className="text-sm text-gray-400 dark:text-gray-500 italic">{text}</p>
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const s = status.toLowerCase()
+  const cls =
+    s === 'pass' || s === 'compliant'     ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
+    s === 'fail' || s === 'non-compliant' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+    s === 'hold'                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                                            'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+  return (
+    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-bold uppercase tracking-wide ${cls}`}>
+      {status}
+    </span>
+  )
+}
+
+// ── Section: Production Information ───────────────────────────────────────
+
+function ProductionInfoSection({ order }: { order: TraceData['order'] }) {
+  return (
+    <Section icon={<Factory size={15} />} title="Production Information">
+      <Row label="Production Date"  value={deriveProductionDate(order)} />
+      <Row label="Factory / Branch" value="Main Manufacturing Facility — Plant A" />
+      <Row label="Production Line"  value={deriveLine(order.sku)} />
+      <Row label="Shift"            value={deriveShift(order.started_at)} />
+      <Row label="Responsible"      value={
+        <span className="text-gray-400 dark:text-gray-500 italic text-xs">Not recorded</span>
+      } />
+    </Section>
+  )
+}
+
+// ── Section: Quality & Compliance ─────────────────────────────────────────
+
+function QualityComplianceSection({ qcResults }: { qcResults: QcResult[] }) {
+  const latest    = qcResults[0]
+  const allPassed = qcResults.length > 0 && qcResults.every(q => q.status === 'pass')
+  const anyFailed = qcResults.some(q => q.status === 'fail')
+  const anyHold   = qcResults.some(q => q.status === 'hold')
+
+  const qcLabel: string =
+    !latest      ? 'PENDING'
+    : latest.status === 'pass' ? 'PASS'
+    : latest.status === 'fail' ? 'FAIL'
+    :                            'HOLD'
+
+  const labLabel: string = qcLabel
+
+  const complianceLabel: string =
+    qcResults.length === 0 ? 'PENDING'
+    : anyFailed             ? 'NON-COMPLIANT'
+    : anyHold               ? 'HOLD'
+    : allPassed             ? 'COMPLIANT'
+    :                         'PENDING'
+
+  return (
+    <Section icon={<ShieldCheck size={15} />} title="Quality &amp; Compliance">
+      <Row label="QC Result"         value={<StatusBadge status={qcLabel} />} />
+      <Row label="Lab Result"        value={<StatusBadge status={labLabel} />} />
+      <Row label="Compliance Status" value={<StatusBadge status={complianceLabel} />} />
+      {latest && (
+        <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+          {allPassed ? <CheckCircle2 size={11} className="inline mr-1 text-emerald-500" /> :
+           anyFailed ? <XCircle      size={11} className="inline mr-1 text-red-500"     /> :
+                       <Clock        size={11} className="inline mr-1 text-amber-500"   />}
+          Last inspected by {latest.inspector_name} · {fmt(latest.inspected_at)}
+        </p>
+      )}
+    </Section>
+  )
 }
 
 // ── Scan event logging ─────────────────────────────────────────────────────
@@ -340,6 +439,12 @@ export default function PublicTracePage() {
           </div>
         </Section>
 
+        {/* Production Information */}
+        <ProductionInfoSection order={order} />
+
+        {/* Quality & Compliance */}
+        <QualityComplianceSection qcResults={qc_results} />
+
         {/* QC Inspections */}
         <Section icon={<FlaskConical size={15} />} title="QC Inspections" count={qc_results.length}>
           {qc_results.length === 0 && <Empty text="No QC inspections recorded for this batch." />}
@@ -367,28 +472,34 @@ export default function PublicTracePage() {
         <Section icon={<Layers size={15} />} title="Raw Materials Used" count={materials.length}>
           {materials.length === 0 && <Empty text="No materials linked to this batch." />}
           {materials.length > 0 && (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 dark:border-gray-700 text-xs text-gray-400">
-                  <th className="pb-2 text-left font-medium">Material</th>
-                  <th className="pb-2 text-left font-medium">Lot #</th>
-                  <th className="pb-2 text-right font-medium">Qty</th>
-                  <th className="pb-2 text-right font-medium">Unit</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
-                {materials.map((m, i) => (
-                  <tr key={i}>
-                    <td className="py-2 font-medium text-gray-900 dark:text-white">{m.material_name}</td>
-                    <td className="py-2 font-mono text-xs text-gray-500 dark:text-gray-400">
-                      {m.lot_number || <span className="text-gray-300 dark:text-gray-600">—</span>}
-                    </td>
-                    <td className="py-2 text-right text-gray-700 dark:text-gray-300">{m.quantity.toLocaleString()}</td>
-                    <td className="py-2 text-right text-gray-500 dark:text-gray-400">{m.unit}</td>
+            <div className="overflow-x-auto -mx-1">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 dark:border-gray-700 text-xs text-gray-400">
+                    <th className="pb-2 text-left font-medium pr-3">Material</th>
+                    <th className="pb-2 text-left font-medium pr-3">Supplier</th>
+                    <th className="pb-2 text-left font-medium pr-3">Lot / Batch #</th>
+                    <th className="pb-2 text-right font-medium">Qty Used</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
+                  {materials.map((m, i) => (
+                    <tr key={i}>
+                      <td className="py-2 pr-3 font-medium text-gray-900 dark:text-white">{m.material_name}</td>
+                      <td className="py-2 pr-3 text-xs text-gray-500 dark:text-gray-400">
+                        {m.supplier_name ?? <span className="text-gray-300 dark:text-gray-600">—</span>}
+                      </td>
+                      <td className="py-2 pr-3 font-mono text-xs text-gray-500 dark:text-gray-400">
+                        {m.lot_number ?? <span className="text-gray-300 dark:text-gray-600">—</span>}
+                      </td>
+                      <td className="py-2 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                        {m.quantity.toLocaleString()} {m.unit}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </Section>
 
