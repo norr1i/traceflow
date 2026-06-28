@@ -40,7 +40,7 @@ const NAV_GROUPS: { labelKey: string; items: NavItem[] }[] = [
   {
     labelKey: 'nav_group.operations',
     items: [
-      { labelKey: 'nav.journey',        href: '/product-journey', icon: GitBranch,     permission: 'view:product-journey' },
+      { labelKey: 'nav.journey',   href: '/product-journey',  icon: GitBranch, permission: 'view:product-journey' },
       { labelKey: 'nav.recall',        href: '/recall',        icon: AlertTriangle, permission: 'view:recall' },
       { labelKey: 'nav.recall_impact', href: '/recall-impact', icon: ShieldAlert,   permission: 'view:recall' },
       { labelKey: 'nav.capa',   href: '/capa',   icon: FileWarning,   permission: 'view:capa'   },

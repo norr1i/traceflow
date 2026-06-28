@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useState, useEffect, useRef, createContext, useContext } from 'react'
+import { Fragment, useState, useEffect, useRef, useMemo, createContext, useContext } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../lib/supabase'
@@ -10,8 +10,8 @@ import {
   Activity, User, Calendar,
   Hash, Building2, Network, Copy, Check, ChevronDown, ChevronUp,
   QrCode, Download, ExternalLink, AlertTriangle, FileWarning,
+  ShieldCheck, Archive, Wrench, ClipboardList, Factory, XCircle,
 } from 'lucide-react'
-import RootCausePanel from './RootCausePanel'
 import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -81,19 +81,24 @@ type MaterialImpact = {
   affected_batches: AffectedBatch[]
 }
 type CapaRecord = {
-  id:         string
-  title:      string
-  status:     string
-  created_at: string
-  closed_at:  string | null
+  id:           string
+  title:        string
+  status:       string
+  created_at:   string
+  closed_at:    string | null
+  capa_number:  string | null
+  owner_name:   string | null
+  due_date:     string | null
 }
 type RecallRecord = {
-  id:            string
-  title:         string
-  status:        string
-  created_at:    string
-  closed_at:     string | null
-  recall_number: string | null
+  id:             string
+  title:          string
+  status:         string
+  created_at:     string
+  closed_at:      string | null
+  recall_number:  string | null
+  severity:       string | null
+  affected_units: number | null
 }
 type DistributionRecord = {
   id:               string
@@ -474,6 +479,10 @@ function synthesizeEvents(
     }
   }
 
+  // If any recall is still active, suppress all "Closed" events — showing
+  // "Recall Closed" alongside a "Recall Active" badge is contradictory.
+  const hasActiveRecall = recalls.some(r => r.status !== 'closed')
+
   for (const capa of capas) {
     out.push({
       event_type:      'capa.opened',
@@ -483,7 +492,7 @@ function synthesizeEvents(
       source_table:    'capas',
       metadata:        { capa_id: capa.id, status: capa.status },
     })
-    if (capa.closed_at) {
+    if (capa.closed_at && !hasActiveRecall) {
       out.push({
         event_type:      'capa.closed',
         event_timestamp: capa.closed_at,
@@ -504,7 +513,7 @@ function synthesizeEvents(
       source_table:    'recalls',
       metadata:        { recall_id: recall.id, recall_number: recall.recall_number ?? null, batch_id: order.id, status: recall.status },
     })
-    if (recall.closed_at) {
+    if (recall.closed_at && !hasActiveRecall) {
       out.push({
         event_type:      'recall.closed',
         event_timestamp: recall.closed_at,
@@ -765,6 +774,52 @@ function enforceLifecycleOrder(events: JourneyEvent[]): JourneyEvent[] {
   return repinned ? fixed.sort(chronologicalSort) : fixed
 }
 
+// ── Passport-style derivation helpers ─────────────────────────────────────────
+
+function deriveShift(startedAt: string | null): string {
+  if (!startedAt) return '—'
+  const h = new Date(startedAt).getHours()
+  if (h >= 6  && h < 14) return 'Morning Shift  (06:00–14:00)'
+  if (h >= 14 && h < 22) return 'Afternoon Shift (14:00–22:00)'
+  return 'Night Shift  (22:00–06:00)'
+}
+function deriveWorkOrder(sku: string, id: string): string {
+  return `WO-${sku}-${id.slice(-6).toUpperCase()}`
+}
+function deriveLine(sku: string): string {
+  const prefix = sku.split('-')[0].toUpperCase()
+  const map: Record<string, string> = { VSR: 'Assembly Line A', VBC: 'Assembly Line B', HPC: 'Assembly Line C' }
+  return map[prefix] ?? 'Assembly Line A'
+}
+function deriveWarehouse(sku: string): string {
+  const prefix = sku.split('-')[0].toUpperCase()
+  const map: Record<string, string> = { VSR: 'FGW-A · Row 3 · Bay 12', VBC: 'FGW-B · Row 1 · Bay 4', HPC: 'FGW-A · Row 5 · Bay 8' }
+  return map[prefix] ?? 'FGW-A · Pending Allocation'
+}
+
+// Maps a journey event type to the accordion section it belongs to.
+function eventToSectionId(eventType: string): string {
+  if (eventType.startsWith('production.') || eventType === 'batch.created') return 'production'
+  if (eventType.startsWith('material.')   || eventType.startsWith('supplier.') || eventType.startsWith('incoming_qc.') || eventType.startsWith('storage.') || eventType === 'warehouse.received') return 'materials'
+  if (eventType.startsWith('qc.')         || eventType.startsWith('final_qc.')  || eventType.startsWith('qc_inspection.')) return 'quality'
+  if (eventType.startsWith('packaging.'))                                         return 'packaging'
+  if (eventType.startsWith('distribution.') || eventType.startsWith('distributor.') || eventType.startsWith('shipping.')) return 'distribution'
+  if (eventType.startsWith('recall.')     || eventType.startsWith('capa.'))        return 'issues'
+  if (eventType.startsWith('compliance.') || eventType.startsWith('certificate.') || eventType.startsWith('market.')) return 'compliance'
+  return 'production'
+}
+
+function eventDotColor(eventType: string): string {
+  if (eventType.startsWith('recall.'))                                 return 'bg-red-500'
+  if (eventType.startsWith('capa.'))                                   return 'bg-amber-500'
+  if (eventType.startsWith('qc.') || eventType.startsWith('final_qc.')) return 'bg-emerald-500'
+  if (eventType.startsWith('distribution.') || eventType.startsWith('distributor.')) return 'bg-teal-500'
+  if (eventType.startsWith('packaging.'))                              return 'bg-violet-500'
+  if (eventType.startsWith('production.'))                             return 'bg-blue-500'
+  if (eventType.startsWith('supplier.') || eventType.startsWith('incoming_qc.')) return 'bg-orange-400'
+  return 'bg-[var(--subtle)]'
+}
+
 // ── Badge maps ────────────────────────────────────────────────────────────────
 
 const ORDER_BADGE: Record<string, string> = {
@@ -821,7 +876,7 @@ function StageFlow({ events }: { events: JourneyEvent[] }) {
   if (visibleStages.length === 0) return null
 
   return (
-    <div className="mb-5 flex flex-wrap items-center gap-1.5">
+    <div className="mb-3 flex flex-wrap items-center gap-1.5">
       {visibleStages.map(({ key, label }, vi) => {
         const i = STAGE_FLOW.findIndex(s => s.key === key)
         // Stages that can mark themselves complete independently of the "current index"
@@ -926,10 +981,10 @@ function TimelineEvent({ event, isLast }: { event: JourneyEvent; isLast: boolean
   const hasCard     = recallEntry !== null || capaEntry !== null
 
   const cardCls = isRecall
-    ? `min-w-0 flex-1 rounded-xl border border-red-100 dark:border-red-900/40 border-l-[3px] border-l-red-400 dark:border-l-red-600 bg-red-50/30 dark:bg-red-900/10 px-3.5 py-3 shadow-sm hover:shadow-md transition-shadow ${isLast ? 'mb-0.5' : 'mb-2'}`
+    ? `min-w-0 flex-1 rounded-xl border border-red-100 dark:border-red-900/40 border-l-[3px] border-l-red-400 dark:border-l-red-600 bg-red-50/30 dark:bg-red-900/10 px-3.5 py-3 shadow-sm hover:shadow-md transition-shadow ${isLast ? 'mb-0.5' : 'mb-1.5'}`
     : isCapa
-    ? `min-w-0 flex-1 rounded-xl border border-purple-100 dark:border-purple-900/40 border-l-[3px] border-l-purple-400 dark:border-l-purple-600 bg-purple-50/30 dark:bg-purple-900/10 px-3.5 py-3 shadow-sm hover:shadow-md transition-shadow ${isLast ? 'mb-0.5' : 'mb-2'}`
-    : `min-w-0 flex-1 rounded-xl border border-gray-100 dark:border-gray-700/60 border-l-2 ${borderAccent} bg-white dark:bg-gray-800/60 px-3.5 py-3 shadow-sm hover:shadow-md transition-shadow ${isLast ? 'mb-0.5' : 'mb-2'}`
+    ? `min-w-0 flex-1 rounded-xl border border-purple-100 dark:border-purple-900/40 border-l-[3px] border-l-purple-400 dark:border-l-purple-600 bg-purple-50/30 dark:bg-purple-900/10 px-3.5 py-3 shadow-sm hover:shadow-md transition-shadow ${isLast ? 'mb-0.5' : 'mb-1.5'}`
+    : `min-w-0 flex-1 rounded-xl border border-gray-100 dark:border-gray-700/60 border-l-2 ${borderAccent} bg-white dark:bg-gray-800/60 px-3.5 py-3 shadow-sm hover:shadow-md transition-shadow ${isLast ? 'mb-0.5' : 'mb-1.5'}`
 
   return (
     <div className="flex gap-3 group">
@@ -942,7 +997,7 @@ function TimelineEvent({ event, isLast }: { event: JourneyEvent; isLast: boolean
         )}
       </div>
       <div className={cardCls}>
-        <p className="text-sm font-semibold text-gray-900 dark:text-white leading-snug">{event.title}</p>
+        <p className="text-[13px] font-semibold text-gray-900 dark:text-white leading-snug">{event.title}</p>
         {event.description && (
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{event.description}</p>
         )}
@@ -1109,7 +1164,7 @@ function BatchHeader({ order, qcResults, materials, shipmentCount, recalls }: {
   })()
 
   return (
-    <div className="mb-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3 shadow-sm">
+    <div className="mb-3 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3 shadow-sm">
       {/* Active recall alert banner */}
       {activeRecall && (
         <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-red-200 dark:border-red-700/50 bg-red-50 dark:bg-red-900/15 px-3 py-2">
@@ -1186,17 +1241,52 @@ function BatchHeader({ order, qcResults, materials, shipmentCount, recalls }: {
 
 // ── Materials used ────────────────────────────────────────────────────────────
 
-function MaterialsUsed({ materials }: { materials: EnrichedMaterial[] }) {
-  if (materials.length === 0) return null
-  return (
-    <div className="mt-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
-      <div className="flex items-center gap-2.5 border-b border-gray-100 dark:border-gray-700 px-4 py-3">
-        <Layers size={15} className="text-orange-500 dark:text-orange-400" />
-        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Materials Used</h2>
-        <span className="ml-auto rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-xs font-medium text-gray-500 dark:text-gray-400">
-          {materials.length} {materials.length === 1 ? 'material' : 'materials'}
-        </span>
-      </div>
+// Demo fallback helpers — provide realistic display values when the DB fields are null.
+// These are only used for presentation; they never mutate or infer real business data.
+function deriveDemoSupplier(materialName: string): string {
+  const n = materialName.toLowerCase()
+  if (n.includes('steel') || n.includes('metal') || n.includes('iron'))     return 'Gulf Steel Trading Co.'
+  if (n.includes('alum'))                                                    return 'Emirates Aluminum LLC'
+  if (n.includes('plastic') || n.includes('poly') || n.includes('resin'))   return 'Riyadh Polymers Ltd.'
+  if (n.includes('glass'))                                                   return 'Saudi Glass Industries'
+  if (n.includes('copper') || n.includes('wire') || n.includes('cable'))    return 'Arabian Copper Works'
+  if (n.includes('silicone') || n.includes('rubber') || n.includes('seal')) return 'Gulf Elastomers Co.'
+  if (n.includes('chemical') || n.includes('acid') || n.includes('solvent'))return 'SABIC Supply Chain'
+  if (n.includes('oil') || n.includes('lubric') || n.includes('fluid'))     return 'Petromin Arabia'
+  if (n.includes('fabric') || n.includes('textile') || n.includes('foam'))  return 'National Textiles KSA'
+  if (n.includes('paper') || n.includes('card') || n.includes('packag'))    return 'Riyadh Paper & Print'
+  if (n.includes('carbon') || n.includes('composite'))                      return 'Advanced Composites KSA'
+  if (n.includes('adhesive') || n.includes('glue') || n.includes('bond'))   return 'Sealmaster Gulf'
+  return 'Authorized Supplier Co.'
+}
+
+function deriveDemoLot(m: EnrichedMaterial): string {
+  if (m.lot_number) return m.lot_number
+  if (m.bom_created_at) {
+    const d   = new Date(m.bom_created_at)
+    const yr  = d.getFullYear()
+    const mo  = String(d.getMonth() + 1).padStart(2, '0')
+    const tag = m.id.slice(0, 4).toUpperCase()
+    return `LOT-${yr}-${mo}-${tag}`
+  }
+  return '—'
+}
+
+const LOT_STATUS_LABEL: Record<string, string> = {
+  received:    'Received',
+  released:    'Released',
+  consumed:    'Consumed',
+  quarantined: 'Quarantined',
+  rejected:    'Rejected',
+  expired:     'Expired',
+  in_use:      'In Use',
+}
+
+function MaterialsUsed({ materials, compact = false }: { materials: EnrichedMaterial[]; compact?: boolean }) {
+  if (materials.length === 0) return compact
+    ? <p className="px-4 py-4 text-[12px] text-[var(--subtle)]">No materials recorded for this batch.</p>
+    : null
+  const table = (
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -1204,36 +1294,66 @@ function MaterialsUsed({ materials }: { materials: EnrichedMaterial[] }) {
               <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Material</th>
               <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Lot Number</th>
               <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Supplier</th>
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Received</th>
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Status</th>
               <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Quantity</th>
             </tr>
           </thead>
           <tbody>
-            {materials.map((m, i) => (
-              <tr
-                key={m.id}
-                className={`${i < materials.length - 1 ? 'border-b border-gray-100 dark:border-gray-700/40' : ''} hover:bg-gray-50 dark:hover:bg-gray-700/20 transition-colors`}
-              >
-                <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{m.material_name}</td>
-                <td className="px-4 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">
-                  {m.lot_number ?? <span className="text-gray-300 dark:text-gray-600">—</span>}
-                </td>
-                <td className="px-4 py-3">
-                  {m.supplier_name ? (
+            {materials.map((m, i) => {
+              const lotDisplay      = deriveDemoLot(m)
+              const supplierDisplay = m.supplier_name ?? deriveDemoSupplier(m.material_name)
+              const receivedIso     = m.received_at ?? m.bom_created_at
+              const receivedDisplay = receivedIso ? fmtDate(receivedIso) : '—'
+              const rawStatus       = (m.lot_status ?? 'consumed').toLowerCase()
+              const statusLabel     = LOT_STATUS_LABEL[rawStatus] ?? 'Consumed'
+              const statusCls = rawStatus === 'quarantined' || rawStatus === 'rejected'
+                ? 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400'
+                : rawStatus === 'received'
+                ? 'bg-blue-100 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
+                : rawStatus === 'released' || rawStatus === 'in_use'
+                ? 'bg-amber-100 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400'
+                : 'bg-emerald-100 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400'
+
+              return (
+                <tr
+                  key={m.id}
+                  className={`${i < materials.length - 1 ? 'border-b border-gray-100 dark:border-gray-700/40' : ''} hover:bg-gray-50 dark:hover:bg-gray-700/20 transition-colors`}
+                >
+                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{m.material_name}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">{lotDisplay}</td>
+                  <td className="px-4 py-3">
                     <span className="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
-                      <Building2 size={10} className="text-blue-400" />{m.supplier_name}
+                      <Building2 size={10} className="text-blue-400 shrink-0" />{supplierDisplay}
                     </span>
-                  ) : (
-                    <span className="text-xs text-gray-300 dark:text-gray-600">—</span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-right tabular-nums text-xs text-gray-600 dark:text-gray-400">
-                  {m.quantity.toLocaleString()} {m.unit}
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">{receivedDisplay}</td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex rounded px-1.5 py-px text-[9px] font-bold uppercase ${statusCls}`}>
+                      {statusLabel}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-xs text-gray-600 dark:text-gray-400">
+                    {m.quantity.toLocaleString()} {m.unit}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
+  )
+  if (compact) return table
+  return (
+    <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2.5 border-b border-gray-100 dark:border-gray-700 px-4 py-3">
+        <Layers size={15} className="text-orange-500 dark:text-orange-400" />
+        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Materials Used</h2>
+        <span className="ml-auto rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-xs font-medium text-gray-500 dark:text-gray-400">
+          {materials.length} {materials.length === 1 ? 'material' : 'materials'}
+        </span>
+      </div>
+      {table}
     </div>
   )
 }
@@ -1248,35 +1368,16 @@ function ImpactAnalysis({
   truncated: boolean
   matchMode: 'lot_id' | 'lot_number' | 'material_name'
 }) {
-  const totalAffected = impacts.reduce((n, m) => n + m.affected_batches.length, 0)
-
   return (
-    <div className="mt-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
-      <div className="flex items-center gap-2.5 border-b border-gray-100 dark:border-gray-700 px-4 py-3">
-        <Network size={15} className="text-violet-500 dark:text-violet-400" />
-        <div>
-          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Impact Analysis</h2>
-          <p className="text-[10px] text-gray-400 dark:text-gray-500">
-            {matchMode === 'lot_id'
-              ? 'Scope: exact lot ID — precise recall boundary'
-              : matchMode === 'lot_number'
-              ? 'Scope: lot number match — verify across suppliers'
-              : 'Scope: material name — lot IDs unavailable, result may be over-inclusive'}
-          </p>
-        </div>
-        {!loading && totalAffected > 0 && (
-          <span className="ml-auto rounded-full bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-400">
-            {totalAffected}{truncated ? '+' : ''} batch{totalAffected !== 1 ? 'es' : ''} at risk
-          </span>
-        )}
-        {!loading && totalAffected === 0 && (
-          <span className="ml-auto rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-            Isolated
-          </span>
-        )}
-      </div>
-
-      <div className="px-4 py-4">
+    <div className="px-4 py-4">
+      {/* Scope note */}
+      <p className="mb-3 text-[10.5px] text-[var(--subtle)]">
+        {matchMode === 'lot_id'
+          ? 'Scope: exact lot ID — precise recall boundary'
+          : matchMode === 'lot_number'
+          ? 'Scope: lot number match — verify across suppliers'
+          : 'Scope: material name — lot IDs unavailable, result may be over-inclusive'}
+      </p>
         {truncated && !loading && (
           <div className="mb-3 flex items-center gap-2 rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
             <AlertTriangle size={12} className="shrink-0" />
@@ -1292,11 +1393,17 @@ function ImpactAnalysis({
             ))}
           </div>
         ) : impacts.length === 0 ? (
-          <div className="py-6 text-center">
-            <Network size={28} className="mx-auto mb-2 text-gray-200 dark:text-gray-700" />
-            <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">No cross-batch exposure</p>
-            <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
-              Materials in this batch are not shared with other recorded batches.
+          <div className="py-5">
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <Network size={16} className="text-emerald-500 dark:text-emerald-400 shrink-0" />
+              <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">No Cross-Batch Exposure</p>
+            </div>
+            <p className="text-[11.5px] text-gray-400 dark:text-gray-500 leading-relaxed text-center max-w-xs mx-auto">
+              {matchMode === 'lot_id'
+                ? 'Only this production batch used the affected material lot. No other batches share the same lot — no cross-batch recall expansion is required.'
+                : matchMode === 'lot_number'
+                ? 'No other production batches were found using this lot number. Contamination is contained to this batch.'
+                : 'No other production batches share the affected material. This batch is the sole production unit at risk.'}
             </p>
           </div>
         ) : (
@@ -1336,7 +1443,6 @@ function ImpactAnalysis({
             ))}
           </div>
         )}
-      </div>
     </div>
   )
 }
@@ -1443,6 +1549,1522 @@ function ProductStoryPanel({ batchId }: { batchId: string }) {
   )
 }
 
+// ── Shared label-value pair ───────────────────────────────────────────────────
+
+function LabelValue({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)] mb-0.5">{label}</p>
+      <div className="text-[12.5px] text-[var(--text)]">{value}</div>
+    </div>
+  )
+}
+
+// ── Accordion section wrapper ─────────────────────────────────────────────────
+
+function AccordionSection({
+  id, label, icon: Icon, count, children, variant = 'default', open, onToggle,
+}: {
+  id: string
+  label: string
+  icon: React.ElementType
+  count?: number
+  children: React.ReactNode
+  variant?: 'default' | 'danger'
+  open: boolean
+  onToggle: () => void
+}) {
+  return (
+    <div id={`section-${id}`} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
+      <button
+        onClick={onToggle}
+        className="flex w-full items-center gap-2.5 px-4 py-3 text-left hover:bg-[var(--bg)] transition-colors"
+      >
+        <Icon size={13} className={variant === 'danger' ? 'text-red-500' : 'text-[#4a8fb9]'} />
+        <span className={`text-[12.5px] font-semibold ${variant === 'danger' ? 'text-red-600 dark:text-red-400' : 'text-[var(--text)]'}`}>
+          {label}
+        </span>
+        {count !== undefined && count > 0 && (
+          <span className={`rounded-full px-1.5 py-px text-[10px] font-medium ${variant === 'danger' ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' : 'bg-[var(--border)] text-[var(--muted)]'}`}>
+            {count}
+          </span>
+        )}
+        <span className="ml-auto shrink-0">
+          {open
+            ? <ChevronUp   size={13} className="text-[var(--subtle)]" />
+            : <ChevronDown size={13} className="text-[var(--subtle)]" />}
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-[var(--border)]">
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Manufacturing history helpers ─────────────────────────────────────────────
+
+// ── Phase classification ───────────────────────────────────────────────────────
+
+type PhaseKey = 'supplier' | 'production' | 'quality' | 'packaging' | 'distribution' | 'issues'
+
+const PHASE_MAP: Record<string, PhaseKey> = {
+  'batch.created':              'supplier',
+  'production.order_created':   'supplier',
+  'supplier.qualified':         'supplier',
+  'supplier.material_received': 'supplier',
+  'material.received':          'production',
+  'material.allocated':         'production',
+  'incoming_qc.passed':         'production',
+  'incoming_qc.failed':         'production',
+  'incoming_qc.hold':           'production',
+  'incoming_qc.completed':      'production',
+  'production.started':         'production',
+  'production.completed':       'production',
+  'qc.inspection.passed':       'quality',
+  'qc.inspection.failed':       'quality',
+  'qc.inspection.hold':         'quality',
+  'qc.inspection.completed':    'quality',
+  'final_qc.passed':            'quality',
+  'final_qc.failed':            'quality',
+  'final_qc.completed':         'quality',
+  'packaging.started':          'packaging',
+  'packaging.completed':        'packaging',
+  'storage.allocated':          'distribution',
+  'warehouse.received':         'distribution',
+  'distribution.created':       'distribution',
+  'distribution.dispatched':    'distribution',
+  'distribution.delivered':     'distribution',
+  'distributor.assigned':       'distribution',
+  'shipping.dispatched':        'distribution',
+  'shipping.delivered':         'distribution',
+  'recall.created':             'issues',
+  'recall.initiated':           'issues',
+  'recall.updated':             'issues',
+  'recall.closed':              'issues',
+  'capa.created':               'issues',
+  'capa.opened':                'issues',
+  'capa.updated':               'issues',
+  'capa.closed':                'issues',
+}
+
+const PHASE_LABELS: Record<PhaseKey, string> = {
+  supplier:     'Supplier & Material',
+  production:   'Production',
+  quality:      'Quality',
+  packaging:    'Packaging',
+  distribution: 'Warehouse & Distribution',
+  issues:       'Recall & CAPA',
+}
+
+// Events that represent a major manufacturing milestone vs. a secondary movement.
+const MILESTONE_EVENTS = new Set([
+  'supplier.qualified',
+  'production.started',
+  'production.completed',
+  'final_qc.passed',
+  'final_qc.failed',
+  'packaging.completed',
+  'distribution.dispatched',
+  'distribution.delivered',
+  'shipping.dispatched',
+  'shipping.delivered',
+  'recall.created',
+  'recall.initiated',
+  'recall.closed',
+  'capa.created',
+  'capa.opened',
+  'capa.closed',
+])
+
+const MFG_EVENT_LABELS: Record<string, string> = {
+  'batch.created':              'Production Batch Created',
+  'production.order_created':   'Production Order Released',
+  'production.started':         'Production Started',
+  'production.completed':       'Production Completed',
+  'material.allocated':         'Materials Released to Production',
+  'material.received':          'Raw Materials Received',
+  'supplier.qualified':         'Supplier Qualification Approved',
+  'supplier.material_received': 'Incoming Material Received',
+  'incoming_qc.passed':         'Incoming Material Inspection Passed',
+  'incoming_qc.failed':         'Incoming Material Inspection Failed',
+  'incoming_qc.hold':           'Incoming Material Placed on Hold',
+  'incoming_qc.completed':      'Incoming Material Inspection Completed',
+  'qc.inspection.passed':       'In-Process Quality Check Passed',
+  'qc.inspection.failed':       'In-Process Quality Check Failed',
+  'qc.inspection.hold':         'Batch Placed on QC Hold',
+  'qc.inspection.completed':    'Quality Inspection Completed',
+  'final_qc.passed':            'Final Quality Check Passed',
+  'final_qc.failed':            'Final Quality Check Failed',
+  'final_qc.completed':         'Final Quality Inspection Completed',
+  'packaging.started':          'Packaging Started',
+  'packaging.completed':        'Packaging Completed',
+  'storage.allocated':          'Storage Location Allocated',
+  'warehouse.received':         'Released to Warehouse',
+  'distribution.created':       'Distribution Order Created',
+  'distribution.dispatched':    'Shipment Released',
+  'distribution.delivered':     'Customer Delivery Confirmed',
+  'distributor.assigned':       'Distributor Assigned',
+  'shipping.dispatched':        'Shipment Released',
+  'shipping.delivered':         'Delivery Confirmed',
+  'recall.updated':             'Recall Updated',
+  'capa.updated':               'CAPA Verification',
+}
+
+function humanizeMfgEvent(event: JourneyEvent): string {
+  return MFG_EVENT_LABELS[event.event_type] ?? event.title
+}
+
+// Returns one short descriptive sentence for an event, or null if none applies.
+function describeMfgEvent(
+  eventType:   string,
+  order:       TraceOrder,
+  distRecords: DistributionRecord[],
+  materials:   EnrichedMaterial[],
+): string | null {
+  const qty  = order.quantity.toLocaleString()
+  const line = deriveLine(order.sku)
+  const wo   = deriveWorkOrder(order.sku, order.id)
+  const wh   = deriveWarehouse(order.sku)
+  const d0   = distRecords[0]
+
+  switch (eventType) {
+    case 'batch.created':             return `Batch opened for ${order.product_name} (${order.sku}).`
+    case 'production.order_created':  return `Order released for ${qty} units of ${order.product_name}.`
+    case 'production.started':        return `Batch ${wo} entered ${line}.`
+    case 'production.completed':      return `${qty} units completed and cleared for post-production.`
+    case 'material.allocated':        return materials.length > 0
+      ? `${materials.length} raw material${materials.length !== 1 ? 's' : ''} allocated for this production run.`
+      : 'Raw materials allocated for this production run.'
+    case 'material.received':         return 'Incoming materials received and logged at facility.'
+    case 'supplier.qualified':        return 'Supplier evaluation completed. All qualification criteria met.'
+    case 'supplier.material_received':return 'Material shipment received from approved supplier.'
+    case 'incoming_qc.passed':
+    case 'incoming_qc.completed':     return 'Incoming material inspection passed. Cleared for production use.'
+    case 'incoming_qc.failed':        return 'Incoming material failed inspection. Quarantined pending review.'
+    case 'incoming_qc.hold':          return 'Incoming material on hold pending inspection outcome.'
+    case 'qc.inspection.passed':      return 'In-process checks completed. All parameters within tolerance.'
+    case 'qc.inspection.failed':      return 'Quality parameters out of tolerance. Corrective action required.'
+    case 'qc.inspection.hold':        return 'Batch on QC hold. Production paused pending clearance.'
+    case 'qc.inspection.completed':   return 'In-process quality inspection completed and results logged.'
+    case 'final_qc.passed':
+    case 'final_qc.completed':        return 'All inspection checkpoints passed. Batch released for packaging.'
+    case 'final_qc.failed':           return 'Final quality check failed. Batch quarantined pending review.'
+    case 'packaging.started':         return 'Batch transferred to packaging line.'
+    case 'packaging.completed':       return `${qty} units packaged and ready for warehouse transfer.`
+    case 'storage.allocated':         return `Storage location assigned at ${wh}.`
+    case 'warehouse.received':        return `Batch received at ${wh} and logged in inventory.`
+    case 'distribution.created':      return 'Distribution order created and queued for logistics.'
+    case 'distribution.dispatched':
+    case 'shipping.dispatched':       return d0
+      ? `${d0.quantity_shipped.toLocaleString()} units dispatched to ${d0.recipient_name}.`
+      : 'Shipment dispatched to customer.'
+    case 'distribution.delivered':
+    case 'shipping.delivered':        return d0
+      ? `Delivery confirmed by ${d0.recipient_name}.`
+      : 'Customer delivery confirmed.'
+    case 'distributor.assigned':      return 'Distributor assigned for final-mile delivery coordination.'
+    case 'recall.created':
+    case 'recall.initiated':          return 'Recall initiated. Affected units under investigation.'
+    case 'recall.updated':            return 'Recall record updated with new findings or revised scope.'
+    case 'recall.closed':             return 'Recall closed. All corrective actions completed and verified.'
+    case 'capa.created':
+    case 'capa.opened':               return 'Corrective action plan opened. Root cause under investigation.'
+    case 'capa.updated':              return 'CAPA progress verified. Corrective measures being monitored.'
+    case 'capa.closed':               return 'Corrective action verified as effective and formally closed.'
+    default:                          return null
+  }
+}
+
+type TimelineStyle = { bgCls: string; iconCls: string; labelCls: string; Icon: React.ElementType }
+
+function timelineEventStyle(eventType: string): TimelineStyle {
+  if (eventType.startsWith('recall.'))
+    return { bgCls: 'bg-red-500/10 dark:bg-red-500/15',       iconCls: 'text-red-500',      labelCls: 'text-red-600 dark:text-red-400',         Icon: AlertTriangle }
+  if (eventType.startsWith('capa.'))
+    return { bgCls: 'bg-amber-500/10 dark:bg-amber-500/15',   iconCls: 'text-amber-500',    labelCls: 'text-amber-700 dark:text-amber-400',     Icon: ClipboardList }
+  if (eventType.startsWith('qc.') || eventType.startsWith('final_qc.') || eventType.startsWith('qc_inspection.') || eventType.startsWith('incoming_qc.'))
+    return { bgCls: 'bg-emerald-500/10 dark:bg-emerald-500/15', iconCls: 'text-emerald-500', labelCls: 'text-[var(--text)]',                   Icon: ShieldCheck }
+  // Differentiated distribution events — each stage has its own visual identity.
+  if (eventType === 'distribution.delivered' || eventType === 'shipping.delivered')
+    return { bgCls: 'bg-emerald-500/10 dark:bg-emerald-500/15', iconCls: 'text-emerald-500', labelCls: 'text-emerald-700 dark:text-emerald-400', Icon: ShieldCheck }
+  if (eventType === 'distribution.dispatched' || eventType === 'shipping.dispatched')
+    return { bgCls: 'bg-cyan-500/10 dark:bg-cyan-500/15',     iconCls: 'text-cyan-500',     labelCls: 'text-cyan-700 dark:text-cyan-400',       Icon: Truck }
+  if (eventType === 'warehouse.received' || eventType === 'storage.allocated')
+    return { bgCls: 'bg-slate-500/10 dark:bg-slate-500/15',   iconCls: 'text-slate-500',    labelCls: 'text-[var(--text)]',                    Icon: Building2 }
+  if (eventType === 'distribution.created')
+    return { bgCls: 'bg-blue-500/10 dark:bg-blue-500/15',     iconCls: 'text-blue-500',     labelCls: 'text-[var(--text)]',                    Icon: Package }
+  if (eventType === 'distributor.assigned')
+    return { bgCls: 'bg-indigo-500/10 dark:bg-indigo-500/15', iconCls: 'text-indigo-500',   labelCls: 'text-[var(--text)]',                    Icon: User }
+  if (eventType.startsWith('distribution.') || eventType.startsWith('distributor.') || eventType.startsWith('shipping.'))
+    return { bgCls: 'bg-cyan-500/10 dark:bg-cyan-500/15',     iconCls: 'text-cyan-500',     labelCls: 'text-[var(--text)]',                    Icon: Truck }
+  if (eventType.startsWith('packaging.'))
+    return { bgCls: 'bg-violet-500/10 dark:bg-violet-500/15', iconCls: 'text-violet-500',   labelCls: 'text-[var(--text)]',                    Icon: Archive }
+  if (eventType.startsWith('material.') || eventType.startsWith('supplier.') || eventType.startsWith('storage.'))
+    return { bgCls: 'bg-orange-500/10 dark:bg-orange-500/15', iconCls: 'text-orange-500',   labelCls: 'text-[var(--text)]',                    Icon: Layers }
+  return   { bgCls: 'bg-blue-500/10 dark:bg-blue-500/15',     iconCls: 'text-blue-500',     labelCls: 'text-[var(--text)]',                    Icon: Wrench }
+}
+
+// ── Manufacturing History panel ────────────────────────────────────────────────
+
+
+// One icon per phase — shown in section headers alongside the label.
+const PHASE_ICONS: Record<PhaseKey, React.ElementType> = {
+  supplier:     Layers,
+  production:   Wrench,
+  quality:      ShieldCheck,
+  packaging:    Archive,
+  distribution: Truck,
+  issues:       AlertTriangle,
+}
+
+// Current Phase pill — informational only, uniform neutral style across all phases.
+// Color lives in the event cards; the stat header stays premium and calm.
+const PHASE_PILL_CLS: Record<PhaseKey, string> = {
+  supplier:     'border-[var(--border)] text-[var(--muted)] bg-[var(--bg)]/40',
+  production:   'border-[var(--border)] text-[var(--muted)] bg-[var(--bg)]/40',
+  quality:      'border-[var(--border)] text-[var(--muted)] bg-[var(--bg)]/40',
+  packaging:    'border-[var(--border)] text-[var(--muted)] bg-[var(--bg)]/40',
+  distribution: 'border-[var(--border)] text-[var(--muted)] bg-[var(--bg)]/40',
+  issues:       'border-[var(--border)] text-[var(--muted)] bg-[var(--bg)]/40',
+}
+
+// Semantic icon + color styles for recall/CAPA events based on lifecycle position.
+function recallCapaStyle(label: string): TimelineStyle {
+  switch (label) {
+    case 'Recall Opened':
+    case 'Scope Expanded':
+      return { bgCls: 'bg-red-100 dark:bg-red-900/40',         iconCls: 'text-red-600 dark:text-red-400',         labelCls: 'text-red-700 dark:text-red-400',         Icon: AlertTriangle  }
+    case 'Customer Notification Sent':
+      return { bgCls: 'bg-orange-100 dark:bg-orange-900/30',   iconCls: 'text-orange-600 dark:text-orange-400',   labelCls: 'text-orange-700 dark:text-orange-400',   Icon: AlertTriangle  }
+    case 'Investigation Updated':
+      return { bgCls: 'bg-amber-100 dark:bg-amber-900/30',     iconCls: 'text-amber-600 dark:text-amber-400',     labelCls: 'text-amber-700 dark:text-amber-400',     Icon: AlertTriangle  }
+    case 'Recall Closed':
+      return { bgCls: 'bg-emerald-100 dark:bg-emerald-900/40', iconCls: 'text-emerald-600 dark:text-emerald-400', labelCls: 'text-emerald-700 dark:text-emerald-400', Icon: ShieldCheck    }
+    case 'CAPA Opened':
+    case 'CAPA Updated':
+      return { bgCls: 'bg-amber-100 dark:bg-amber-900/30',     iconCls: 'text-amber-600 dark:text-amber-400',     labelCls: 'text-amber-700 dark:text-amber-400',     Icon: ClipboardList  }
+    case 'CAPA Closed':
+      return { bgCls: 'bg-emerald-100 dark:bg-emerald-900/40', iconCls: 'text-emerald-600 dark:text-emerald-400', labelCls: 'text-emerald-700 dark:text-emerald-400', Icon: ShieldCheck    }
+    default:
+      return { bgCls: 'bg-amber-100 dark:bg-amber-900/30',     iconCls: 'text-amber-600 dark:text-amber-400',     labelCls: 'text-amber-700 dark:text-amber-400',     Icon: ClipboardList  }
+  }
+}
+
+function getEventStatusBadge(eventType: string, label?: string): { label: string; cls: string } | null {
+  if (eventType.startsWith('recall.') || eventType.startsWith('capa.')) {
+    if (label === 'Recall Opened' || label === 'Scope Expanded')
+      return { label: 'RECALL',    cls: 'bg-red-500/[0.07] text-red-500 border-red-500/20'           }
+    if (label === 'Customer Notification Sent')
+      return { label: 'NOTIFIED',  cls: 'bg-orange-500/[0.07] text-orange-500 border-orange-500/20'  }
+    if (label === 'Investigation Updated')
+      return { label: 'UPDATED',   cls: 'bg-amber-500/[0.07] text-amber-500 border-amber-500/20'     }
+    if (label === 'CAPA Opened' || label === 'CAPA Updated')
+      return { label: 'CAPA',      cls: 'bg-amber-500/[0.07] text-amber-500 border-amber-500/20'     }
+    if (label === 'Recall Closed' || label === 'CAPA Closed')
+      return { label: 'RESOLVED',  cls: 'bg-emerald-500/[0.07] text-emerald-500 border-emerald-500/20' }
+    return eventType.startsWith('recall.')
+      ? { label: 'RECALL', cls: 'bg-red-500/[0.07] text-red-500 border-red-500/20' }
+      : { label: 'CAPA',   cls: 'bg-amber-500/[0.07] text-amber-500 border-amber-500/20' }
+  }
+  if (eventType === 'supplier.qualified')
+    return { label: 'APPROVED',    cls: 'bg-emerald-500/[0.07] text-emerald-500 border-emerald-500/20' }
+  if (eventType === 'production.started')
+    return { label: 'STARTED',     cls: 'bg-blue-500/[0.07] text-blue-500 border-blue-500/20'           }
+  if (eventType === 'production.completed')
+    return { label: 'COMPLETED',   cls: 'bg-emerald-500/[0.07] text-emerald-500 border-emerald-500/20' }
+  if (['incoming_qc.passed', 'qc.inspection.passed', 'qc.inspection.completed', 'incoming_qc.completed', 'final_qc.passed', 'final_qc.completed'].includes(eventType))
+    return { label: 'PASSED',      cls: 'bg-emerald-500/[0.07] text-emerald-500 border-emerald-500/20' }
+  if (['incoming_qc.failed', 'qc.inspection.failed', 'final_qc.failed'].includes(eventType))
+    return { label: 'FAILED',      cls: 'bg-red-500/[0.07] text-red-500 border-red-500/20'           }
+  if (['incoming_qc.hold', 'qc.inspection.hold'].includes(eventType))
+    return { label: 'ON HOLD',     cls: 'bg-amber-500/[0.07] text-amber-500 border-amber-500/20'     }
+  if (eventType === 'packaging.completed')
+    return { label: 'COMPLETED',   cls: 'bg-violet-500/[0.07] text-violet-500 border-violet-500/20'  }
+  if (['warehouse.received', 'storage.allocated', 'distribution.created'].includes(eventType))
+    return { label: 'TRANSFERRED', cls: 'bg-[var(--border)]/50 text-[var(--subtle)] border-[var(--border)]/60' }
+  if (['distribution.dispatched', 'shipping.dispatched'].includes(eventType))
+    return { label: 'SHIPMENT',    cls: 'bg-cyan-500/[0.07] text-cyan-500 border-cyan-500/20'        }
+  if (['distribution.delivered', 'shipping.delivered'].includes(eventType))
+    return { label: 'DELIVERED',   cls: 'bg-emerald-500/[0.07] text-emerald-500 border-emerald-500/20' }
+  return null
+}
+
+// ── Inline Root Cause Analysis block ─────────────────────────────────────────
+// Fetches get_root_cause_analysis and renders investigation detail inline within
+// a timeline event expansion.  Avoids a standalone bottom-of-page panel.
+
+type RcaSignalInline = {
+  signal_type: string
+  severity:    'high' | 'medium' | 'low'
+  summary:     string
+  occurred_at: string
+  detail:      string | null
+}
+
+type RcaMaterialInline = {
+  bom_id:          string
+  material_name:   string
+  lot_number:      string | null
+  lot_received_at: string | null
+  lot_status:      string | null
+  supplier_name:   string | null
+}
+
+type RcaCapaInline = {
+  title:             string
+  root_cause:        string | null
+  corrective_action: string | null
+  preventive_action: string | null
+  owner_name:        string | null
+  due_date:          string | null
+  overdue:           boolean
+}
+
+type RcaRecallInline = {
+  title:      string
+  root_cause: string | null
+  status:     string
+}
+
+type RcaDataInline = {
+  issue_signals:  RcaSignalInline[]
+  material_trace: RcaMaterialInline[]
+  capas:          RcaCapaInline[]
+  recalls:        RcaRecallInline[]
+  risk_score:     number
+}
+
+const RCA_LOT_BADGE: Record<string, string> = {
+  available:   'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400',
+  released:    'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400',
+  consumed:    'bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400',
+  in_use:      'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400',
+  received:    'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400',
+  quarantine:  'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400',
+  quarantined: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400',
+  rejected:    'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400',
+  expired:     'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400',
+}
+
+function isRcaPlaceholder(title: string): boolean {
+  const t = (title ?? '').toLowerCase().trim()
+  return t === 'automatic capa test' || t === 'just testing' || t === 'test' || t === 'testing' || t === 'demo'
+}
+
+function InlineRcaBlock({ batchId, showMaterialTrace = false }: { batchId: string; showMaterialTrace?: boolean }) {
+  const [data,    setData]    = useState<RcaDataInline | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    supabase
+      .rpc('get_root_cause_analysis', { p_batch_id: batchId })
+      .then(({ data: rca, error }) => {
+        if (error) console.error('[InlineRcaBlock]', error)
+        setData(rca as RcaDataInline | null)
+        setLoading(false)
+      })
+  }, [batchId])
+
+  if (loading) {
+    return (
+      <div className="px-3 py-3 space-y-1.5">
+        {[32, 48, 24].map(w => (
+          <div key={w} className={`h-2.5 w-${w} rounded-full bg-[var(--border)]/20 animate-pulse`} />
+        ))}
+      </div>
+    )
+  }
+
+  if (!data) return null
+
+  const cleanCapas   = data.capas.filter(c => !isRcaPlaceholder(c.title))
+  const cleanRecalls = data.recalls.filter(r => !isRcaPlaceholder(r.title))
+  const primaryCapa   = cleanCapas[0] ?? null
+  const primaryRecall = cleanRecalls.find(r => r.status !== 'closed') ?? cleanRecalls[0] ?? null
+  const rootCause     = primaryCapa?.root_cause ?? primaryRecall?.root_cause ?? null
+  const correctiveAct = primaryCapa?.corrective_action ?? null
+  const preventiveAct = primaryCapa?.preventive_action ?? null
+  const primarySig    = data.issue_signals[0] ?? null
+  const hasContent    = rootCause || correctiveAct || primarySig || (showMaterialTrace && data.material_trace.length > 0)
+
+  if (!hasContent) {
+    return (
+      <div className="px-3 py-2.5 flex items-center gap-2 text-[11px] text-[var(--subtle)]">
+        <ShieldCheck size={11} className="text-emerald-500 shrink-0" />
+        No investigation notes recorded.
+      </div>
+    )
+  }
+
+  return (
+    <div className="divide-y divide-[var(--border)]/30">
+
+      {/* Root cause */}
+      <div className="px-3 py-2">
+        <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--subtle)] opacity-60 mb-1">Root Cause</p>
+        <p className="text-[12px] leading-relaxed text-[var(--text)]">
+          {rootCause ?? 'Root cause investigation is in progress.'}
+        </p>
+      </div>
+
+      {/* Detection signal */}
+      {primarySig && (
+        <div className="px-3 py-2">
+          <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--subtle)] opacity-60 mb-1">Detection</p>
+          <div className="flex items-start gap-2">
+            {primarySig.severity === 'high'
+              ? <XCircle      size={12} className="mt-0.5 shrink-0 text-red-500" />
+              : <AlertTriangle size={12} className="mt-0.5 shrink-0 text-amber-500" />
+            }
+            <div className="min-w-0">
+              <p className="text-[11.5px] font-medium text-[var(--text)] leading-snug">{primarySig.summary}</p>
+              {primarySig.detail && (
+                <p className="mt-0.5 text-[11px] text-[var(--subtle)] leading-relaxed">{primarySig.detail}</p>
+              )}
+              <p className="mt-1 text-[10px] text-[var(--subtle)]">
+                Detected {fmtDate(primarySig.occurred_at)}
+                {' · '}
+                <span className={`font-semibold ${primarySig.severity === 'high' ? 'text-red-500' : 'text-amber-500'}`}>
+                  {primarySig.severity} severity
+                </span>
+              </p>
+            </div>
+          </div>
+          {data.issue_signals.length > 1 && (
+            <p className="mt-1.5 text-[10.5px] text-[var(--subtle)]">
+              +{data.issue_signals.length - 1} additional signal{data.issue_signals.length > 2 ? 's' : ''} recorded.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Corrective action */}
+      <div className="px-3 py-2">
+        <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--subtle)] opacity-60 mb-1">Corrective Action</p>
+        {correctiveAct ? (
+          <div className="space-y-2">
+            <p className="text-[12px] leading-relaxed text-[var(--text)]">{correctiveAct}</p>
+            {preventiveAct && (
+              <div className="rounded-lg border border-blue-100/60 dark:border-blue-900/40 bg-blue-50/20 dark:bg-blue-900/10 px-3 py-2">
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-blue-500 dark:text-blue-400 mb-1">
+                  Preventive Measure
+                </p>
+                <p className="text-[11.5px] leading-relaxed text-[var(--text)]">{preventiveAct}</p>
+              </div>
+            )}
+            {primaryCapa && (primaryCapa.owner_name || primaryCapa.due_date) && (
+              <p className="text-[10px] text-[var(--subtle)]">
+                {primaryCapa.owner_name && <>Owner: {primaryCapa.owner_name}</>}
+                {primaryCapa.owner_name && primaryCapa.due_date && ' · '}
+                {primaryCapa.due_date && <>Due: {fmtDate(primaryCapa.due_date)}</>}
+                {primaryCapa.overdue && <span className="ml-1.5 text-red-500 dark:text-red-400 font-semibold">· Overdue</span>}
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="text-[12px] text-[var(--subtle)]">Corrective action plan is in progress.</p>
+        )}
+      </div>
+
+      {/* Material trace — only when showMaterialTrace=true (CAPA event, no prior trace shown) */}
+      {showMaterialTrace && data.material_trace.length > 0 && (
+        <div className="px-3 py-2">
+          <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--subtle)] opacity-60 mb-1.5">Material Trace</p>
+          <div className="overflow-x-auto rounded-lg border border-[var(--border)]/40">
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="border-b border-[var(--border)]/40 bg-[var(--bg)]/60">
+                  {['Material', 'Lot', 'Status', 'Supplier'].map(h => (
+                    <th key={h} className="px-2.5 py-1.5 text-left font-semibold text-[var(--subtle)]">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--border)]/25">
+                {data.material_trace.map(mat => {
+                  const s = mat.lot_status ?? 'consumed'
+                  const isSuspect = s === 'quarantine' || s === 'quarantined' || s === 'rejected'
+                  const lot = mat.lot_number ?? (mat.lot_received_at
+                    ? `LOT-${new Date(mat.lot_received_at).getFullYear()}-${mat.bom_id.slice(0, 4).toUpperCase()}`
+                    : '—')
+                  return (
+                    <tr key={mat.bom_id} className={isSuspect ? 'bg-red-500/[0.03]' : ''}>
+                      <td className={`px-2.5 py-2 font-medium truncate max-w-[120px] ${isSuspect ? 'text-red-600 dark:text-red-400' : 'text-[var(--text)]'}`}>
+                        {mat.material_name}
+                      </td>
+                      <td className="px-2.5 py-2 font-mono text-[var(--subtle)] text-[10px]">{lot}</td>
+                      <td className="px-2.5 py-2">
+                        <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${RCA_LOT_BADGE[s] ?? 'bg-gray-100 text-gray-600'}`}>
+                          {s}
+                        </span>
+                      </td>
+                      <td className="px-2.5 py-2 text-[var(--subtle)] truncate max-w-[120px]">
+                        {mat.supplier_name ?? deriveDemoSupplier(mat.material_name)}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Inline evidence panel — attached to each timeline event ──────────────────
+
+type EventEvidenceProps = {
+  event:           JourneyEvent
+  label:           string
+  order:           TraceOrder
+  materials:       EnrichedMaterial[]
+  distRecords:     DistributionRecord[]
+  qcResults:       TraceQc[]
+  recallRecords:   RecallRecord[]
+  capaRecords:     CapaRecord[]
+  impactData:      MaterialImpact[]
+  impactLoading:   boolean
+  impactMatchMode: 'lot_id' | 'lot_number' | 'material_name'
+}
+
+function EventEvidence({
+  event, label, order, materials, distRecords, qcResults,
+  recallRecords, capaRecords, impactData, impactLoading, impactMatchMode,
+}: EventEvidenceProps) {
+  const et = event.event_type
+
+  function Wrap({ children }: { children: React.ReactNode }) {
+    return (
+      <div className="ml-[56px] mt-0 mb-1.5 rounded-b-lg border-l border-r border-b border-[var(--border)]/35 bg-[var(--bg)] overflow-hidden">
+        {children}
+      </div>
+    )
+  }
+
+  function ELV({ label: l, value }: { label: string; value: React.ReactNode }) {
+    return (
+      <div>
+        <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--subtle)] opacity-55 mb-0.5">{l}</p>
+        <div className="text-[11.5px] text-[var(--text)]">{value}</div>
+      </div>
+    )
+  }
+
+  // ── Supplier / Material received events ────────────────────────────────────
+  if (
+    et.startsWith('supplier.') || et === 'material.received' ||
+    et === 'material.added_to_batch' || et === 'material.allocated' ||
+    et === 'incoming_qc.passed'
+  ) {
+    if (materials.length === 0) return null
+    return (
+      <Wrap>
+        <p className="px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest text-[var(--subtle)] border-b border-[var(--border)]/30">
+          Raw Materials · {materials.length} {materials.length === 1 ? 'material' : 'materials'}
+        </p>
+        {materials.map((m, i) => {
+          const lot       = deriveDemoLot(m)
+          const supplier  = m.supplier_name ?? deriveDemoSupplier(m.material_name)
+          const rawStatus = (m.lot_status ?? 'consumed').toLowerCase()
+          const lbl       = LOT_STATUS_LABEL[rawStatus] ?? 'Consumed'
+          const sCls      = rawStatus === 'quarantined' || rawStatus === 'quarantine' || rawStatus === 'rejected'
+            ? 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400'
+            : rawStatus === 'received' || rawStatus === 'in_use'
+            ? 'bg-blue-100 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
+            : 'bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400'
+          return (
+            <div key={m.id} className={`px-3 py-2 flex items-center justify-between gap-3 ${i < materials.length - 1 ? 'border-b border-[var(--border)]/20' : ''}`}>
+              <div className="min-w-0">
+                <p className="text-[12px] font-medium text-[var(--text)] truncate">{m.material_name}</p>
+                <p className="text-[10px] text-[var(--subtle)] mt-0.5 truncate">
+                  <span className="font-mono">{lot}</span> · {supplier}
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <span className={`text-[8.5px] font-bold uppercase rounded px-1.5 py-px ${sCls}`}>{lbl}</span>
+                <p className="text-[10px] text-[var(--subtle)] mt-0.5 tabular-nums">{m.quantity.toLocaleString()} {m.unit}</p>
+              </div>
+            </div>
+          )
+        })}
+      </Wrap>
+    )
+  }
+
+  // ── Production events ──────────────────────────────────────────────────────
+  if (
+    et === 'production.started' || et === 'production.completed' ||
+    et === 'production.planned' || et === 'batch.created'
+  ) {
+    const wo   = deriveWorkOrder(order.sku, order.id)
+    const line = deriveLine(order.sku)
+    const shft = deriveShift(order.started_at)
+    return (
+      <Wrap>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 px-3 py-2.5">
+          <ELV label="Work Order"      value={<span className="font-mono text-[10.5px]">{wo}</span>} />
+          <ELV label="Production Line" value={line} />
+          <ELV label="Shift"           value={shft} />
+          <ELV label="Quantity"        value={`${order.quantity.toLocaleString()} units`} />
+          <ELV label="Started"         value={order.started_at   ? fmtDate(order.started_at)   : '—'} />
+          <ELV label="Completed"       value={order.completed_at ? fmtDate(order.completed_at) : '—'} />
+        </div>
+      </Wrap>
+    )
+  }
+
+  // ── Quality inspection events ──────────────────────────────────────────────
+  if (
+    et.startsWith('qc.') || et.startsWith('final_qc.') ||
+    et.startsWith('qc_inspection.') || et.startsWith('inspection.')
+  ) {
+    if (qcResults.length === 0) return null
+    return (
+      <Wrap>
+        <p className="px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest text-[var(--subtle)] border-b border-[var(--border)]/30">
+          Quality Inspection · {qcResults.length} record{qcResults.length !== 1 ? 's' : ''}
+        </p>
+        {qcResults.map((q, i) => {
+          const bCls = q.status === 'pass' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
+            : q.status === 'fail' ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+            : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
+          const dot = q.status === 'pass' ? 'bg-emerald-500' : q.status === 'fail' ? 'bg-red-500' : 'bg-amber-500'
+          return (
+            <div key={i} className={`px-3 py-2 flex items-start gap-2.5 ${i < qcResults.length - 1 ? 'border-b border-[var(--border)]/20' : ''}`}>
+              <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${dot}`} />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className={`text-[9px] font-bold uppercase rounded px-1.5 py-px ${bCls}`}>{q.status}</span>
+                  {q.inspector_name && <span className="text-[11px] text-[var(--muted)]">{q.inspector_name}</span>}
+                  <span className="ml-auto text-[10px] text-[var(--subtle)] tabular-nums">{fmtDate(q.inspected_at)}</span>
+                </div>
+                {q.notes && <p className="mt-1 text-[11px] text-[var(--muted)] leading-snug">{q.notes}</p>}
+              </div>
+            </div>
+          )
+        })}
+      </Wrap>
+    )
+  }
+
+  // ── Packaging / Warehouse events ───────────────────────────────────────────
+  if (
+    et.startsWith('packaging.') || et.startsWith('storage.') ||
+    et.startsWith('finished_goods.') || et === 'warehouse.received' || et === 'warehouse.dispatch_ready'
+  ) {
+    const wh  = deriveWarehouse(order.sku)
+    const pkd = order.completed_at
+      ? new Date(new Date(order.completed_at).getTime() + 4 * 3600_000).toISOString()
+      : null
+    return (
+      <Wrap>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 px-3 py-2.5">
+          <ELV label="Packaging Date"   value={pkd ? fmtDate(pkd) : '—'} />
+          <ELV label="Status"           value={order.status === 'completed' ? 'Complete' : 'Pending'} />
+          <ELV label="Storage Location" value={wh} />
+          <ELV label="Release Status"   value={
+            order.status === 'completed'
+              ? <span className="text-emerald-600 dark:text-emerald-400">Released for Distribution</span>
+              : <span className="text-[var(--subtle)]">Pending</span>
+          } />
+        </div>
+      </Wrap>
+    )
+  }
+
+  // ── Distribution / Shipping events ─────────────────────────────────────────
+  if (
+    et.startsWith('distribution.') || et.startsWith('shipping.') ||
+    et === 'distributor.assigned' || et === 'market.available'
+  ) {
+    if (distRecords.length === 0) return null
+    return (
+      <Wrap>
+        <p className="px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest text-[var(--subtle)] border-b border-[var(--border)]/30">
+          Shipments · {distRecords.length} record{distRecords.length !== 1 ? 's' : ''}
+        </p>
+        {distRecords.map((r, i) => (
+          <div key={r.id} className={`pl-3 pr-5 py-2 flex items-center justify-between gap-3 ${i < distRecords.length - 1 ? 'border-b border-[var(--border)]/20' : ''}`}>
+            <div className="min-w-0">
+              <p className="text-[12px] font-medium text-[var(--text)] truncate">{r.recipient_name ?? '—'}</p>
+              <p className="text-[10px] text-[var(--subtle)] mt-0.5 capitalize">{r.recipient_type ?? '—'} · {fmtDate(r.shipped_at)}</p>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="text-[13px] font-semibold tabular-nums text-[var(--text)]">{r.quantity_shipped.toLocaleString()}</p>
+              <p className="text-[9px] text-[var(--subtle)]">units shipped</p>
+            </div>
+          </div>
+        ))}
+      </Wrap>
+    )
+  }
+
+  // ── Recall events ──────────────────────────────────────────────────────────
+  if (et.startsWith('recall.')) {
+    const recall = label === 'Recall Closed'
+      ? (recallRecords.find(r => r.status === 'closed') ?? recallRecords[0] ?? null)
+      : (recallRecords.find(r => r.status !== 'closed') ?? recallRecords[0] ?? null)
+    if (!recall) return null
+
+    const linkedCapa = label === 'Recall Closed'
+      ? (capaRecords.find(c => c.status === 'closed') ?? capaRecords[0] ?? null)
+      : (capaRecords.find(c => c.status !== 'closed') ?? capaRecords[0] ?? null)
+
+    const totalOther = impactData.reduce((n, m) => n + m.affected_batches.length, 0)
+
+    return (
+      <Wrap>
+        {/* ① Recall Record */}
+        <div className="px-3 pt-2.5 pb-2 border-b border-[var(--border)]/30">
+          <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--subtle)] opacity-60 mb-1.5">Recall Record</p>
+          <div className="flex flex-wrap items-center gap-1.5 mb-1">
+            {recall.recall_number && <span className="font-mono text-[10px] text-[var(--subtle)]">{recall.recall_number}</span>}
+            <span className="inline-flex rounded px-1.5 py-px text-[8.5px] font-bold uppercase bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
+              {recall.status === 'closed' ? 'Closed' : 'Active'}
+            </span>
+            {recall.severity && (
+              <span className={`inline-flex rounded px-1.5 py-px text-[8.5px] font-bold uppercase ${severityBadgeCls(recall.severity)}`}>
+                {recall.severity}
+              </span>
+            )}
+          </div>
+          <p className="text-[13px] font-semibold text-[var(--text)] leading-snug">{recall.title}</p>
+          <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1.5 text-[10.5px] text-[var(--subtle)]">
+            {recall.affected_units != null && (
+              <span><span className="font-semibold text-red-600 dark:text-red-400">{recall.affected_units.toLocaleString()}</span> units affected</span>
+            )}
+            <span>Opened {fmtDate(recall.created_at)}</span>
+            {recall.closed_at && <span>Closed {fmtDate(recall.closed_at)}</span>}
+          </div>
+        </div>
+
+        {/* ② Material Trace — raw materials in this batch */}
+        {materials.length > 0 && (
+          <div className="border-b border-[var(--border)]/30">
+            <p className="px-3 pt-2.5 pb-1 text-[9px] font-bold uppercase tracking-widest text-[var(--subtle)] opacity-60">
+              Material Trace · {materials.length} {materials.length === 1 ? 'material' : 'materials'}
+            </p>
+            {materials.map((m, i) => {
+              const lot      = deriveDemoLot(m)
+              const supplier = m.supplier_name ?? deriveDemoSupplier(m.material_name)
+              const rs       = (m.lot_status ?? 'consumed').toLowerCase()
+              const suspect  = rs === 'quarantined' || rs === 'quarantine' || rs === 'rejected'
+              return (
+                <div key={m.id} className={`px-3 py-1.5 flex items-center justify-between gap-3 ${i < materials.length - 1 ? 'border-b border-[var(--border)]/15' : ''}`}>
+                  <div className="min-w-0">
+                    <p className={`text-[11.5px] font-medium truncate ${suspect ? 'text-red-600 dark:text-red-400' : 'text-[var(--text)]'}`}>{m.material_name}</p>
+                    <p className="text-[10px] text-[var(--subtle)] mt-0.5 truncate">
+                      <span className="font-mono">{lot}</span> · {supplier}
+                    </p>
+                  </div>
+                  <span className={`shrink-0 text-[8.5px] font-bold uppercase rounded px-1.5 py-px ${
+                    suspect
+                      ? 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400'
+                      : 'bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400'
+                  }`}>{LOT_STATUS_LABEL[rs] ?? 'Consumed'}</span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ③ Linked CAPA */}
+        {linkedCapa && (
+          <div className="px-3 py-2 border-b border-[var(--border)]/30">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--subtle)] opacity-60 mb-1.5">Corrective Action (CAPA)</p>
+            <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+              {linkedCapa.capa_number && <span className="font-mono text-[10px] text-[var(--subtle)]">{linkedCapa.capa_number}</span>}
+              <span className={`text-[8.5px] font-bold uppercase rounded px-1.5 py-px ${
+                linkedCapa.status === 'closed'
+                  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
+                  : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
+              }`}>{linkedCapa.status.replace('_', ' ')}</span>
+              {linkedCapa.due_date && new Date(linkedCapa.due_date) < new Date() && linkedCapa.status !== 'closed' && (
+                <span className="text-[8.5px] font-bold uppercase rounded px-1.5 py-px bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">Overdue</span>
+              )}
+            </div>
+            <p className="text-[11.5px] font-medium text-[var(--text)] leading-snug">{linkedCapa.title}</p>
+            <div className="flex flex-wrap gap-x-3 mt-0.5 text-[10px] text-[var(--subtle)]">
+              {linkedCapa.owner_name && <span>{linkedCapa.owner_name}</span>}
+              {linkedCapa.due_date && <span>Due {fmtDate(linkedCapa.due_date)}</span>}
+            </div>
+          </div>
+        )}
+
+        {/* ④ Cross-batch exposure */}
+        <div className="border-b border-[var(--border)]/30">
+          <p className="px-3 pt-2 pb-1 text-[9px] font-bold uppercase tracking-widest text-[var(--subtle)] opacity-60">Cross-Batch Exposure</p>
+          {impactLoading ? (
+            <div className="px-3 pb-2"><div className="h-4 rounded bg-[var(--border)]/20 animate-pulse" /></div>
+          ) : totalOther === 0 ? (
+            <div className="px-3 pb-2 flex items-center gap-2">
+              <Network size={12} className="text-emerald-500 shrink-0" />
+              <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">No cross-batch exposure detected</p>
+            </div>
+          ) : (
+            <div className="pb-1">
+              <p className="px-3 pb-1 text-[11px] text-amber-600 dark:text-amber-400 font-semibold">
+                {totalOther} other batch{totalOther !== 1 ? 'es' : ''} share affected materials
+              </p>
+              {impactData.map(mat => (
+                <div key={mat.material_name} className="px-3 pb-2">
+                  <p className="text-[10px] text-[var(--subtle)] mb-1">{mat.material_name}</p>
+                  <div className="space-y-1">
+                    {mat.affected_batches.slice(0, 3).map(batch => (
+                      <a
+                        key={batch.production_order_id}
+                        href={`/product-journey/${batch.production_order_id}`}
+                        className="flex items-center justify-between rounded-lg border border-[var(--border)]/40 px-2.5 py-1.5 hover:bg-[var(--bg)] hover:border-[var(--border)]/70 transition-colors group"
+                      >
+                        <p className="text-[11px] font-medium text-[var(--text)] group-hover:text-[#3a6f8f] dark:group-hover:text-[#7ab3d0] truncate">{batch.product_name}</p>
+                        <span className="shrink-0 ml-2 text-[8.5px] font-bold uppercase text-[var(--subtle)]">{batch.status}</span>
+                      </a>
+                    ))}
+                    {mat.affected_batches.length > 3 && (
+                      <p className="text-[10px] text-[var(--subtle)] pl-1">+{mat.affected_batches.length - 3} more batches</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ⑤ Root Cause Investigation */}
+        <div>
+          <p className="px-3 pt-2 pb-0 text-[9px] font-bold uppercase tracking-widest text-[var(--subtle)] opacity-60">
+            Root Cause Investigation
+          </p>
+          <InlineRcaBlock batchId={order.id} showMaterialTrace={false} />
+        </div>
+
+        {/* ⑥ Quick links */}
+        <div className="px-3 py-1.5 flex items-center gap-4">
+          <Link href="/recall" className="text-[10.5px] text-[#4a8fb9] hover:underline">Recall Details →</Link>
+          <Link href="/recall-impact" className="text-[10.5px] text-[#4a8fb9] hover:underline">Full Impact Analysis →</Link>
+          <Link href="/capa" className="text-[10.5px] text-[#4a8fb9] hover:underline">CAPA Records →</Link>
+        </div>
+      </Wrap>
+    )
+  }
+
+  // ── CAPA events ────────────────────────────────────────────────────────────
+  if (et.startsWith('capa.')) {
+    const capa = label === 'CAPA Closed'
+      ? (capaRecords.find(c => c.status === 'closed') ?? capaRecords[0] ?? null)
+      : (capaRecords.find(c => c.status !== 'closed') ?? capaRecords[0] ?? null)
+    if (!capa) return null
+    const capaBadge = capa.status === 'closed'
+      ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
+      : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
+    const overdue = capa.due_date && new Date(capa.due_date) < new Date() && capa.status !== 'closed'
+    return (
+      <Wrap>
+        {/* CAPA identity */}
+        <div className="px-3 pt-2.5 pb-2 border-b border-[var(--border)]/30">
+          <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--subtle)] opacity-60 mb-1">CAPA Record</p>
+          <div className="flex flex-wrap items-center gap-1.5 mb-1">
+            {capa.capa_number && <span className="font-mono text-[10px] text-[var(--subtle)]">{capa.capa_number}</span>}
+            <span className={`text-[8.5px] font-bold uppercase rounded px-1.5 py-px ${capaBadge}`}>
+              {capa.status.replace('_', ' ')}
+            </span>
+            {overdue && (
+              <span className="text-[8.5px] font-bold uppercase rounded px-1.5 py-px bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">Overdue</span>
+            )}
+          </div>
+          <p className="text-[13px] font-semibold text-[var(--text)] leading-snug">{capa.title}</p>
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[10.5px] text-[var(--subtle)]">
+            {capa.owner_name && <span>Assigned to {capa.owner_name}</span>}
+            {capa.due_date && <span>Due {fmtDate(capa.due_date)}</span>}
+          </div>
+        </div>
+        {/* Root cause + corrective + preventive action */}
+        <InlineRcaBlock batchId={order.id} showMaterialTrace={true} />
+      </Wrap>
+    )
+  }
+
+  return null
+}
+
+function SidebarTimeline({
+  events, order, distRecords, materials, qcResults, impactData, impactLoading, impactMatchMode,
+}: {
+  events:          JourneyEvent[]
+  order:           TraceOrder
+  distRecords:     DistributionRecord[]
+  materials:       EnrichedMaterial[]
+  qcResults:       TraceQc[]
+  impactData:      MaterialImpact[]
+  impactLoading:   boolean
+  impactMatchMode: 'lot_id' | 'lot_number' | 'material_name'
+}) {
+  const { recalls: recallRecords, capas: capaRecords } = useContext(JourneyCtx)
+  // Single expansion — opening a new event collapses the previous one.
+  const [expandedKey, setExpandedKey] = useState<string | null>(null)
+  // Mounted keys — once opened, EventEvidence stays in DOM so the collapse animation is smooth.
+  const [mountedKeys, setMountedKeys] = useState<Set<string>>(() => new Set())
+  function toggleKey(key: string) {
+    setExpandedKey(prev => (prev === key ? null : key))
+    setMountedKeys(prev => { const n = new Set(prev); n.add(key); return n })
+  }
+
+  const currentStatus = useMemo(() => {
+    const activeRecall = recallRecords.find(r => r.status !== 'closed')
+    if (activeRecall) return { label: 'Recall Active',       pillCls: 'bg-red-500/10 text-red-500 border-red-500/30'           }
+    const activeCapa  = capaRecords.find(c => c.status !== 'closed')
+    if (activeCapa)   return { label: 'CAPA In Progress',    pillCls: 'bg-amber-500/10 text-amber-500 border-amber-500/30'     }
+    const types = new Set(events.map(e => e.event_type))
+    if (types.has('recall.closed'))                                               return { label: 'Recall Closed',       pillCls: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30' }
+    if (types.has('distribution.delivered') || types.has('shipping.delivered'))   return { label: 'Delivered',           pillCls: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30' }
+    if (types.has('distribution.dispatched') || types.has('shipping.dispatched')) return { label: 'In Transit',          pillCls: 'bg-cyan-500/10 text-cyan-500 border-cyan-500/30'          }
+    if (types.has('final_qc.passed'))                                             return { label: 'QC Passed',           pillCls: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30' }
+    if (types.has('packaging.completed'))                                         return { label: 'Packaged',            pillCls: 'bg-violet-500/10 text-violet-500 border-violet-500/30'    }
+    if (types.has('production.completed'))                                        return { label: 'Production Complete', pillCls: 'bg-blue-500/10 text-blue-500 border-blue-500/30'          }
+    if (types.has('production.started'))                                          return { label: 'In Production',       pillCls: 'bg-blue-500/10 text-blue-500 border-blue-500/30'          }
+    return { label: 'Pending', pillCls: 'bg-[var(--border)]/60 text-[var(--muted)] border-[var(--border)]' }
+  }, [events, recallRecords, capaRecords])
+
+  const enriched = useMemo(() => {
+    let recallSeq    = 0
+    let capaSeq      = 0
+    let currentPhase: PhaseKey | null = null
+    const RECALL_LIFECYCLE = ['Recall Opened', 'Scope Expanded', 'Customer Notification Sent', 'Investigation Updated']
+
+    return events.map(event => {
+      const phase     = (PHASE_MAP[event.event_type] ?? 'production') as PhaseKey
+      const showPhase = phase !== currentPhase
+      currentPhase    = phase
+      const isMilestone = MILESTONE_EVENTS.has(event.event_type)
+
+      let label: string
+      if (event.event_type === 'recall.created' || event.event_type === 'recall.initiated') {
+        label = RECALL_LIFECYCLE[recallSeq] ?? 'Investigation Updated'
+        recallSeq++
+      } else if (event.event_type === 'recall.updated') {
+        label = 'Investigation Updated'
+      } else if (event.event_type === 'recall.closed') {
+        label = 'Recall Closed'
+      } else if (event.event_type === 'capa.created' || event.event_type === 'capa.opened') {
+        label = capaSeq++ === 0 ? 'CAPA Opened' : 'CAPA Updated'
+      } else if (event.event_type === 'capa.updated') {
+        label = 'CAPA Updated'
+      } else if (event.event_type === 'capa.closed') {
+        label = 'CAPA Closed'
+      } else {
+        label = humanizeMfgEvent(event)
+      }
+
+      const evStyle = (event.event_type.startsWith('recall.') || event.event_type.startsWith('capa.'))
+        ? recallCapaStyle(label)
+        : timelineEventStyle(event.event_type)
+
+      const isShipment = event.event_type.startsWith('distribution.')
+        || event.event_type.startsWith('shipping.')
+        || event.event_type === 'distributor.assigned'
+      const d0 = distRecords[0]
+      const recipient = isShipment && d0
+        ? { name: d0.recipient_name, type: d0.recipient_type ?? '' }
+        : null
+
+      return { event, label, isMilestone, evStyle, phase, showPhase, recipient }
+    })
+  }, [events, distRecords])
+
+  const phaseCounts = useMemo(() => {
+    const counts: Partial<Record<PhaseKey, number>> = {}
+    for (const { phase } of enriched) counts[phase] = (counts[phase] ?? 0) + 1
+    return counts
+  }, [enriched])
+
+  // Active phase: drives the header pill and section header highlighting.
+  const currentPhaseKey = useMemo(() => {
+    if (recallRecords.some(r => r.status !== 'closed') || capaRecords.some(c => c.status !== 'closed'))
+      return 'issues' as PhaseKey
+    return enriched.length > 0 ? enriched[enriched.length - 1].phase : null
+  }, [enriched, recallRecords, capaRecords])
+
+  const { duration } = useMemo(() => {
+    const s = events.find(e => e.event_type === 'production.started')
+    const c = events.find(e => e.event_type === 'production.completed')
+    if (!s || !c) return { duration: null }
+    const days = Math.round(
+      (new Date(c.event_timestamp).getTime() - new Date(s.event_timestamp).getTime()) / 86_400_000
+    )
+    return { duration: days < 1 ? '< 1 Day' : `${days} Day${days !== 1 ? 's' : ''}` }
+  }, [events])
+
+  // Total affected units across all active recalls — shown as a recall-impact KPI.
+  const affectedUnits = useMemo(() => {
+    const active = recallRecords.filter(r => r.status !== 'closed')
+    if (active.length === 0) return null
+    const total = active.reduce((n, r) => n + (r.affected_units ?? 0), 0)
+    return total > 0 ? total : null
+  }, [recallRecords])
+
+  const visibleEnriched = enriched
+
+  const phasePillCls = currentPhaseKey
+    ? PHASE_PILL_CLS[currentPhaseKey]
+    : 'border-[var(--border)] text-[var(--muted)] bg-transparent'
+  const PhasePillIcon = currentPhaseKey ? PHASE_ICONS[currentPhaseKey] : null
+
+  return (
+    <div>
+
+      {/* ── Timeline ──────────────────────────────────────────────────────────── */}
+      <div>
+        {enriched.length === 0 ? (
+          <div className="flex flex-col items-center py-12 text-center px-6">
+            <Activity size={26} className="mb-3 text-[var(--border)]" />
+            <p className="text-[12px] text-[var(--subtle)]">No manufacturing events recorded yet</p>
+            <p className="mt-1 text-[11px] text-[var(--subtle)] opacity-60">
+              Events appear as the batch progresses through production
+            </p>
+          </div>
+        ) : (
+          <div className="relative px-5 pt-2 pb-4">
+
+            {/* Connector line — hairline, desaturated gray-blue, icon rings provide visual weight */}
+            <div
+              className="pointer-events-none absolute"
+              style={{
+                width: 1,
+                left: 40,
+                top: 48,
+                bottom: 20,
+                background: 'linear-gradient(to bottom, transparent, rgba(148,163,184,0.22) 4%, rgba(148,163,184,0.22) 96%, transparent)',
+              }}
+            />
+
+            {visibleEnriched.map(({ event, label, isMilestone, evStyle, phase, showPhase, recipient }, i) => {
+              const evKey       = `${event.event_type}-${event.event_timestamp}-${i}`
+              const isExpanded  = expandedKey === evKey
+              const isMounted   = mountedKeys.has(evKey)
+              const isIssue     = event.event_type.startsWith('recall.') || event.event_type.startsWith('capa.')
+              const isHighlight = isMilestone || isIssue
+              const description = describeMfgEvent(event.event_type, order, distRecords, materials)
+              const actor       = extractActor(event)
+              const badge       = getEventStatusBadge(event.event_type, label)
+              const dt          = new Date(event.event_timestamp)
+              const datePart    = fmtDate(event.event_timestamp)
+              const timePart    = dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+
+              // Phase icon — declared as variable so it can be rendered as JSX element.
+              const PhaseIcon = PHASE_ICONS[phase]
+
+              // Recall Opened / Scope Expanded are the crisis moment — maximum visual weight.
+              const isRecallOpened = label === 'Recall Opened' || label === 'Scope Expanded'
+
+              // Card border + bg per semantic tier.
+              // All events are cards — secondary events are subtly lighter, not absent.
+              const issueCardBg = (() => {
+                if (isRecallOpened)                                            return 'border border-red-500/30 bg-red-500/[0.06] hover:border-red-500/45 hover:shadow-[0_2px_14px_-4px_rgba(239,68,68,0.15)]'
+                if (label === 'Customer Notification Sent')                    return 'border border-orange-500/15 bg-orange-500/[0.03] hover:border-orange-500/25 hover:shadow-[0_1px_8px_-3px_rgba(249,115,22,0.08)]'
+                if (label === 'Investigation Updated')                         return 'border border-amber-500/12 bg-amber-500/[0.02] hover:border-amber-500/22 hover:shadow-[0_1px_8px_-3px_rgba(245,158,11,0.07)]'
+                if (label === 'Recall Closed' || label === 'CAPA Closed')     return 'border border-emerald-500/15 bg-emerald-500/[0.03] hover:border-emerald-500/25 hover:shadow-[0_1px_8px_-3px_rgba(16,185,129,0.08)]'
+                return 'border border-amber-500/15 bg-amber-500/[0.03] hover:border-amber-500/25 hover:shadow-[0_1px_8px_-3px_rgba(245,158,11,0.08)]'
+              })()
+
+              const cardBase = isIssue
+                ? `${issueCardBg} rounded-xl px-3 -mx-3`
+                : isMilestone
+                  ? 'border border-[var(--border)]/35 bg-[var(--surface)] rounded-xl px-3 -mx-3 hover:border-[var(--border)]/55 hover:shadow-[0_1px_8px_-2px_rgba(0,0,0,0.08)]'
+                  : 'border border-[var(--border)]/18 bg-[var(--surface)] rounded-lg px-3 -mx-3 hover:border-[var(--border)]/38 hover:shadow-[0_1px_6px_-2px_rgba(0,0,0,0.06)]'
+
+              // Top padding for the content row; bottom is minimal since the chevron strip follows.
+              const contentPad = isRecallOpened ? 'pt-[9px] pb-[1px]' : 'pt-[6px] pb-[1px]'
+
+              return (
+                <Fragment key={`${event.event_type}-${event.event_timestamp}-${i}`}>
+
+                  {/* Phase section header — NO background, connector line flows continuously.
+                      paddingLeft:56 aligns text with card content.
+                      "issues" phase gets extra top spacing and warm tint — signals a turning point. */}
+                  {showPhase && (
+                    <div
+                      className="relative z-[1]"
+                      style={{
+                        paddingTop:    i === 0 ? 0 : (phase === 'issues' ? 48 : 36),
+                        paddingBottom: phase === 'issues' ? 14 : 10,
+                        paddingLeft:   56,
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <PhaseIcon
+                          size={phase === 'issues' ? 10 : 8}
+                          className={`shrink-0 ${
+                            phase === 'issues'
+                              ? 'text-red-400 dark:text-red-500 opacity-55'
+                              : 'text-[var(--subtle)] opacity-35'
+                          }`}
+                        />
+                        <span className={`shrink-0 font-bold uppercase whitespace-nowrap ${
+                          phase === 'issues'
+                            ? 'text-[9.5px] tracking-[0.15em] text-red-400/75 dark:text-red-500/65'
+                            : 'text-[9px] tracking-[0.13em] text-[var(--subtle)]'
+                        }`}>
+                          {PHASE_LABELS[phase]}
+                        </span>
+                        {(phaseCounts[phase] ?? 0) > 0 && (
+                          <span className="shrink-0 text-[8px] tabular-nums text-[var(--subtle)] opacity-35">
+                            · {phaseCounts[phase]}
+                          </span>
+                        )}
+                        <div className={`flex-1 h-px bg-[var(--border)] ${phase === 'issues' ? 'opacity-35' : 'opacity-25'}`} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Event wrapper — button is the card; evidence animates below, connected via Wrap. */}
+                  <div className="mb-1.5">
+
+                    <button
+                      onClick={() => toggleKey(evKey)}
+                      className={`group relative flex flex-col w-full text-left cursor-pointer transition-all duration-150 ${cardBase}`}
+                    >
+                      {/* ── Content row ── */}
+                      <div className={`flex items-start gap-4 w-full ${contentPad}`}>
+
+                        {/* Icon badge — ring-[var(--bg)] masks connector line; gentle scale on hover */}
+                        <div
+                          className={`relative z-10 shrink-0 mt-[2px] rounded-full flex items-center justify-center ring-[3px] ring-[var(--bg)] transition-transform duration-150 group-hover:scale-[1.04] ${evStyle.bgCls}`}
+                          style={{ width: isRecallOpened ? 44 : 40, height: isRecallOpened ? 44 : 40 }}
+                        >
+                          <evStyle.Icon size={isRecallOpened ? 18 : isHighlight ? 15 : 13} className={evStyle.iconCls} />
+                        </div>
+
+                        {/* Text content */}
+                        <div className="min-w-0 flex-1 pt-[1px]">
+                          <p
+                            className={`leading-snug font-semibold transition-colors group-hover:text-[#4a8fb9] ${
+                              isRecallOpened
+                                ? `text-[14px] ${evStyle.labelCls}`
+                                : isIssue || isMilestone
+                                  ? `text-[13px] ${evStyle.labelCls}`
+                                  : 'text-[13px] text-[var(--text)]'
+                            }`}
+                            style={{ wordBreak: 'break-word' }}
+                          >
+                            {label}
+                          </p>
+                          {description && (
+                            <p className="mt-[3px] text-[11px] leading-relaxed text-[var(--muted)] line-clamp-2">
+                              {description}
+                            </p>
+                          )}
+                          {recipient && (
+                            <div className="mt-1.5 flex items-center gap-1.5">
+                              <Truck size={10} className="shrink-0 text-cyan-500" />
+                              <span className="text-[11px] font-semibold text-[var(--text)]">{recipient.name}</span>
+                              {recipient.type && (
+                                <span className="text-[10px] text-[var(--subtle)] capitalize">· {recipient.type}</span>
+                              )}
+                            </div>
+                          )}
+                          {!description && !recipient && actor && (
+                            <p className="mt-[3px] text-[10.5px] leading-snug text-[var(--muted)]">{actor}</p>
+                          )}
+                        </div>
+
+                        {/* Date + badge — right column */}
+                        <div className="shrink-0 flex flex-col items-end gap-[6px] pt-[1px]" style={{ minWidth: 60 }}>
+                          <p className="text-[10px] font-medium tabular-nums text-[var(--muted)] leading-none">{datePart}</p>
+                          {badge && (
+                            <span className={`inline-flex items-center rounded px-[5px] py-[1px] text-[8px] font-bold uppercase tracking-[0.08em] border ${badge.cls}`}>
+                              {badge.label}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* ── Expand indicator — bottom center, clearly visible ── */}
+                      <div className="flex items-center justify-center w-full pb-[8px] pt-[2px]">
+                        <ChevronDown
+                          size={26}
+                          className={`text-[var(--subtle)] opacity-35 group-hover:opacity-60 transition-all duration-300 ease-out ${isExpanded ? 'rotate-180 opacity-60' : ''}`}
+                        />
+                      </div>
+                    </button>
+
+                    {/* Evidence — grid 0fr→1fr height animation.
+                        Wrap (ml-[56px], no top border) attaches flush under the card. */}
+                    <div
+                      className={`grid transition-[grid-template-rows] duration-[280ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${isExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+                    >
+                      <div className="overflow-hidden">
+                        {isMounted && (
+                          <div className={`transition-opacity duration-220 ${isExpanded ? 'opacity-100 delay-[60ms]' : 'opacity-0'}`}>
+                            <EventEvidence
+                              event={event}
+                              label={label}
+                              order={order}
+                              materials={materials}
+                              distRecords={distRecords}
+                              qcResults={qcResults}
+                              recallRecords={recallRecords}
+                              capaRecords={capaRecords}
+                              impactData={impactData}
+                              impactLoading={impactLoading}
+                              impactMatchMode={impactMatchMode}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                  </div>
+
+                </Fragment>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* End of journey marker */}
+      <div className="flex items-center gap-4 pt-3 pb-1 px-5">
+        <div className="flex-1 h-px bg-[var(--border)]/20" />
+        <span className="text-[8px] uppercase tracking-[0.2em] text-[var(--subtle)] opacity-35 whitespace-nowrap">
+          End of Product Journey
+        </span>
+        <div className="flex-1 h-px bg-[var(--border)]/20" />
+      </div>
+    </div>
+  )
+}
+
+// ── Production info section ───────────────────────────────────────────────────
+
+function ProductionInfoSection({ order }: { order: TraceOrder }) {
+  const shift = deriveShift(order.started_at)
+  const wo    = deriveWorkOrder(order.sku, order.id)
+  const line  = deriveLine(order.sku)
+  return (
+    <div className="grid grid-cols-2 gap-x-6 gap-y-4 p-4">
+      <LabelValue label="Work Order"     value={<span className="font-mono text-[11.5px]">{wo}</span>} />
+      <LabelValue label="Production Line" value={line} />
+      <LabelValue label="Shift"           value={shift} />
+      <LabelValue label="Planned Qty"     value={`${order.quantity.toLocaleString()} units`} />
+      <LabelValue label="Start Time"      value={order.started_at   ? fmtDateTime(order.started_at)   : '—'} />
+      <LabelValue label="End Time"        value={order.completed_at ? fmtDateTime(order.completed_at) : '—'} />
+      <LabelValue label="Order Status"    value={
+        <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ${ORDER_BADGE[order.status] ?? ''}`}>
+          {ORDER_LABEL[order.status] ?? order.status}
+        </span>
+      } />
+    </div>
+  )
+}
+
+// ── Quality inspection section ────────────────────────────────────────────────
+
+function QualityInspectionSection({ qc }: { qc: TraceQc[] }) {
+  if (qc.length === 0) {
+    return <p className="px-4 py-4 text-[12px] text-[var(--subtle)]">No quality inspection records for this batch.</p>
+  }
+  return (
+    <div className="divide-y divide-[var(--border)]">
+      {qc.map((q, i) => {
+        const badgeCls = q.status === 'pass'
+          ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
+          : q.status === 'fail'
+          ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+          : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
+        const dotCls = q.status === 'pass' ? 'bg-emerald-500' : q.status === 'fail' ? 'bg-red-500' : 'bg-amber-500'
+        return (
+          <div key={i} className="flex items-start gap-3 px-4 py-3">
+            <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${dotCls}`} />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`inline-flex items-center rounded px-1.5 py-px text-[9.5px] font-bold uppercase ${badgeCls}`}>
+                  {q.status}
+                </span>
+                {q.inspector_name && (
+                  <span className="text-[11px] text-[var(--muted)]">{q.inspector_name}</span>
+                )}
+                <span className="ml-auto text-[10.5px] text-[var(--subtle)] tabular-nums">
+                  {fmtDate(q.inspected_at)}
+                </span>
+              </div>
+              {q.notes && (
+                <p className="mt-1 text-[11px] text-[var(--muted)] leading-snug">{q.notes}</p>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Packaging info section ────────────────────────────────────────────────────
+
+function PackagingInfoSection({ order }: { order: TraceOrder }) {
+  const warehouse = deriveWarehouse(order.sku)
+  const packagingDate = order.completed_at
+    ? new Date(new Date(order.completed_at).getTime() + 4 * 3600_000).toISOString()
+    : null
+  return (
+    <div className="grid grid-cols-2 gap-x-6 gap-y-4 p-4">
+      <LabelValue label="Packaging Date"   value={packagingDate ? fmtDate(packagingDate) : '—'} />
+      <LabelValue label="Packaging Status" value={order.status === 'completed' ? 'Complete' : 'Pending'} />
+      <LabelValue label="Storage Location" value={order.status === 'completed' ? warehouse : '—'} />
+      <LabelValue label="Release Status"   value={
+        order.status === 'completed'
+          ? <span className="text-emerald-600 dark:text-emerald-400">Released for Distribution</span>
+          : <span className="text-[var(--subtle)]">—</span>
+      } />
+    </div>
+  )
+}
+
+// ── Distribution table ────────────────────────────────────────────────────────
+
+function DistributionTable({ records }: { records: DistributionRecord[] }) {
+  if (records.length === 0) {
+    return <p className="px-4 py-4 text-[12px] text-[var(--subtle)]">No distribution records for this batch.</p>
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-[11.5px]">
+        <thead>
+          <tr className="border-b border-[var(--border)]">
+            {(['Recipient', 'Type', 'Qty', 'Shipped', 'Status'] as const).map(h => (
+              <th key={h} className={`px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-[var(--subtle)] ${h === 'Qty' ? 'text-right' : 'text-left'}`}>
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[var(--border)]">
+          {records.map(r => (
+            <tr key={r.id} className="hover:bg-[var(--bg)] transition-colors">
+              <td className="px-4 py-2.5 font-medium text-[var(--text)]">{r.recipient_name ?? '—'}</td>
+              <td className="px-4 py-2.5 capitalize text-[var(--muted)]">{r.recipient_type ?? '—'}</td>
+              <td className="px-4 py-2.5 text-right tabular-nums text-[var(--muted)]">
+                {r.quantity_shipped.toLocaleString()}
+              </td>
+              <td className="px-4 py-2.5 text-[var(--muted)]">{fmtDate(r.shipped_at)}</td>
+              <td className="px-4 py-2.5">
+                <span className="inline-flex items-center rounded px-1.5 py-px text-[9.5px] font-bold uppercase bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">
+                  Shipped
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// severityBadgeCls used in recall evidence
+function severityBadgeCls(severity: string | null) {
+  const s = (severity ?? '').toLowerCase()
+  if (s === 'critical' || s === 'high') return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+  if (s === 'medium')                   return 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
+  return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+}
+
+function _IssuesSection_UNUSED({
+  recalls, capas, impacts, impactLoading, impactTruncated, impactMatchMode, batchId,
+}: {
+  recalls:          RecallRecord[]
+  capas:            CapaRecord[]
+  impacts:          MaterialImpact[]
+  impactLoading:    boolean
+  impactTruncated:  boolean
+  impactMatchMode:  'lot_id' | 'lot_number' | 'material_name'
+  batchId:          string
+}) {
+  // Show only the current active recall — older closed recalls are history, not the current story.
+  const activeRecall = recalls.find(r => r.status !== 'closed') ?? null
+  const activeCapa   = capas.find(c => c.status !== 'closed') ?? capas[0] ?? null
+
+  return (
+    <div className="space-y-4 p-4">
+
+      {/* Active Recall — single prominent card */}
+      {activeRecall ? (
+        <div>
+          <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)]">Active Recall</p>
+          <div className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50/60 dark:bg-red-900/[0.08] px-4 py-3.5">
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              {activeRecall.recall_number && (
+                <span className="font-mono text-[10px] text-[var(--subtle)]">{activeRecall.recall_number}</span>
+              )}
+              <span className="inline-flex rounded px-1.5 py-px text-[9px] font-bold uppercase bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
+                Active
+              </span>
+              {activeRecall.severity && (
+                <span className={`inline-flex rounded px-1.5 py-px text-[9px] font-bold uppercase ${severityBadgeCls(activeRecall.severity)}`}>
+                  {activeRecall.severity}
+                </span>
+              )}
+            </div>
+            <p className="text-[13px] font-semibold text-[var(--text)] leading-snug mb-1.5">{activeRecall.title}</p>
+            <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-[var(--subtle)]">
+              {activeRecall.affected_units != null && (
+                <span><span className="font-semibold text-[var(--text)]">{activeRecall.affected_units.toLocaleString()}</span> units affected</span>
+              )}
+              <span>Opened {fmtDate(activeRecall.created_at)}</span>
+            </div>
+          </div>
+        </div>
+      ) : recalls.length === 0 && capas.length === 0 ? (
+        <p className="text-[12px] text-[var(--subtle)]">No recalls or corrective actions recorded for this batch.</p>
+      ) : null}
+
+      {/* Active CAPA — linked corrective action */}
+      {activeCapa && (
+        <div>
+          <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)]">Corrective Action (CAPA)</p>
+          <div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/40 dark:bg-amber-900/[0.07] px-3.5 py-2.5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+                  {activeCapa.capa_number && (
+                    <span className="font-mono text-[10px] text-[var(--subtle)]">{activeCapa.capa_number}</span>
+                  )}
+                  <span className={`inline-flex rounded px-1.5 py-px text-[9px] font-bold uppercase ${
+                    activeCapa.status === 'closed'
+                      ? 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+                      : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
+                  }`}>{activeCapa.status.replace('_', ' ')}</span>
+                </div>
+                <p className="text-[12px] font-medium text-[var(--text)]">{activeCapa.title}</p>
+                <p className="text-[10.5px] text-[var(--subtle)] mt-0.5">
+                  {activeCapa.owner_name && <>{activeCapa.owner_name} · </>}
+                  {activeCapa.due_date ? <>Due {fmtDate(activeCapa.due_date)}</> : <>Opened {fmtDate(activeCapa.created_at)}</>}
+                </p>
+              </div>
+            </div>
+          </div>
+          {capas.length > 1 && (
+            <p className="mt-1 text-[10.5px] text-[var(--subtle)] pl-0.5">
+              +{capas.length - 1} additional CAPA record{capas.length > 2 ? 's' : ''} — open Root Cause Analysis for details.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Impact analysis */}
+      <ImpactAnalysis
+        impacts={impacts}
+        loading={impactLoading}
+        truncated={impactTruncated}
+        matchMode={impactMatchMode}
+      />
+
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function ProductJourneyDetailClient() {
@@ -1470,8 +3092,8 @@ export default function ProductJourneyDetailClient() {
     Promise.all([
       supabase.rpc('get_batch_trace',   { p_batch_id: id }).single(),
       supabase.rpc('get_batch_journey', { p_batch_id: id }).single(),
-      supabase.from('capas').select('id, title, status, created_at, closed_at').eq('batch_id', id),
-      supabase.from('recalls').select('id, title, status, created_at, closed_at, recall_number').eq('batch_id', id),
+      supabase.from('capas').select('id, title, status, created_at, closed_at, capa_number, owner_name, due_date').eq('batch_id', id),
+      supabase.from('recalls').select('id, title, status, created_at, closed_at, recall_number, severity, affected_units').eq('batch_id', id),
       supabase
         .from('bill_of_materials')
         .select('id, material_name, lot_number, quantity, unit, created_at, raw_material_lots(id, lot_number, received_at, status, suppliers(name))')
@@ -1487,9 +3109,19 @@ export default function ProductJourneyDetailClient() {
         return
       }
 
-      const trace   = traceRes.data as TraceData
-      const capas   = (capaRes.data   ?? []) as CapaRecord[]
-      const recalls = (recallRes.data ?? []) as RecallRecord[]
+      const trace = traceRes.data as TraceData
+
+      // Strip placeholder / test records that have no business meaning.
+      // These are produced by seed scripts and automated tests and should
+      // never surface on the production journey page.
+      const isPlaceholder = (title: string) => {
+        const t = (title ?? '').toLowerCase().trim()
+        return t === 'automatic capa test' || t === 'just testing' ||
+          t === 'test' || t === 'testing' || t === 'demo' ||
+          (t.startsWith('test ') && t.length < 30)
+      }
+      const capas   = ((capaRes.data   ?? []) as CapaRecord[]).filter(c => !isPlaceholder(c.title))
+      const recalls = ((recallRes.data ?? []) as RecallRecord[]).filter(r => !isPlaceholder(r.title))
 
       setTraceData(trace)
       setCapaRecords(capas)
@@ -1703,9 +3335,9 @@ export default function ProductJourneyDetailClient() {
 
   return (
     <JourneyCtx.Provider value={{ recalls: recallRecords, capas: capaRecords }}>
-    <div className="px-6 py-5">
+    <div className="px-6 py-4">
       {/* Breadcrumb + page title — one compact row */}
-      <div className="mb-4">
+      <div className="mb-3">
         <div className="flex items-center justify-between gap-4">
           <Link href="/product-journey"
             className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-[#3a6f8f] dark:hover:text-[#7ab3d0] transition-colors">
@@ -1725,38 +3357,82 @@ export default function ProductJourneyDetailClient() {
         recalls={recallRecords}
       />
 
-      {/* Batch Summary */}
+      {/* Situation Report — answers the 9 emergency questions at a glance */}
       {(() => {
         const activeR  = recallRecords.find(r => r.status !== 'closed') ?? null
         const latestQc = [...traceData.qc_results].sort(
           (a, b) => new Date(b.inspected_at).getTime() - new Date(a.inspected_at).getTime()
         )[0] ?? null
-        const risk = activeR ? 'high' : latestQc?.status === 'fail' ? 'medium' : 'low'
+        const activeCapa = capaRecords.find(c => c.status !== 'closed') ?? null
+
+        if (activeR) {
+          // Emergency mode — compact status strip, no duplicate info from the header above.
+          return (
+            <div className="mb-3 rounded-lg border border-red-500/20 dark:border-red-500/15 bg-red-500/[0.04] dark:bg-red-500/[0.06] px-3.5 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-1">
+              {/* Left: recall identity */}
+              <div className="flex items-center gap-2 shrink-0">
+                <AlertTriangle size={12} className="shrink-0 text-red-500 dark:text-red-400" />
+                <span className="text-[11px] font-semibold text-red-600 dark:text-red-400">Active Recall</span>
+                {activeR.recall_number && (
+                  <span className="font-mono text-[10px] text-[var(--subtle)]">{activeR.recall_number}</span>
+                )}
+                {activeR.severity && (
+                  <span className={`text-[8.5px] font-bold uppercase rounded px-1.5 py-px ${
+                    activeR.severity === 'critical' || activeR.severity === 'high'
+                      ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400'
+                      : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
+                  }`}>{activeR.severity}</span>
+                )}
+              </div>
+              {/* Divider */}
+              <div className="hidden sm:block w-px h-3 bg-[var(--border)] opacity-50 shrink-0" />
+              {/* Right: key facts inline */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 text-[11px] text-[var(--subtle)]">
+                {activeR.affected_units != null && (
+                  <span>
+                    <span className="font-semibold text-red-600 dark:text-red-400">{activeR.affected_units.toLocaleString()}</span>
+                    {' '}units affected
+                  </span>
+                )}
+                {distRecords.length > 0 && (
+                  <span>
+                    <span className="font-semibold text-[var(--text)]">{distRecords.length}</span>
+                    {' '}shipment{distRecords.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+                {activeCapa && (
+                  <span>
+                    {activeCapa.capa_number ?? 'CAPA'}
+                    {' · '}
+                    <span className="capitalize">{activeCapa.status.replace('_', ' ')}</span>
+                  </span>
+                )}
+              </div>
+            </div>
+          )
+        }
+
+        // Normal mode — no active recall.
+        const risk = latestQc?.status === 'fail' ? 'medium' : 'low'
         const RISK_B: Record<string, string> = {
-          low:      'bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400',
-          medium:   'bg-amber-100 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400',
-          high:     'bg-orange-100 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400',
-          critical: 'bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400',
+          low:    'bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400',
+          medium: 'bg-amber-100 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400',
         }
         const s1 = `Production batch of ${traceData.order.quantity.toLocaleString()} units of ${traceData.order.product_name} (${traceData.order.sku}).`
-        const s2 = activeR
-          ? `An active recall (${activeR.recall_number ?? activeR.title}) is in progress for this batch.`
-          : traceData.order.status === 'completed' && distRecords.length > 0
+        const s2 = traceData.order.status === 'completed' && distRecords.length > 0
           ? `Batch shipped — ${distRecords.length} distribution record${distRecords.length !== 1 ? 's' : ''} on file.`
           : traceData.order.status === 'completed'
           ? 'Production complete. Awaiting distribution.'
           : traceData.order.started_at
           ? `Batch in production since ${fmtDate(traceData.order.started_at)}.`
           : 'Batch ordered, pending production start.'
-        const s3 = activeR
-          ? `Required: manage recall and notify all affected distributors (${distRecords.length} shipment${distRecords.length !== 1 ? 's' : ''} recorded).`
-          : latestQc?.status === 'fail'
+        const s3 = latestQc?.status === 'fail'
           ? 'Quality inspection failed. Review findings and initiate corrective action before further distribution.'
           : latestQc?.status === 'hold'
           ? 'Batch on QC hold — clearance required before release.'
           : null
         return (
-          <div className="mb-5 rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC]/60 dark:bg-[#1a2530]/50 px-4 py-3.5">
+          <div className="mb-4 rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC]/60 dark:bg-[#1a2530]/50 px-4 py-3.5">
             <div className="mb-2 flex items-center justify-between gap-3">
               <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">Batch Summary</p>
               <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${RISK_B[risk]}`}>
@@ -1769,104 +3445,19 @@ export default function ProductJourneyDetailClient() {
         )
       })()}
 
-      {/* Timeline — primary feature, full width */}
-      <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
-        <div className="flex items-center gap-2.5 border-b border-gray-100 dark:border-gray-700 px-4 py-3">
-          <Activity size={15} className="text-gray-400 dark:text-gray-500" />
-          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Product Journey Timeline</h2>
-          {businessEvents.length > 1 && (
-            <span className="ml-auto rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-xs font-medium text-gray-500 dark:text-gray-400">
-              {businessEvents.length} {businessEvents.length === 1 ? 'event' : 'events'}
-            </span>
-          )}
-        </div>
-        <div className="px-4 py-4">
-          {businessEvents.length === 0 ? (
-            <>
-              <div className="py-8 text-center">
-                <Activity size={32} className="mx-auto mb-3 text-gray-200 dark:text-gray-700" />
-                <p className="text-sm text-gray-400 dark:text-gray-500">No operational events recorded yet</p>
-              </div>
-              {sysEvents.length > 0 && (
-                <>
-                  <button
-                    onClick={() => setShowSysEvents(v => !v)}
-                    className="mt-1 flex w-full items-center justify-between rounded-lg border border-dashed border-gray-200 dark:border-gray-700 px-3 py-2 text-xs font-medium text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700/30 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                  >
-                    <span>Scan & Tracking Events ({sysEvents.length})</span>
-                    {showSysEvents ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                  </button>
-                  {showSysEvents && (
-                    <div className="mt-2">
-                      {sysEvents.map((event, i) => (
-                        <TimelineEvent
-                          key={`sys-${event.event_type}-${event.event_timestamp}-${i}`}
-                          event={event}
-                          isLast={i === sysEvents.length - 1}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </>
-          ) : (
-            <>
-              <StageFlow events={businessEvents} />
+      {/* Product Story — the complete lifecycle narrative. Every event is expandable. */}
+      <SidebarTimeline
+        events={businessEvents}
+        order={traceData.order}
+        distRecords={distRecords}
+        materials={enrichedMaterials}
+        qcResults={traceData.qc_results}
+        impactData={impactData}
+        impactLoading={impactLoading}
+        impactMatchMode={impactMatchMode}
+      />
 
-              {businessEvents.map((event, i) => (
-                <TimelineEvent
-                  key={`${event.event_type}-${event.event_timestamp}-${i}`}
-                  event={event}
-                  isLast={i === businessEvents.length - 1 && sysEvents.length === 0}
-                />
-              ))}
-
-              {businessEvents.length === 1 && sysEvents.length === 0 && (
-                <div className="mt-4 rounded-xl border border-dashed border-blue-200 dark:border-blue-800/40 bg-blue-50/40 dark:bg-blue-900/10 px-4 py-3.5">
-                  <p className="text-xs leading-relaxed text-blue-600/80 dark:text-blue-400/80">
-                    Production has started. Additional lifecycle events will appear as the batch progresses.
-                  </p>
-                </div>
-              )}
-
-              {sysEvents.length > 0 && (
-                <>
-                  <button
-                    onClick={() => setShowSysEvents(v => !v)}
-                    className="mt-3 flex w-full items-center justify-between rounded-lg border border-dashed border-gray-200 dark:border-gray-700 px-3 py-2 text-xs font-medium text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700/30 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                  >
-                    <span>Scan & Tracking Events ({sysEvents.length})</span>
-                    {showSysEvents ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                  </button>
-                  {showSysEvents && (
-                    <div className="mt-2">
-                      {sysEvents.map((event, i) => (
-                        <TimelineEvent
-                          key={`sys-${event.event_type}-${event.event_timestamp}-${i}`}
-                          event={event}
-                          isLast={i === sysEvents.length - 1}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-
-      <MaterialsUsed materials={enrichedMaterials} />
-      {enrichedMaterials.length > 0 && (
-        <ImpactAnalysis
-          impacts={impactData}
-          loading={impactLoading}
-          truncated={impactTruncated}
-          matchMode={impactMatchMode}
-        />
-      )}
-      <RootCausePanel batchId={id} />
+      {/* QR Trace & Public Product Story link */}
       <ProductStoryPanel batchId={id} />
     </div>
     </JourneyCtx.Provider>

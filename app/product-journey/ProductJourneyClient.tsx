@@ -190,9 +190,9 @@ export default function ProductJourneyClient() {
     .slice(0, 6)
 
   return (
-    <div className="px-6 py-5">
+    <div className="px-6 py-4">
       {/* Page header */}
-      <div className="mb-6">
+      <div className="mb-4">
         <div className="flex items-center gap-2 mb-1">
           <GitBranch size={20} className="text-[#3a6f8f]" />
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Traceability Search</h1>
@@ -203,7 +203,7 @@ export default function ProductJourneyClient() {
       </div>
 
       {/* Search */}
-      <div className="max-w-2xl mb-8">
+      <div className="max-w-2xl mb-5">
         <BatchSearchBar
           batches={batches}
           query={query}
@@ -228,7 +228,7 @@ export default function ProductJourneyClient() {
                 key={b.id}
                 type="button"
                 onClick={() => handleSelect(b)}
-                className="text-left rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm hover:border-[#3a6f8f]/50 hover:shadow-md transition-all group"
+                className="text-left rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3.5 shadow-sm hover:border-[#3a6f8f]/50 hover:shadow-md transition-all group"
               >
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <p className="text-sm font-semibold text-gray-900 dark:text-white leading-tight group-hover:text-[#3a6f8f] transition-colors">
@@ -249,8 +249,8 @@ export default function ProductJourneyClient() {
       )}
 
       {!batchLoading && recent.length === 0 && (
-        <div className="flex flex-col items-center py-16 text-center">
-          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+        <div className="flex flex-col items-center py-12 text-center">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
             <Package size={28} className="text-gray-300 dark:text-gray-600" />
           </div>
           <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">No production batches yet</h3>

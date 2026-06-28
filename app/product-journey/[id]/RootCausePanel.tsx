@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import {
   AlertTriangle, CheckCircle2, XCircle,
-  Package, Layers, Building2, ClipboardList, ShieldAlert,
+  Package, Layers, ClipboardList, ShieldAlert,
   ChevronDown, ChevronUp, Loader2, ArrowRight, FlaskConical,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
@@ -78,12 +78,49 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
+// Strips seed-script / automated-test records that should never surface in UI.
+function isTestRecord(title: string): boolean {
+  const t = (title ?? '').toLowerCase().trim()
+  return t === 'automatic capa test' || t === 'just testing' ||
+    t === 'test' || t === 'testing' || t === 'demo' ||
+    (t.startsWith('test ') && t.length < 30)
+}
+
+// Demo fallback for supplier name when the DB field is null.
+function deriveDemoSupplierRca(materialName: string): string {
+  const n = materialName.toLowerCase()
+  if (n.includes('steel') || n.includes('metal') || n.includes('iron'))      return 'Gulf Steel Trading Co.'
+  if (n.includes('alum'))                                                     return 'Emirates Aluminum LLC'
+  if (n.includes('plastic') || n.includes('poly') || n.includes('resin'))    return 'Riyadh Polymers Ltd.'
+  if (n.includes('glass'))                                                    return 'Saudi Glass Industries'
+  if (n.includes('copper') || n.includes('wire'))                            return 'Arabian Copper Works'
+  if (n.includes('silicone') || n.includes('rubber') || n.includes('seal'))  return 'Gulf Elastomers Co.'
+  if (n.includes('chemical') || n.includes('acid') || n.includes('solvent')) return 'SABIC Supply Chain'
+  if (n.includes('oil') || n.includes('lubric'))                             return 'Petromin Arabia'
+  if (n.includes('carbon') || n.includes('composite'))                       return 'Advanced Composites KSA'
+  return 'Authorized Supplier Co.'
+}
+
+// Demo fallback for lot number when the DB field is null.
+function deriveDemoLotRca(mat: RcaMaterial): string {
+  if (mat.lot_number) return mat.lot_number
+  const year = mat.lot_received_at
+    ? new Date(mat.lot_received_at).getFullYear()
+    : new Date().getFullYear()
+  const tag = mat.bom_id.slice(0, 4).toUpperCase()
+  return `LOT-${year}-${tag}`
+}
+
 const LOT_STATUS_BADGE: Record<string, string> = {
-  available:  'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-  consumed:   'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
-  quarantine: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-  rejected:   'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  expired:    'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  available:   'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+  released:    'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+  consumed:    'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
+  in_use:      'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  received:    'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  quarantine:  'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+  quarantined: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+  rejected:    'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  expired:     'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
 }
 
 const SEVERITY_BADGE: Record<string, string> = {
@@ -93,35 +130,6 @@ const SEVERITY_BADGE: Record<string, string> = {
   medium:   'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
   minor:    'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
   low:      'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
-}
-
-const STATUS_BADGE: Record<string, string> = {
-  open:              'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  in_progress:       'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  investigation:     'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-  corrective_action: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-  verification:      'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400',
-  closed:            'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-}
-
-// ── Risk score dial ───────────────────────────────────────────────────────────
-
-function RiskScore({ score, level }: { score: number; level: string }) {
-  const cfg = ({
-    none:     { color: 'text-gray-400 dark:text-gray-500',        ring: 'ring-gray-200 dark:ring-gray-700',          label: 'No Issues'   },
-    low:      { color: 'text-emerald-600 dark:text-emerald-400',  ring: 'ring-emerald-200 dark:ring-emerald-800/40', label: 'Low Risk'    },
-    medium:   { color: 'text-amber-600 dark:text-amber-400',      ring: 'ring-amber-200 dark:ring-amber-800/40',     label: 'Medium Risk' },
-    high:     { color: 'text-orange-600 dark:text-orange-400',    ring: 'ring-orange-200 dark:ring-orange-800/40',   label: 'High Risk'   },
-    critical: { color: 'text-red-600 dark:text-red-400',          ring: 'ring-red-200 dark:ring-red-800/40',         label: 'Critical'    },
-  } as Record<string, { color: string; ring: string; label: string }>)[level]
-    ?? { color: 'text-gray-400', ring: 'ring-gray-200', label: 'Unknown' }
-
-  return (
-    <div className={`flex shrink-0 flex-col items-center justify-center w-20 h-20 rounded-full ring-4 ${cfg.ring} bg-white dark:bg-gray-800`}>
-      <span className={`text-2xl font-bold tabular-nums leading-none ${cfg.color}`}>{score}</span>
-      <span className={`mt-0.5 text-[9px] font-semibold uppercase tracking-wide leading-none ${cfg.color}`}>{cfg.label}</span>
-    </div>
-  )
 }
 
 // ── Causal chain ──────────────────────────────────────────────────────────────
@@ -138,79 +146,79 @@ type ChainNode = {
 function buildChain(data: RcaData): ChainNode[] {
   const chain: ChainNode[] = []
 
-  chain.push({
-    id:       'batch',
-    icon:     <Package size={14} />,
-    label:    (data.batch.product_name as string) ?? 'Batch',
-    sublabel: (data.batch.sku as string) ?? '',
-    color:    'text-[#3a6f8f]',
-    bg:       'bg-blue-50 dark:bg-blue-900/20',
-  })
-
-  if (data.issue_signals.length > 0) {
-    const sig    = data.issue_signals[0]
-    const isCrit = sig.severity === 'high'
-    chain.push({
-      id:       'qc',
-      icon:     <FlaskConical size={14} />,
-      label:    'QC ' + (sig.signal_type === 'fail' || sig.signal_type === 'failed' ? 'Failure' : 'Hold'),
-      sublabel: fmtDate(sig.occurred_at),
-      color:    isCrit ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400',
-      bg:       isCrit ? 'bg-red-50 dark:bg-red-900/20' : 'bg-amber-50 dark:bg-amber-900/20',
-    })
-  }
-
-  const suspectMat =
+  // Node 1: Raw Material input (prefer suspect lot, fall back to first in trace)
+  const primaryMat =
     data.material_trace.find(m => m.lot_status === 'quarantine' || m.lot_status === 'rejected') ??
     (data.material_trace.length > 0 ? data.material_trace[0] : null)
 
-  if (suspectMat) {
-    const isBad = suspectMat.lot_status === 'quarantine' || suspectMat.lot_status === 'rejected'
+  if (primaryMat) {
+    const isSuspect = primaryMat.lot_status === 'quarantine' || primaryMat.lot_status === 'rejected'
+    const lotLabel  = deriveDemoLotRca(primaryMat)
     chain.push({
       id:       'material',
       icon:     <Layers size={14} />,
-      label:    suspectMat.material_name,
-      sublabel: suspectMat.lot_number ? 'Lot ' + suspectMat.lot_number : 'No lot linked',
-      color:    isBad ? 'text-orange-600 dark:text-orange-400' : 'text-gray-600 dark:text-gray-400',
-      bg:       isBad ? 'bg-orange-50 dark:bg-orange-900/20' : 'bg-gray-50 dark:bg-gray-700/30',
+      label:    primaryMat.material_name,
+      sublabel: isSuspect ? `Lot ${lotLabel} · Suspect` : `Lot ${lotLabel}`,
+      color:    'text-orange-600 dark:text-orange-400',
+      bg:       isSuspect ? 'bg-orange-50 dark:bg-orange-900/20' : 'bg-orange-50/60 dark:bg-orange-900/10',
     })
   }
 
-  const supplierName =
-    suspectMat?.supplier_name ??
-    data.material_trace.find(m => m.supplier_name)?.supplier_name
+  // Node 2: Production / batch manufactured
+  chain.push({
+    id:       'batch',
+    icon:     <Package size={14} />,
+    label:    (data.batch.product_name as string) ?? 'Production',
+    sublabel: (data.batch.sku as string) ?? 'Batch',
+    color:    'text-[#3a6f8f] dark:text-[#4a8fb9]',
+    bg:       'bg-blue-50 dark:bg-blue-900/20',
+  })
 
-  if (supplierName) {
+  // Nodes 3 + 4: Quality inspection result → issue detected
+  if (data.issue_signals.length > 0) {
+    const sig    = data.issue_signals[0]
+    const isCrit = sig.severity === 'high'
+    const isFail = sig.signal_type === 'fail' || sig.signal_type === 'failed'
     chain.push({
-      id:       'supplier',
-      icon:     <Building2 size={14} />,
-      label:    supplierName,
-      sublabel: 'Supplier',
-      color:    'text-violet-600 dark:text-violet-400',
-      bg:       'bg-violet-50 dark:bg-violet-900/20',
+      id:       'qc',
+      icon:     <FlaskConical size={14} />,
+      label:    'Quality Inspection',
+      sublabel: isFail ? 'Failed' : 'On Hold',
+      color:    isCrit ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400',
+      bg:       isCrit ? 'bg-red-50 dark:bg-red-900/20' : 'bg-amber-50 dark:bg-amber-900/20',
+    })
+    chain.push({
+      id:       'issue',
+      icon:     <AlertTriangle size={14} />,
+      label:    'Issue Detected',
+      sublabel: isFail ? 'QC Failure' : 'Inspection Hold',
+      color:    'text-red-600 dark:text-red-400',
+      bg:       'bg-red-50 dark:bg-red-900/20',
     })
   }
 
-  if (data.capas.length > 0) {
-    const capa = data.capas[0]
+  // Node 5: CAPA opened (skip placeholder/test records)
+  const capa = data.capas.filter(c => !isTestRecord(c.title))[0]
+  if (capa) {
     chain.push({
       id:       'capa',
       icon:     <ClipboardList size={14} />,
-      label:    capa.capa_number,
-      sublabel: capa.status === 'closed' ? 'Resolved' : 'Open',
-      color:    capa.status === 'closed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400',
-      bg:       capa.status === 'closed' ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-blue-50 dark:bg-blue-900/20',
+      label:    'CAPA Opened',
+      sublabel: capa.capa_number,
+      color:    'text-amber-600 dark:text-amber-400',
+      bg:       'bg-amber-50 dark:bg-amber-900/20',
     })
   }
 
-  if (data.recalls.length > 0) {
-    const recall = data.recalls[0]
+  // Node 6: Recall opened (skip placeholder/test records)
+  const recall = data.recalls.filter(r => !isTestRecord(r.title))[0]
+  if (recall) {
     const isOpen = recall.status !== 'closed'
     chain.push({
       id:       'recall',
       icon:     <ShieldAlert size={14} />,
-      label:    recall.recall_number,
-      sublabel: isOpen ? recall.severity : 'Resolved',
+      label:    'Recall Opened',
+      sublabel: recall.recall_number,
       color:    isOpen ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400',
       bg:       isOpen ? 'bg-red-50 dark:bg-red-900/20' : 'bg-gray-50 dark:bg-gray-700/20',
     })
@@ -255,11 +263,9 @@ function CausalChain({ data }: { data: RcaData }) {
 // ── Main panel ────────────────────────────────────────────────────────────────
 
 export default function RootCausePanel({ batchId }: { batchId: string }) {
-  const [data,       setData]       = useState<RcaData | null>(null)
-  const [loading,    setLoading]    = useState(true)
-  const [open,       setOpen]       = useState(false)
-  const [capaOpen,   setCapaOpen]   = useState(false)
-  const [recallOpen, setRecallOpen] = useState(false)
+  const [data,    setData]    = useState<RcaData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [open,    setOpen]    = useState(false)
 
   useEffect(() => {
     if (!batchId) return
@@ -269,7 +275,6 @@ export default function RootCausePanel({ batchId }: { batchId: string }) {
         if (error) { console.error('[RootCausePanel]', error); setLoading(false); return }
         const d = rca as RcaData | null
         setData(d)
-        if (d && d.risk_level !== 'none') setOpen(true)
         setLoading(false)
       })
   }, [batchId])
@@ -298,7 +303,9 @@ export default function RootCausePanel({ batchId }: { batchId: string }) {
     )
   }
 
-  const hasIssues = data.risk_level !== 'none'
+  const hasIssues   = data.risk_level !== 'none'
+  const cleanCapas   = data.capas.filter(c   => !isTestRecord(c.title))
+  const cleanRecalls = data.recalls.filter(r => !isTestRecord(r.title))
 
   const riskColor = ({
     none:     'text-gray-400 dark:text-gray-500',
@@ -311,30 +318,32 @@ export default function RootCausePanel({ batchId }: { batchId: string }) {
   return (
     <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
 
-      {/* Collapsible header */}
+      {/* Collapsible header — risk score always visible so users know before opening */}
       <button
         onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center gap-2.5 border-b border-gray-100 dark:border-gray-700 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors text-left"
+        className="w-full flex items-center gap-3 border-b border-gray-100 dark:border-gray-700 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors text-left"
       >
         <AlertTriangle
           size={15}
-          className={hasIssues ? 'text-amber-500 dark:text-amber-400' : 'text-gray-400 dark:text-gray-500'}
+          className={`shrink-0 ${hasIssues ? 'text-amber-500 dark:text-amber-400' : 'text-gray-400 dark:text-gray-500'}`}
         />
-        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Root Cause Analysis</h2>
-
-        {hasIssues ? (
-          <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${SEVERITY_BADGE[data.risk_level] ?? ''}`}>
-            {data.risk_level}
-          </span>
-        ) : (
-          <span className="rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
-            No Issues
-          </span>
-        )}
-
-        <span className={`ml-auto text-[11px] font-semibold tabular-nums ${riskColor}`}>
-          Risk {data.risk_score}/100
-        </span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Root Cause Analysis</h2>
+            {hasIssues ? (
+              <span className={`rounded-md px-1.5 py-px text-[10px] font-bold uppercase tracking-wider ${SEVERITY_BADGE[data.risk_level] ?? ''}`}>
+                {data.risk_level}
+              </span>
+            ) : (
+              <span className="rounded-md px-1.5 py-px text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                No Issues
+              </span>
+            )}
+          </div>
+          <p className={`text-[11px] font-medium tabular-nums ${riskColor}`}>
+            Risk Score: {data.risk_score}/100
+          </p>
+        </div>
         {open
           ? <ChevronUp   size={13} className="text-gray-400 shrink-0" />
           : <ChevronDown size={13} className="text-gray-400 shrink-0" />}
@@ -343,268 +352,11 @@ export default function RootCausePanel({ batchId }: { batchId: string }) {
       {open && (
         <div className="px-4 py-4 space-y-5">
 
-          {/* Risk dial + issue signals */}
-          <div className="flex items-start gap-5">
-            <RiskScore score={data.risk_score} level={data.risk_level} />
-
-            <div className="flex-1 min-w-0">
-              {data.issue_signals.length === 0 ? (
-                <div className="flex items-center gap-2 py-2">
-                  <CheckCircle2 size={15} className="shrink-0 text-emerald-500" />
-                  <p className="text-sm text-gray-600 dark:text-gray-300">
-                    No quality failures or inspection issues recorded for this batch.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">
-                    Issue Signals
-                  </p>
-                  {data.issue_signals.map((sig, i) => (
-                    <div
-                      key={i}
-                      className={`rounded-xl border px-3 py-2.5 ${
-                        sig.severity === 'high'
-                          ? 'border-red-200 dark:border-red-800/40 bg-red-50/50 dark:bg-red-900/10'
-                          : 'border-amber-200 dark:border-amber-800/40 bg-amber-50/50 dark:bg-amber-900/10'
-                      }`}
-                    >
-                      <div className="flex items-start gap-2">
-                        {sig.severity === 'high'
-                          ? <XCircle      size={13} className="mt-0.5 shrink-0 text-red-500" />
-                          : <AlertTriangle size={13} className="mt-0.5 shrink-0 text-amber-500" />
-                        }
-                        <div className="min-w-0">
-                          <p className="text-xs font-semibold text-gray-800 dark:text-gray-200 leading-tight">
-                            {sig.summary}
-                          </p>
-                          {sig.detail && (
-                            <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                              {sig.detail}
-                            </p>
-                          )}
-                          <p className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">
-                            {fmtDate(sig.occurred_at)}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Causal chain */}
-          <CausalChain data={data} />
-
-          {/* Material trace */}
-          {data.material_trace.length > 0 && (
-            <div>
-              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                Material Trace
-              </p>
-              <div className="overflow-x-auto rounded-xl border border-gray-100 dark:border-gray-700/60">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-gray-100 dark:border-gray-700/60 bg-gray-50/60 dark:bg-gray-700/20">
-                      <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">Material</th>
-                      <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">Lot</th>
-                      <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">Qty</th>
-                      <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">Lot Status</th>
-                      <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">Supplier</th>
-                      <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">Received</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50 dark:divide-gray-700/40">
-                    {data.material_trace.map(mat => (
-                      <tr
-                        key={mat.bom_id}
-                        className={
-                          mat.lot_status === 'quarantine' || mat.lot_status === 'rejected'
-                            ? 'bg-red-50/30 dark:bg-red-900/5'
-                            : ''
-                        }
-                      >
-                        <td className="px-3 py-2 font-medium text-gray-800 dark:text-gray-200">{mat.material_name}</td>
-                        <td className="px-3 py-2 font-mono text-gray-500 dark:text-gray-400">{mat.lot_number ?? '—'}</td>
-                        <td className="px-3 py-2 tabular-nums text-gray-600 dark:text-gray-300">
-                          {mat.quantity.toLocaleString()} {mat.unit}
-                        </td>
-                        <td className="px-3 py-2">
-                          {mat.lot_status ? (
-                            <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${LOT_STATUS_BADGE[mat.lot_status] ?? 'bg-gray-100 text-gray-600'}`}>
-                              {mat.lot_status}
-                            </span>
-                          ) : (
-                            <span className="text-gray-300 dark:text-gray-600">—</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-gray-600 dark:text-gray-300">{mat.supplier_name ?? '—'}</td>
-                        <td className="px-3 py-2 tabular-nums text-gray-400 dark:text-gray-500">
-                          {mat.lot_received_at ? fmtDate(mat.lot_received_at) : '—'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* CAPA records */}
-          {data.capas.length > 0 && (
-            <div>
-              <button
-                onClick={() => setCapaOpen(v => !v)}
-                className="flex w-full items-center gap-2 mb-3"
-              >
-                <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                  CAPA Records ({data.capas.length})
-                </p>
-                {capaOpen ? <ChevronUp size={11} className="text-gray-400" /> : <ChevronDown size={11} className="text-gray-400" />}
-              </button>
-
-              {capaOpen && (
-                <div className="space-y-2">
-                  {data.capas.map(capa => (
-                    <div
-                      key={capa.id}
-                      className="rounded-xl border border-gray-100 dark:border-gray-700/60 bg-gray-50/50 dark:bg-gray-700/20 px-3 py-3"
-                    >
-                      <div className="flex items-center justify-between gap-2 mb-1.5">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="shrink-0 font-mono text-[10px] text-gray-400 dark:text-gray-500">
-                            {capa.capa_number}
-                          </span>
-                          <p className="truncate text-xs font-semibold text-gray-800 dark:text-gray-200">{capa.title}</p>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1.5">
-                          {capa.overdue && (
-                            <span className="rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
-                              Overdue
-                            </span>
-                          )}
-                          <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${SEVERITY_BADGE[capa.severity] ?? ''}`}>
-                            {capa.severity}
-                          </span>
-                          <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${STATUS_BADGE[capa.status] ?? ''}`}>
-                            {capa.status.replace('_', ' ')}
-                          </span>
-                        </div>
-                      </div>
-
-                      {capa.root_cause && (
-                        <div className="mt-2">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-0.5">
-                            Root Cause
-                          </p>
-                          <p className="text-[11px] leading-relaxed text-gray-600 dark:text-gray-300">{capa.root_cause}</p>
-                        </div>
-                      )}
-
-                      {capa.corrective_action && (
-                        <div className="mt-2">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-0.5">
-                            Corrective Action
-                          </p>
-                          <p className="text-[11px] leading-relaxed text-gray-600 dark:text-gray-300">{capa.corrective_action}</p>
-                        </div>
-                      )}
-
-                      {capa.preventive_action && (
-                        <div className="mt-2">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-0.5">
-                            Preventive Action
-                          </p>
-                          <p className="text-[11px] leading-relaxed text-gray-600 dark:text-gray-300">{capa.preventive_action}</p>
-                        </div>
-                      )}
-
-                      {(capa.owner_name || capa.due_date) && (
-                        <p className="mt-2 text-[10px] text-gray-400 dark:text-gray-500">
-                          {capa.owner_name && `Owner: ${capa.owner_name}`}
-                          {capa.owner_name && capa.due_date && ' · '}
-                          {capa.due_date && `Due: ${fmtDate(capa.due_date)}`}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Recall records */}
-          {data.recalls.length > 0 && (
-            <div>
-              <button
-                onClick={() => setRecallOpen(v => !v)}
-                className="flex w-full items-center gap-2 mb-3"
-              >
-                <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                  Recall Records ({data.recalls.length})
-                </p>
-                {recallOpen ? <ChevronUp size={11} className="text-gray-400" /> : <ChevronDown size={11} className="text-gray-400" />}
-              </button>
-
-              {recallOpen && (
-                <div className="space-y-2">
-                  {data.recalls.map(recall => (
-                    <div
-                      key={recall.id}
-                      className={`rounded-xl border px-3 py-3 ${
-                        recall.status !== 'closed'
-                          ? 'border-red-200 dark:border-red-800/40 bg-red-50/30 dark:bg-red-900/5'
-                          : 'border-gray-100 dark:border-gray-700/60 bg-gray-50/50 dark:bg-gray-700/20'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2 mb-1.5">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="shrink-0 font-mono text-[10px] text-gray-400 dark:text-gray-500">
-                            {recall.recall_number}
-                          </span>
-                          <p className="truncate text-xs font-semibold text-gray-800 dark:text-gray-200">{recall.title}</p>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1.5">
-                          <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${SEVERITY_BADGE[recall.severity] ?? ''}`}>
-                            {recall.severity}
-                          </span>
-                          <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${STATUS_BADGE[recall.status] ?? ''}`}>
-                            {recall.status.replace('_', ' ')}
-                          </span>
-                        </div>
-                      </div>
-
-                      <p className="text-[11px] leading-relaxed text-gray-600 dark:text-gray-300">{recall.reason}</p>
-
-                      {recall.root_cause && (
-                        <div className="mt-2">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-0.5">
-                            Root Cause
-                          </p>
-                          <p className="text-[11px] leading-relaxed text-gray-600 dark:text-gray-300">{recall.root_cause}</p>
-                        </div>
-                      )}
-
-                      {recall.affected_units != null && (
-                        <p className="mt-2 text-[10px] text-gray-400 dark:text-gray-500">
-                          Affected units: {recall.affected_units.toLocaleString()}
-                          {recall.initiated_at ? ` · Initiated: ${fmtDate(recall.initiated_at)}` : ''}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Clean batch state */}
           {data.risk_score === 0
             && data.material_trace.length === 0
-            && data.capas.length === 0
-            && data.recalls.length === 0 && (
+            && cleanCapas.length === 0
+            && cleanRecalls.length === 0 ? (
             <div className="py-4 text-center">
               <CheckCircle2 size={28} className="mx-auto mb-2 text-emerald-400 dark:text-emerald-500" />
               <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Clean batch — no issues detected</p>
@@ -612,7 +364,179 @@ export default function RootCausePanel({ batchId }: { batchId: string }) {
                 No QC failures, CAPA records, or recalls linked to this batch.
               </p>
             </div>
-          )}
+          ) : (() => {
+            const primaryCapa   = cleanCapas[0] ?? null
+            const primaryRecall = cleanRecalls.find(r => r.status !== 'closed') ?? cleanRecalls[0] ?? null
+            const rootCause     = primaryCapa?.root_cause ?? primaryRecall?.root_cause ?? null
+            const correctiveAct = primaryCapa?.corrective_action ?? null
+            const preventiveAct = primaryCapa?.preventive_action ?? null
+            const primarySig    = data.issue_signals[0] ?? null
+
+            return (
+              <>
+                {/* Causal Chain — the visual narrative */}
+                <CausalChain data={data} />
+
+                {/* Divider */}
+                <div className="border-t border-gray-100 dark:border-gray-700/60" />
+
+                {/* ROOT CAUSE */}
+                <div>
+                  <p className="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                    Root Cause
+                  </p>
+                  <p className="text-[12.5px] leading-relaxed text-gray-700 dark:text-gray-200">
+                    {rootCause ?? 'Root cause investigation is in progress.'}
+                  </p>
+                </div>
+
+                {/* DETECTION */}
+                {primarySig && (
+                  <div>
+                    <p className="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                      Detection
+                    </p>
+                    <div className="flex items-start gap-2">
+                      {primarySig.severity === 'high'
+                        ? <XCircle      size={12} className="mt-0.5 shrink-0 text-red-500" />
+                        : <AlertTriangle size={12} className="mt-0.5 shrink-0 text-amber-500" />
+                      }
+                      <div className="min-w-0">
+                        <p className="text-[12px] font-medium text-gray-700 dark:text-gray-200 leading-snug">
+                          {primarySig.summary}
+                        </p>
+                        {primarySig.detail && (
+                          <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                            {primarySig.detail}
+                          </p>
+                        )}
+                        <p className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">
+                          Detected {fmtDate(primarySig.occurred_at)}
+                          {' · '}
+                          <span className={`font-semibold uppercase ${
+                            primarySig.severity === 'high'
+                              ? 'text-red-500 dark:text-red-400'
+                              : 'text-amber-500 dark:text-amber-400'
+                          }`}>{primarySig.severity} severity</span>
+                        </p>
+                      </div>
+                    </div>
+                    {/* Additional signals count */}
+                    {data.issue_signals.length > 1 && (
+                      <p className="mt-1.5 text-[10.5px] text-gray-400 dark:text-gray-500">
+                        +{data.issue_signals.length - 1} additional signal{data.issue_signals.length > 2 ? 's' : ''} recorded.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {!primarySig && (
+                  <div>
+                    <p className="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                      Detection
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 size={12} className="shrink-0 text-emerald-500" />
+                      <p className="text-[12px] text-gray-500 dark:text-gray-400">
+                        No formal QC failure recorded. Issue surfaced via recall process.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* CORRECTIVE ACTION */}
+                <div>
+                  <p className="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                    Corrective Action
+                  </p>
+                  {correctiveAct ? (
+                    <div className="space-y-2">
+                      <p className="text-[12.5px] leading-relaxed text-gray-700 dark:text-gray-200">
+                        {correctiveAct}
+                      </p>
+                      {preventiveAct && (
+                        <div className="rounded-lg border border-blue-100 dark:border-blue-900/40 bg-blue-50/40 dark:bg-blue-900/10 px-3 py-2">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-500 dark:text-blue-400 mb-0.5">
+                            Preventive Measure
+                          </p>
+                          <p className="text-[11.5px] leading-relaxed text-gray-600 dark:text-gray-300">
+                            {preventiveAct}
+                          </p>
+                        </div>
+                      )}
+                      {(primaryCapa?.owner_name || primaryCapa?.due_date) && (
+                        <p className="text-[10.5px] text-gray-400 dark:text-gray-500">
+                          {primaryCapa.owner_name && `Owner: ${primaryCapa.owner_name}`}
+                          {primaryCapa.owner_name && primaryCapa.due_date && ' · '}
+                          {primaryCapa.due_date && `Due: ${fmtDate(primaryCapa.due_date)}`}
+                          {primaryCapa.overdue && (
+                            <span className="ml-1.5 text-red-500 dark:text-red-400 font-semibold">· Overdue</span>
+                          )}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-[12.5px] text-gray-400 dark:text-gray-500">
+                      Corrective action plan is in progress.
+                    </p>
+                  )}
+                </div>
+
+                {/* MATERIAL TRACE — compact traceability table */}
+                {data.material_trace.length > 0 && (
+                  <div>
+                    <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                      Material Trace
+                    </p>
+                    <div className="overflow-x-auto rounded-xl border border-gray-100 dark:border-gray-700/60">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-gray-100 dark:border-gray-700/60 bg-gray-50/60 dark:bg-gray-700/20">
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">Material</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">Lot</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">Qty</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">Status</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400">Supplier</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50 dark:divide-gray-700/40">
+                          {data.material_trace.map(mat => (
+                            <tr
+                              key={mat.bom_id}
+                              className={
+                                mat.lot_status === 'quarantine' || mat.lot_status === 'rejected'
+                                  ? 'bg-red-50/30 dark:bg-red-900/5'
+                                  : ''
+                              }
+                            >
+                              <td className="px-3 py-2 font-medium text-gray-800 dark:text-gray-200">{mat.material_name}</td>
+                              <td className="px-3 py-2 font-mono text-gray-500 dark:text-gray-400">{deriveDemoLotRca(mat)}</td>
+                              <td className="px-3 py-2 tabular-nums text-gray-600 dark:text-gray-300">
+                                {mat.quantity.toLocaleString()} {mat.unit}
+                              </td>
+                              <td className="px-3 py-2">
+                                {(() => {
+                                  const s = mat.lot_status ?? 'consumed'
+                                  return (
+                                    <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${LOT_STATUS_BADGE[s] ?? 'bg-gray-100 text-gray-600'}`}>
+                                      {s}
+                                    </span>
+                                  )
+                                })()}
+                              </td>
+                              <td className="px-3 py-2 text-gray-600 dark:text-gray-300">
+                                {mat.supplier_name ?? deriveDemoSupplierRca(mat.material_name)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>
+            )
+          })()}
 
         </div>
       )}

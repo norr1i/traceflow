@@ -219,6 +219,16 @@ html[lang="ar"] .toast-slide-in {
 .bell-ring { animation: bell-ring 0.55s cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
 @media (prefers-reduced-motion: reduce) { .bell-ring { animation: none; } }
 
+/* ── Timeline evidence expand ───────────────────────────────────────────── */
+@keyframes tf-evidence-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.tf-evidence-in {
+  animation: tf-evidence-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (prefers-reduced-motion: reduce) { .tf-evidence-in { animation: none; } }
+
 /* ── Scrollbar ──────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar        { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track  { background: transparent; }

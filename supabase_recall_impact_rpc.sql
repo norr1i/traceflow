@@ -5,12 +5,15 @@
 --
 -- Creates:
 --   get_recall_impact(
---     p_lot_number    text DEFAULT NULL,
---     p_material_name text DEFAULT NULL,
---     p_batch_id      uuid DEFAULT NULL
+--     p_lot_number          text DEFAULT NULL,
+--     p_material_name       text DEFAULT NULL,
+--     p_batch_id            uuid DEFAULT NULL,
+--     p_raw_material_lot_id uuid DEFAULT NULL   -- exact FK; takes priority over p_lot_number
 --   ) RETURNS jsonb
 --
--- Supply exactly one of the three parameters.
+-- Supply exactly one of the four parameters.
+-- p_raw_material_lot_id is preferred when available — it is an exact FK match
+-- against bill_of_materials.raw_material_lot_id and avoids fuzzy lot-number matching.
 --
 -- Company resolution order (allows SQL Editor smoke tests):
 --   1. get_my_company_id()  — normal app path (authenticated session)
@@ -306,12 +309,14 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION get_recall_impact(text, text, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION get_recall_impact(text, text, uuid, uuid) TO authenticated;
 
 DO $$
 BEGIN
-  RAISE NOTICE '✓ get_recall_impact(text, text, uuid) redeployed.';
-  RAISE NOTICE '  Distribution join now goes through: production_orders → batches → distribution_records';
+  RAISE NOTICE '✓ get_recall_impact(text, text, uuid, uuid) redeployed.';
+  RAISE NOTICE '  Parameters: p_lot_number, p_material_name, p_batch_id, p_raw_material_lot_id';
+  RAISE NOTICE '  Distribution join: production_orders → batches → distribution_records';
+  RAISE NOTICE '  Smoke test (lot_id):   SELECT get_recall_impact(p_raw_material_lot_id := ''<uuid>'');';
   RAISE NOTICE '  Smoke test (lot):      SELECT get_recall_impact(p_lot_number    := ''LOT-2025-SS316-0891'');';
   RAISE NOTICE '  Smoke test (material): SELECT get_recall_impact(p_material_name := ''Steel'');';
   RAISE NOTICE '  Smoke test (batch):    SELECT get_recall_impact(p_batch_id      := ''74d19d61-b61f-42ad-b1df-84a954361e6b'');';
