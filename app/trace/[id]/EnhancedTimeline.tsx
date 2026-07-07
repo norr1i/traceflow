@@ -3,6 +3,7 @@ import {
   Layers, ClipboardList, ShieldCheck, Truck, FileWarning, Activity,
   ChevronRight, Award, Microscope, Box,
   Archive, Warehouse, Store, TrendingUp,
+  CheckCircle2,
   type LucideIcon,
 } from 'lucide-react'
 import {
@@ -238,49 +239,231 @@ function extractActor(event: JourneyEvent): string | null {
   return null
 }
 
-// ── Stage flow header ─────────────────────────────────────────────────────────
-// Pills at the top showing the lifecycle. Distribution is always included.
+// ── Lifecycle phase groupings ─────────────────────────────────────────────────
+// Four high-level phases that map onto the 12 granular stages.
+// Consumers understand "Materials → Manufacturing → Distribution → Market"
+// instantly; the granular sub-stages are revealed on demand via expand.
+
+const PHASES: Array<{ key: string; label: string; stages: StageGroup[] }> = [
+  {
+    key:    'materials',
+    label:  'Materials',
+    stages: ['supplier', 'materials', 'incoming_qc'],
+  },
+  {
+    key:    'manufacturing',
+    label:  'Manufacturing',
+    stages: ['storage', 'production', 'final_qc', 'quality', 'packaging', 'warehouse'],
+  },
+  {
+    key:    'distribution',
+    label:  'Distribution',
+    stages: ['distribution', 'distributor'],
+  },
+  {
+    key:    'market',
+    label:  'Market',
+    stages: ['market'],
+  },
+]
+
+// ── Phase context: structured location/handler per phase ─────────────────────
+
+const PHASE_CONTEXT: Record<string, { primary: string; secondary: string }> = {
+  materials:     { primary: 'Supplier Sourcing',  secondary: 'Raw material procurement & incoming inspection' },
+  manufacturing: { primary: 'Production Floor',   secondary: 'Active manufacturing & quality control' },
+  distribution:  { primary: 'Outbound Logistics', secondary: 'In transit to distribution network' },
+  market:        { primary: 'Market Delivery',    secondary: 'Product delivered and consumer-available' },
+}
+
+// ── Stage flow header — Concept 4: Hero + Phase Grid ──────────────────────────
+//
+// One card, three priority tiers:
+//   1. What stage?  Phase name, 30px bold — the dominant element
+//   2. Where now?   "Current location" — bold handler · muted descriptor
+//   3. What's next? Stage icon + name after a ruled divider
+//
+// Phase grid (bottom of same card, 2×2):
+//   ✓ Materials      ✓ Manufacturing
+//   ● Distribution   ○ Market
+//      (Current)
+//
+// Phase state is always derived: everything left of active = completed,
+// active node itself = active, everything right = future.
 
 function StageFlowHeader({
   presentStages,
+  activeStage,
 }: {
   presentStages: Set<StageGroup>
+  activeStage?:  StageGroup
 }) {
-  const stages = LIFECYCLE_ORDER.filter(
-    s => s !== 'other' && s !== 'compliance',
-  )
+  const stages      = LIFECYCLE_ORDER.filter(s => s !== 'other' && s !== 'compliance') as StageGroup[]
+  const activePhase = activeStage ? PHASES.find(p => p.stages.includes(activeStage)) : null
+  const ctx         = activePhase ? PHASE_CONTEXT[activePhase.key] : null
+
+  const activeIdx = activeStage ? stages.indexOf(activeStage) : -1
+  const nextStage = activeIdx >= 0 && activeIdx < stages.length - 1
+    ? stages[activeIdx + 1]
+    : null
+  const NextIcon = nextStage ? STAGE_ICONS[nextStage] : null
+
+  // Phase index drives the derived-state rule:
+  // everything before the active phase = completed, active = active, after = future
+  const activePhaseIdx = activePhase ? PHASES.indexOf(activePhase) : -1
+
+  function getPhaseState(phase: { stages: StageGroup[] }, phaseIdx: number): 'completed' | 'active' | 'future' {
+    if (activePhaseIdx < 0) {
+      // No active stage — fall back to event-based presence
+      if (phase.stages.some(s => presentStages.has(s))) return 'completed'
+      return 'future'
+    }
+    if (phaseIdx < activePhaseIdx)  return 'completed'
+    if (phaseIdx === activePhaseIdx) return 'active'
+    return 'future'
+  }
 
   return (
-    <div className="mb-5 flex flex-wrap items-center gap-1.5">
-      {stages.map((stage, i) => {
-        const meta    = STAGE_META[stage]
-        const hasData = presentStages.has(stage)
-        return (
-          <Fragment key={stage}>
+    <div className="mb-5 rounded-xl border border-gray-200 dark:border-gray-700/60 bg-white dark:bg-gray-800/60 px-4 py-4">
+
+      {/* ── Tier 1: eyebrow + stage headline ───────────────────────────── */}
+      <p className="mb-2 text-[9px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+        Active Stage
+      </p>
+
+      <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        <span className="text-3xl font-bold leading-none tracking-tight text-gray-900 dark:text-white">
+          {activePhase?.label ?? '—'}
+        </span>
+        <span className="h-px w-4 shrink-0 self-center bg-gray-400 dark:bg-gray-500" />
+        <span className="rounded-lg bg-gray-100 dark:bg-gray-700/80 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300">
+          In Progress
+        </span>
+      </div>
+
+      {/* ── Tier 2: current location ────────────────────────────────────── */}
+      {ctx ? (
+        <div className="mb-5">
+          <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+            Current location
+          </p>
+          <p className="text-sm leading-relaxed text-gray-600 dark:text-gray-300">
+            <span className="font-semibold text-gray-800 dark:text-gray-200">{ctx.primary}</span>
+            {' · '}
+            <span>{ctx.secondary}</span>
+          </p>
+        </div>
+      ) : (
+        <p className="mb-5 text-sm text-gray-400 dark:text-gray-500">Location not recorded</p>
+      )}
+
+      {/* ── Tier 3: next step ───────────────────────────────────────────── */}
+      {nextStage ? (
+        <div className="mb-4">
+          <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+            Next
+          </p>
+          <div className="flex items-center gap-2">
+            {NextIcon && <NextIcon size={16} className="shrink-0 text-gray-500 dark:text-gray-400" />}
+            <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+              {STAGE_META[nextStage]?.label ?? nextStage}
+            </span>
+          </div>
+        </div>
+      ) : (
+        <p className="mb-4 text-sm text-gray-400 dark:text-gray-500">Final stage</p>
+      )}
+
+      {/* ── Phase strip: single linear sequence ────────────────────────────
+           Track runs left-to-right through all 4 gaps in order.
+           Circles use justify-between so they stay on one row at any width.
+           Labels mirror the same justify-between so they track their circles.
+           The completed-fill width uses the same geometry as justify-between:
+           nth circle center = 14px + n/3 × (W−28px), so
+           fill width = calc(n/3 × (100% − 28px)) — self-calibrating. */}
+      <div className="border-t border-gray-100 dark:border-gray-700/50 pt-3">
+        <div className="relative">
+
+          {/* Background track at circle-center height (top-3.5 = 14px = h-7/2) */}
+          <div className="absolute left-3.5 right-3.5 top-3.5 h-px bg-gray-200 dark:bg-gray-700" />
+
+          {/* Completed portion — advances to center of active node */}
+          {activePhaseIdx > 0 && (
             <div
-              className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 border shadow-sm transition-opacity ${
-                hasData
-                  ? 'border-gray-200 dark:border-gray-700/60 bg-white dark:bg-gray-800/60'
-                  : 'border-dashed border-gray-200 dark:border-gray-700 bg-transparent opacity-40'
-              }`}
-            >
-              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dotColor} ${hasData ? '' : 'opacity-50'}`} />
-              <span className={`text-[10px] font-bold uppercase tracking-wider ${meta.textColor} ${hasData ? '' : 'opacity-60'}`}>
-                {meta.label}
-              </span>
-            </div>
-            {i < stages.length - 1 && (
-              <span className="text-[10px] text-gray-300 dark:text-gray-600 select-none">→</span>
-            )}
-          </Fragment>
-        )
-      })}
+              className="absolute left-3.5 top-3.5 h-px bg-emerald-500/35 dark:bg-emerald-500/50"
+              style={{ width: `calc(${(activePhaseIdx / (PHASES.length - 1)).toFixed(4)} * (100% - 28px))` }}
+            />
+          )}
+
+          {/* Circles — always one row, evenly distributed */}
+          <div className="relative z-10 flex justify-between">
+            {PHASES.map((phase, phaseIdx) => {
+              const state = getPhaseState(phase, phaseIdx)
+              return (
+                <div key={phase.key} className="shrink-0">
+                  {state === 'completed' ? (
+                    /* bg-white punches through the track line behind the ring */
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-emerald-500/50 dark:border-emerald-500/60 bg-white dark:bg-gray-800/60">
+                      <svg width="10" height="8" viewBox="0 0 10 8" fill="none" className="text-emerald-500 dark:text-emerald-400" aria-hidden="true">
+                        <path d="M1.5 4L4 6.5L8.5 1.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </div>
+                  ) : state === 'active' ? (
+                    /* Solid fill — the single brightest element on the strip */
+                    <div className="relative flex h-7 w-7 items-center justify-center">
+                      <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400 opacity-20" />
+                      <div className="relative flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500 ring-2 ring-emerald-500/25">
+                        <span className="h-2 w-2 rounded-full bg-white" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="h-7 w-7 rounded-full border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800/60" />
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Labels — w-7 containers mirror circle positions; text overflows
+              visibly so "Manufacturing" centers correctly under its node.
+              First aligns left, last aligns right, middles center. */}
+          <div className="mt-2 flex justify-between">
+            {PHASES.map((phase, phaseIdx) => {
+              const state   = getPhaseState(phase, phaseIdx)
+              const isFirst = phaseIdx === 0
+              const isLast  = phaseIdx === PHASES.length - 1
+              return (
+                <p
+                  key={phase.key}
+                  className={`w-7 text-[10px] leading-tight whitespace-nowrap ${
+                    isFirst ? 'text-left' : isLast ? 'text-right' : 'text-center'
+                  } ${
+                    state === 'active'
+                      ? 'font-semibold text-emerald-500 dark:text-emerald-400'
+                      : state === 'completed'
+                      ? 'font-medium text-gray-500 dark:text-gray-400'
+                      : 'font-medium text-gray-400 dark:text-gray-500'
+                  }`}
+                >
+                  {phase.label}
+                </p>
+              )
+            })}
+          </div>
+
+        </div>
+      </div>
+
     </div>
   )
 }
 
 // ── Stage header card ─────────────────────────────────────────────────────────
 // A prominent checkpoint card marking each manufacturing stage.
+// stageState drives three distinct visual treatments:
+//   active    — pulsing dot on diamond + pulsing indicator in card, border-2, elevated shadow
+//   completed — checkmark replaces icon, full opacity, normal border
+//   upcoming  — normal card identical to completed minus the checkmark; no fading
 
 function StageHeader({
   group,
@@ -289,6 +472,7 @@ function StageHeader({
   prevConnectorBg,
   isExpanded,
   onToggle,
+  stageState,
 }: {
   group:            StageGroup
   eventCount:       number
@@ -296,6 +480,7 @@ function StageHeader({
   prevConnectorBg?: string
   isExpanded:       boolean
   onToggle:         () => void
+  stageState:       'completed' | 'active' | 'upcoming'
 }) {
   const sc   = STAGE_COLORS[group]
   const Icon = STAGE_ICONS[group]
@@ -310,9 +495,17 @@ function StageHeader({
             style={{ height: 16 }}
           />
         )}
-        <div
-          className={`h-3.5 w-3.5 rotate-45 shrink-0 rounded-sm border-2 border-white dark:border-gray-900 shadow-sm ${sc.dotColor}`}
-        />
+        {/* Diamond — pulsing ring when active */}
+        <div className="relative flex items-center justify-center">
+          {stageState === 'active' && (
+            <span className={`absolute h-6 w-6 rounded-full ${sc.dotColor} opacity-25 animate-ping`} />
+          )}
+          <div
+            className={`rotate-45 shrink-0 rounded-sm border-2 border-white dark:border-gray-900 ${
+              isFirst ? 'h-4 w-4' : 'h-3.5 w-3.5'
+            } ${sc.dotColor} ${stageState === 'active' ? 'shadow-lg' : 'shadow-sm'}`}
+          />
+        </div>
         <div
           className={`mt-1 w-0.5 flex-1 ${sc.connectorBg}`}
           style={{ minHeight: 12 }}
@@ -323,19 +516,34 @@ function StageHeader({
       <button
         type="button"
         onClick={onToggle}
-        className={`flex-1 flex items-center justify-between gap-3 rounded-xl px-4 py-3 mb-3 ${sc.bg} border ${sc.border} text-left cursor-pointer transition-all duration-150 hover:brightness-[1.02] active:scale-[0.995]`}
+        className={`flex-1 flex items-center justify-between gap-3 rounded-xl px-4 py-3 mb-3 ${sc.bg} border ${sc.border} text-left cursor-pointer transition-all duration-150 active:scale-[0.995] hover:brightness-[1.02] ${
+          stageState === 'active'
+            ? 'border-2 shadow-md hover:brightness-[1.04]'
+            : 'shadow-sm'
+        }`}
       >
-        {/* Left: icon + label */}
+        {/* Left: icon/check + label */}
         <div className="flex items-center gap-2.5">
           <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${sc.iconBg}`}>
-            <Icon size={14} className={sc.iconColor} />
+            {stageState === 'completed' ? (
+              <CheckCircle2 size={14} className="text-emerald-500 dark:text-emerald-400" />
+            ) : (
+              <Icon size={14} className={sc.iconColor} />
+            )}
           </div>
           <p className={`text-xs font-bold uppercase tracking-widest ${sc.text}`}>
             {STAGE_META[group].label}
           </p>
         </div>
-        {/* Right: event count + chevron */}
+
+        {/* Right: pulsing dot (active only) + event count + chevron */}
         <div className="flex items-center gap-1.5 shrink-0">
+          {stageState === 'active' && (
+            <span className="relative flex h-2 w-2 mr-0.5">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${sc.dotColor} opacity-60`} />
+              <span className={`relative inline-flex h-2 w-2 rounded-full ${sc.dotColor}`} />
+            </span>
+          )}
           <span className={`text-[10px] font-medium ${sc.subtext}`}>
             {eventCount > 0
               ? `${eventCount} event${eventCount !== 1 ? 's' : ''}`
@@ -480,11 +688,6 @@ function DistributionCard({ record, isLast }: {
         <p className="mt-2 text-[10px] font-medium text-gray-400 dark:text-gray-500 tabular-nums">
           {fmtDateTime(record.sold_at)}
         </p>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          <Chip label="Actor"    value="System" />
-          <Chip label="Source"   value="Distribution" />
-          <Chip label="Category" value="Distribution" />
-        </div>
       </div>
     </div>
   )
@@ -606,6 +809,12 @@ export function EnhancedTimeline({
 
   // Present stages for the flow header (stages that actually have events)
   const presentStages = new Set(LIFECYCLE_ORDER.filter(s => groups.has(s)))
+  // Distribution fallback (sales records) counts as a present stage for the hero/phase strip
+  if ((distributionFallback?.length ?? 0) > 0) presentStages.add('distribution')
+
+  // Active stage = last present stage in lifecycle order (most recent progress checkpoint)
+  const orderedPresent = LIFECYCLE_ORDER.filter(s => presentStages.has(s))
+  const activeStage    = orderedPresent.length > 0 ? orderedPresent[orderedPresent.length - 1] : undefined
 
   // Compute global "is last event in entire timeline" for connector logic
   // Find the last stage that has any event content
@@ -626,7 +835,7 @@ export function EnhancedTimeline({
   return (
     <div className="pt-0.5">
       {/* Stage progression pills */}
-      <StageFlowHeader presentStages={presentStages} />
+      <StageFlowHeader presentStages={presentStages} activeStage={activeStage} />
 
       {stagesToRender.map((stage, stageIdx) => {
         const stageEvents = groups.get(stage) ?? []
@@ -654,6 +863,12 @@ export function EnhancedTimeline({
           : hasFallbackRecords  ? (distributionFallback?.length ?? 0)
           : 0
 
+        // Determine this stage's position in the journey
+        const stageState: 'completed' | 'active' | 'upcoming' =
+          stage === activeStage    ? 'active'
+          : presentStages.has(stage) ? 'completed'
+          : 'upcoming'
+
         return (
           <Fragment key={stage}>
             {/* Stage checkpoint header — click to expand/collapse */}
@@ -664,6 +879,7 @@ export function EnhancedTimeline({
               prevConnectorBg={prevSc?.connectorBg}
               isExpanded={expandedStages.has(stage)}
               onToggle={() => toggleStage(stage)}
+              stageState={stageState}
             />
 
             {/* Events — only rendered when stage is expanded */}

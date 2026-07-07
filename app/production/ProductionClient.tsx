@@ -19,7 +19,7 @@ import PaginationBar from '../components/PaginationBar'
 
 const PAGE_SIZE = 50
 
-type OrderWithProduct = ProductionOrder & { products?: { name: string } | null }
+type OrderWithProduct = ProductionOrder & { products?: { name: string; sku?: string | null } | null }
 type SimpleProduct    = { id: string; name: string }
 
 const emptyOrder = { product_id: '', quantity: 1, status: 'pending' as ProductionOrder['status'] }
@@ -86,7 +86,7 @@ export default function ProductionClient() {
     Promise.all([
       supabase
         .from('production_orders')
-        .select('*, products(name)', { count: 'exact' })
+        .select('*, products(name, sku)', { count: 'exact' })
         .eq('company_id', companyId)
         .order('created_at', { ascending: false })
         .range(offset, offset + PAGE_SIZE - 1),
@@ -157,7 +157,7 @@ export default function ProductionClient() {
     if (editing) {
       const { data, error: err } = await supabase
         .from('production_orders').update(payload).eq('id', editing.id).eq('company_id', companyId ?? '')
-        .select('*, products(name)').single()
+        .select('*, products(name, sku)').single()
       if (err) { setFormError(err.message); toast.error(t('production.error_update')); setSaving(false); return }
       setOrders((prev) => prev.map((o) => (o.id === editing.id ? data : o)))
       toast.success(t('production.updated_toast'))
@@ -168,7 +168,7 @@ export default function ProductionClient() {
     } else {
       const { data, error: err } = await supabase
         .from('production_orders').insert([{ ...payload, company_id: companyId }])
-        .select('*, products(name)').single()
+        .select('*, products(name, sku)').single()
       if (err) { setFormError(err.message); toast.error(t('production.error_create')); setSaving(false); return }
       setOrders((prev) => [data, ...prev])
       toast.success(t('production.created_toast'))
@@ -204,7 +204,7 @@ export default function ProductionClient() {
 
   function handleCopyLink() {
     if (!qrOrder) return
-    navigator.clipboard?.writeText(`${window.location.origin}/trace/${qrOrder.id}`)
+    navigator.clipboard?.writeText(`${window.location.origin}/trace/${qrOrder.products?.sku ?? qrOrder.id}`)
     toast.success(t('production.link_copied'))
   }
 
@@ -347,7 +347,7 @@ export default function ProductionClient() {
 
       {/* QR modal */}
       {qrOrder && (() => {
-        const traceUrl = `${window.location.origin}/trace/${qrOrder.id}`
+        const traceUrl = `${window.location.origin}/trace/${qrOrder.products?.sku ?? qrOrder.id}`
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
             <div className="w-full max-w-sm rounded-2xl border border-white/[0.08] bg-[#F1EFEC] dark:bg-[#141e28] dark:backdrop-blur-xl p-6 shadow-2xl">
@@ -374,7 +374,7 @@ export default function ProductionClient() {
                     className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/45 transition-colors">
                     <Download size={13} /> {t('production.download')}
                   </button>
-                  <a href={`/trace/${qrOrder.id}`} target="_blank" rel="noopener noreferrer"
+                  <a href={`/trace/${qrOrder.products?.sku ?? qrOrder.id}`} target="_blank" rel="noopener noreferrer"
                     className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#3a6f8f] px-3 py-2 text-xs font-medium text-white hover:bg-[#2d5a74] transition-colors">
                     <ExternalLink size={13} /> {t('production.open')}
                   </a>

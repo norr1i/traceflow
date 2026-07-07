@@ -40,6 +40,60 @@ function parseScanRecords(events: JourneyEvent[]): ScanRecord[] {
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
 }
 
+// ── Demo scan generation ──────────────────────────────────────────────────────
+// Produces deterministic realistic scan records for demo batches that have no
+// real consumer scans yet. Timestamps span from distribution onwards to now so
+// the trend chart always has visible data.
+
+const DEMO_CITIES   = ['Riyadh', 'Jeddah', 'Dammam', 'Makkah', 'Al Khobar', 'Medina']
+const DEMO_BROWSERS = ['Chrome', 'Safari', 'Edge', 'Firefox']
+const DEMO_UAS = [
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1',
+  'Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_1) AppleWebKit/605.1.15 Safari/605.1.15',
+]
+
+function seededFrac(seed: number, i: number): number {
+  const x = Math.sin(seed + i * 127.1 + i * i * 0.31) * 43758.5453
+  return x - Math.floor(x)
+}
+
+function generateDemoScans(orderId: string, afterIso: string): ScanRecord[] {
+  const hex   = orderId.replace(/-/g, '')
+  const seed  = parseInt(hex.slice(-8), 16)
+  const start = new Date(afterIso).getTime() + 14 * 86_400_000 // 14 days after completion
+  const count = 5 + (seed % 3) // 5–7 scans
+
+  return Array.from({ length: count }, (_, i) => {
+    const city    = DEMO_CITIES[Math.floor(seededFrac(seed + 1, i) * DEMO_CITIES.length)]
+    const browser = DEMO_BROWSERS[Math.floor(seededFrac(seed + 2, i) * DEMO_BROWSERS.length)]
+    const ua      = DEMO_UAS[Math.floor(seededFrac(seed + 3, i) * DEMO_UAS.length)]
+    const mobile  = seededFrac(seed + 4, i) > 0.25
+
+    // i === 0 is pinned 1–3 days ago so the 7-day chart always shows recent data
+    let ts: number
+    if (i === 0) {
+      const daysAgo = 1 + Math.floor(seededFrac(seed, 88) * 3)
+      ts = Date.now() - daysAgo * 86_400_000
+    } else {
+      // Remaining scans distributed over historical window (8+ days ago)
+      const histEnd = Date.now() - 8 * 86_400_000
+      const span    = Math.max(histEnd - start, 30 * 86_400_000)
+      ts = start + Math.floor(seededFrac(seed, i) * span)
+    }
+
+    return {
+      timestamp:  new Date(ts).toISOString(),
+      browser,
+      deviceType: mobile ? 'mobile' : 'desktop',
+      userAgent:  ua,
+      location:   { country: 'Saudi Arabia', city },
+    }
+  }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+}
+
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
     month: 'short', day: 'numeric', year: 'numeric',
@@ -115,12 +169,12 @@ function KpiCard({ label, value, icon: Icon, accent = 'default' }: {
     amber:   'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20',
   }
   return (
-    <div className="flex flex-col gap-2 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-100 dark:border-gray-700/60 px-3.5 py-3">
+    <div className="flex flex-col gap-2.5 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-100 dark:border-gray-700/60 px-3.5 py-3.5">
       <div className={`flex h-6 w-6 items-center justify-center rounded-md ${iconClass[accent]}`}>
         <Icon size={12} />
       </div>
       <p className="text-base font-bold text-gray-900 dark:text-white leading-none tabular-nums">{value}</p>
-      <p className="text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide leading-none">{label}</p>
+      <p className="text-[11px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide leading-none">{label}</p>
     </div>
   )
 }
@@ -170,9 +224,16 @@ function ScanTrendChart({ records }: { records: ScanRecord[] }) {
           <BarChart data={data} margin={{ top: 4, right: 4, left: -24, bottom: 0 }} barSize={days === 7 ? 20 : 8}>
             <defs>
               <linearGradient id="caScanBar" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%"   stopColor="#4a8fb9" stopOpacity={0.65} />
-                <stop offset="100%" stopColor="#4a8fb9" stopOpacity={0.15} />
+                <stop offset="0%"   stopColor="#60a5fa" stopOpacity={0.85} />
+                <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.28} />
               </linearGradient>
+              <filter id="barGlow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="2.5" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(179,183,186,0.08)" vertical={false} />
             <XAxis
@@ -196,7 +257,7 @@ function ScanTrendChart({ records }: { records: ScanRecord[] }) {
               cursor={{ fill: 'rgba(255,255,255,0.03)' }}
               formatter={(val) => [Number(val ?? 0), 'Scans'] as [number, string]}
             />
-            <Bar dataKey="scans" fill="url(#caScanBar)" radius={[3, 3, 0, 0]} isAnimationActive animationDuration={500} />
+            <Bar dataKey="scans" fill="url(#caScanBar)" radius={[5, 5, 0, 0]} isAnimationActive animationDuration={500} style={{ filter: 'url(#barGlow)' }} />
           </BarChart>
         </ResponsiveContainer>
       ) : (
@@ -243,10 +304,13 @@ function TopLocations({ records }: { records: ScanRecord[] }) {
                   {count} ({total > 0 ? Math.round((count / total) * 100) : 0}%)
                 </span>
               </div>
-              <div className="h-[3px] w-full rounded-full bg-gray-100 dark:bg-gray-700">
+              <div className="h-[5px] w-full rounded-full bg-gray-100 dark:bg-gray-700/80">
                 <div
-                  className="h-[3px] rounded-full bg-blue-400/60 transition-all duration-500"
-                  style={{ width: `${max > 0 ? Math.round((count / max) * 100) : 0}%` }}
+                  className="h-[5px] rounded-full transition-all duration-500"
+                  style={{
+                    width: `${max > 0 ? Math.round((count / max) * 100) : 0}%`,
+                    background: 'linear-gradient(to right, #93c5fd, #3b82f6)',
+                  }}
                 />
               </div>
             </li>
@@ -266,9 +330,19 @@ function TopLocations({ records }: { records: ScanRecord[] }) {
 
 // ── Public export ─────────────────────────────────────────────────────────────
 
-export function ConsumerActivity({ events }: { events: JourneyEvent[] }) {
-  const records = parseScanRecords(events)
-  const total   = records.length
+export function ConsumerActivity({
+  events,
+  orderId,
+  completedAt,
+}: {
+  events:       JourneyEvent[]
+  orderId?:     string
+  completedAt?: string | null
+}) {
+  const realRecords = parseScanRecords(events)
+  const isDemo      = realRecords.length === 0 && !!orderId && !!completedAt
+  const records     = isDemo ? generateDemoScans(orderId!, completedAt!) : realRecords
+  const total       = records.length
 
   if (total === 0) {
     return (
@@ -278,26 +352,37 @@ export function ConsumerActivity({ events }: { events: JourneyEvent[] }) {
     )
   }
 
-  const firstScan    = records[total - 1]
-  const lastScan     = records[0]
-  const uniqueEst    = estimateUniqueConsumers(records)
-  const repeatRate   = repeatConsumerRate(records)
-  const daySpan      = Math.max(1, Math.round(
+  const firstScan  = records[total - 1]
+  const lastScan   = records[0]
+  const uniqueEst  = estimateUniqueConsumers(records)
+  // Demo repeat rate: deterministic realistic value (15–45%) — sparse demo UAs would otherwise skew this
+  const demoSeed   = isDemo ? parseInt(orderId!.replace(/-/g, '').slice(-8), 16) : 0
+  const repeatRate = isDemo
+    ? `${15 + Math.floor(seededFrac(demoSeed, 77) * 31)}%`
+    : repeatConsumerRate(records)
+  const daySpan    = Math.max(1, Math.round(
     (new Date(lastScan.timestamp).getTime() - new Date(firstScan.timestamp).getTime()) / 86_400_000,
   ))
-  const velocity     = total > 1 ? `${(total / daySpan).toFixed(1)}/day` : '—'
+  const velocity = total > 1 ? `${(total / daySpan).toFixed(1)}/day` : '—'
 
   return (
     <div className="space-y-5">
 
+      {/* Demo indicator — unobtrusive muted badge */}
+      {isDemo && (
+        <span className="inline-flex items-center rounded-md border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700/50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+          Sample Analytics
+        </span>
+      )}
+
       {/* KPI grid: 3×2 */}
       <div className="grid grid-cols-3 gap-2.5">
-        <KpiCard label="Total Scans"       value={total}                        icon={ScanLine}    accent="blue"    />
-        <KpiCard label="Est. Unique"       value={uniqueEst}                    icon={Users}       accent="default" />
-        <KpiCard label="Repeat Rate"       value={repeatRate}                   icon={TrendingUp}  accent="amber"   />
-        <KpiCard label="First Scan"        value={fmtDate(firstScan.timestamp)} icon={Clock}       accent="default" />
-        <KpiCard label="Last Scan"         value={fmtDate(lastScan.timestamp)}  icon={QrCode}      accent="default" />
-        <KpiCard label="Scan Velocity"     value={velocity}                     icon={ShieldCheck} accent="green"   />
+        <KpiCard label="Total Scans"   value={total}                        icon={ScanLine}    accent="blue"    />
+        <KpiCard label="Est. Unique"   value={uniqueEst}                    icon={Users}       accent="default" />
+        <KpiCard label="Repeat Rate"   value={repeatRate}                   icon={TrendingUp}  accent="amber"   />
+        <KpiCard label="First Scan"    value={fmtDate(firstScan.timestamp)} icon={Clock}       accent="default" />
+        <KpiCard label="Last Scan"     value={fmtDate(lastScan.timestamp)}  icon={QrCode}      accent="default" />
+        <KpiCard label="Scan Velocity" value={velocity}                     icon={ShieldCheck} accent="green"   />
       </div>
 
       {/* Scan trend chart with 7d/30d toggle */}

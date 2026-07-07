@@ -1449,7 +1449,7 @@ function ImpactAnalysis({
 
 // ── Product Story Panel ───────────────────────────────────────────────────────
 
-function ProductStoryPanel({ batchId }: { batchId: string }) {
+function ProductStoryPanel({ batchId, sku }: { batchId: string; sku: string }) {
   const [open,   setOpen]   = useState(false)
   const [copied, setCopied] = useState(false)
   const [origin, setOrigin] = useState('')
@@ -1457,7 +1457,7 @@ function ProductStoryPanel({ batchId }: { batchId: string }) {
 
   useEffect(() => { setOrigin(window.location.origin) }, [])
 
-  const traceUrl = `${origin}/trace/${batchId}`
+  const traceUrl = `${origin}/trace/${sku}`
 
   function handleCopy() {
     navigator.clipboard?.writeText(traceUrl).then(() => {
@@ -3458,7 +3458,7 @@ export default function ProductJourneyDetailClient() {
       />
 
       {/* QR Trace & Public Product Story link */}
-      <ProductStoryPanel batchId={id} />
+      <ProductStoryPanel batchId={id} sku={traceData.order.sku} />
     </div>
     </JourneyCtx.Provider>
   )
