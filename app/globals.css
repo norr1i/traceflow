@@ -253,3 +253,29 @@ html[lang="ar"] .toast-slide-in {
   -webkit-backdrop-filter: blur(16px) saturate(200%);
   border-bottom: 1px solid rgba(255,255,255,0.06);
 }
+
+/* ── Batch label print ───────────────────────────────────────────────────────
+   Triggered by window.print() from the label modal.
+   Hides the entire app shell; makes only the .tf-print-label element visible,
+   positioned at the top-left of the page so it prints edge-to-edge on label
+   media (no clip, no page chrome). Physical dimensions are 4"×2" (standard)
+   or 4"×4" (large) — operators set matching paper size in the print dialog.
+   ─────────────────────────────────────────────────────────────────────── */
+@media print {
+  body * { visibility: hidden !important; }
+
+  .tf-print-label,
+  .tf-print-label * { visibility: visible !important; }
+
+  .tf-print-label {
+    position: fixed !important;
+    top:      0 !important;
+    left:     0 !important;
+    margin:   0 !important;
+    box-shadow:   none !important;
+    border-radius: 0 !important;
+  }
+
+  .tf-label-standard { width: 4in !important; height: 2in !important; }
+  .tf-label-large    { width: 4in !important; height: 4in !important; }
+}

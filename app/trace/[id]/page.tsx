@@ -5,14 +5,14 @@ import { useParams } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 import {
   ShieldCheck, Package, FlaskConical, Layers, ShoppingCart,
-  AlertCircle, AlertTriangle, Loader2, QrCode, Activity, ScanLine,
+  AlertCircle, AlertTriangle, Loader2, Activity,
   Factory, CheckCircle2, XCircle, Clock,
 } from 'lucide-react'
 import { LogoIcon } from '../../components/Logo'
 import { JourneyMetrics } from './JourneyMetrics'
 import { EnhancedTimeline, type JourneyEvent } from './EnhancedTimeline'
-import { ConsumerActivity } from './ConsumerActivity'
 import { isScanEvent } from './eventCategories'
+import { deriveBatchRef } from '../../lib/batch'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -83,12 +83,6 @@ function formatQty(n: number): string {
   return parseFloat(n.toFixed(2)).toLocaleString()
 }
 
-// Deterministic friendly batch reference from UUID + creation year
-function deriveBatchRef(id: string, createdAt: string): string {
-  const year = new Date(createdAt).getFullYear()
-  const num  = parseInt(id.replace(/-/g, '').slice(-6), 16) % 9999 + 1
-  return `BT-${year}-${String(num).padStart(4, '0')}`
-}
 
 // Deterministic operator name — used when no actor is recorded in journey events
 const DEMO_OPERATORS = [
@@ -161,12 +155,11 @@ function scrollToSection(id: string) {
 
 const NAV_ITEMS = [
   { label: 'Overview',     id: 'sec-overview'      },
-  { label: 'Production',   id: 'sec-production'    },
-  { label: 'Quality',      id: 'sec-quality'        },
-  { label: 'Materials',    id: 'sec-materials'      },
-  { label: 'Distribution', id: 'sec-distribution'  },
   { label: 'Journey',      id: 'sec-journey'        },
-  { label: 'Activity',     id: 'sec-activity'       },
+  { label: 'Quality',      id: 'sec-quality'        },
+  { label: 'Distribution', id: 'sec-distribution'  },
+  { label: 'Materials',    id: 'sec-materials'      },
+  { label: 'Production',   id: 'sec-production'    },
 ]
 
 // ── Production-info derivation helpers ────────────────────────────────────
@@ -560,9 +553,7 @@ export default function PublicTracePage() {
   const { order, qc_results, materials, sales } = data
   const latestQc = qc_results[0]
 
-  // Display-only split — journey state is never mutated; both arrays remain queryable.
   const manufacturingEvents = journey.filter(e => !isScanEvent(e.source_table))
-  const scanEvents          = journey.filter(e =>  isScanEvent(e.source_table))
 
   // Operator: prefer journey event actor → QC inspector → deterministic fallback
   const displayOperator =
@@ -648,11 +639,11 @@ export default function PublicTracePage() {
                 <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-0.5">Batch Reference</p>
                 <p className="font-mono text-xs font-bold text-gray-700 dark:text-gray-200">{deriveBatchRef(order.id, order.created_at)}</p>
               </div>
-              <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700/60">
-                <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-0.5">Verified by</p>
-                <div className="flex items-center gap-1">
-                  <ShieldCheck size={10} className="text-emerald-500 shrink-0" />
-                  <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">TraceFlow®</p>
+              <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700/60 bg-emerald-50/50 dark:bg-emerald-900/10">
+                <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-1">Verified by</p>
+                <div className="flex items-center gap-1.5">
+                  <ShieldCheck size={14} className="text-emerald-500 shrink-0" />
+                  <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400">TraceFlow®</p>
                 </div>
               </div>
             </div>
@@ -708,11 +699,59 @@ export default function PublicTracePage() {
 
         </div>
 
-        {/* Production Information */}
-        <ProductionInfoSection order={order} operator={displayOperator} sectionId="sec-production" />
+        {/* Product Journey — primary consumer experience */}
+        <Section
+          icon={<Activity size={15} />}
+          title="Product Journey"
+          count={journeyLoading ? undefined : manufacturingEvents.length}
+          id="sec-journey"
+        >
+          <EnhancedTimeline
+            events={manufacturingEvents}
+            isLoading={journeyLoading}
+            distributionFallback={sales}
+          />
+        </Section>
 
         {/* Quality & Compliance */}
         <QualityComplianceSection qcResults={qc_results} />
+
+        {/* Journey Metrics */}
+        {!journeyLoading && (
+          <JourneyMetrics
+            order={order}
+            qcResults={qc_results}
+            materials={materials}
+            sales={sales}
+            manufacturingEvents={manufacturingEvents}
+          />
+        )}
+
+        {/* Distribution */}
+        <Section icon={<ShoppingCart size={15} />} title="Distribution" count={sales.length} id="sec-distribution">
+          {sales.length === 0 && <Empty text="No distribution records for this batch." />}
+          {sales.length > 0 && (
+            <div className="space-y-2">
+              {sales.map((s, i) => {
+                const status = deriveShipmentStatus(i, s.sold_at)
+                return (
+                  <div key={i} className="rounded-xl border border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-700/20 px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{s.customer_name || 'Customer'}</p>
+                      <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wide rounded-md px-2 py-0.5 ${shipmentStatusClass[status] ?? 'bg-gray-100 text-gray-600'}`}>
+                        {status}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-0.5">{fmt(s.sold_at)}</p>
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 tabular-nums mt-1">
+                      {s.quantity.toLocaleString()} units
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Section>
 
         {/* QC Inspections */}
         <Section icon={<FlaskConical size={15} />} title="QC Inspections" count={qc_results.length}>
@@ -724,7 +763,7 @@ export default function PublicTracePage() {
           )}
         </Section>
 
-        {/* Raw materials */}
+        {/* Raw Materials */}
         <Section icon={<Layers size={15} />} title="Raw Materials Used" count={materials.length} id="sec-materials">
           {materials.length === 0 && <Empty text="No materials linked to this batch." />}
           {materials.length > 0 && (
@@ -759,88 +798,18 @@ export default function PublicTracePage() {
           )}
         </Section>
 
-        {/* Distribution */}
-        <Section icon={<ShoppingCart size={15} />} title="Distribution" count={sales.length} id="sec-distribution">
-          {sales.length === 0 && <Empty text="No distribution records for this batch." />}
-          {sales.length > 0 && (
-            <div className="space-y-2">
-              {sales.map((s, i) => {
-                const status = deriveShipmentStatus(i, s.sold_at)
-                return (
-                  <div key={i} className="rounded-xl border border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-700/20 px-3 py-2.5">
-                    {/* Row 1: name + status badge */}
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{s.customer_name || 'Customer'}</p>
-                      <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wide rounded-md px-2 py-0.5 ${shipmentStatusClass[status] ?? 'bg-gray-100 text-gray-600'}`}>
-                        {status}
-                      </span>
-                    </div>
-                    {/* Row 2: date */}
-                    <p className="text-xs text-gray-400 mt-0.5">{fmt(s.sold_at)}</p>
-                    {/* Row 3: quantity */}
-                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 tabular-nums mt-1">
-                      {s.quantity.toLocaleString()} units
-                    </p>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </Section>
-
-        {/* Journey Metrics — calculated from real data, no placeholders */}
-        {!journeyLoading && (
-          <JourneyMetrics
-            order={order}
-            qcResults={qc_results}
-            materials={materials}
-            sales={sales}
-            manufacturingEvents={manufacturingEvents}
-          />
-        )}
-
-        {/* Product Journey — manufacturing, quality, distribution only */}
-        <Section
-          icon={<Activity size={15} />}
-          title="Product Journey"
-          count={journeyLoading ? undefined : manufacturingEvents.length}
-          id="sec-journey"
-        >
-          <EnhancedTimeline
-            events={manufacturingEvents}
-            isLoading={journeyLoading}
-            distributionFallback={sales}
-          />
-        </Section>
-
-        {/* Consumer Activity — QR scan investigation view (secondary) */}
-        <Section
-          icon={<ScanLine size={15} />}
-          title="Consumer Activity"
-          count={journeyLoading ? undefined : scanEvents.length}
-          id="sec-activity"
-        >
-          {journeyLoading ? (
-            <p className="text-sm text-gray-400 dark:text-gray-500 italic animate-pulse">
-              Loading scan records…
-            </p>
-          ) : (
-            <ConsumerActivity
-              events={scanEvents}
-              orderId={order.id}
-              completedAt={order.completed_at}
-            />
-          )}
-        </Section>
+        {/* Production Information */}
+        <ProductionInfoSection order={order} operator={displayOperator} sectionId="sec-production" />
 
         {/* Footer */}
-        <div className="pb-8 pt-2 text-center space-y-1.5">
-          <div className="flex items-center justify-center gap-1.5">
-            <ShieldCheck size={14} className="text-blue-500 dark:text-blue-400" />
-            <span className="text-sm font-bold text-gray-700 dark:text-gray-300">Verified by TraceFlow®</span>
+        <div className="pb-8 pt-2 flex flex-col items-center">
+          <div className="rounded-2xl border border-emerald-200 dark:border-emerald-800/50 bg-emerald-50/60 dark:bg-emerald-900/10 px-6 py-4 text-center">
+            <div className="flex items-center justify-center gap-2 mb-1">
+              <ShieldCheck size={16} className="text-emerald-500 dark:text-emerald-400 shrink-0" />
+              <span className="text-sm font-bold text-gray-800 dark:text-gray-100">Verified by TraceFlow®</span>
+            </div>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500">Secure Manufacturing Traceability Platform</p>
           </div>
-          <p className="text-xs text-gray-400 dark:text-gray-500">Secure Manufacturing Traceability Platform</p>
-          <p className="text-[10px] text-gray-300 dark:text-gray-600">Powered by TraceFlow</p>
         </div>
 
       </div>

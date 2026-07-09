@@ -1457,7 +1457,7 @@ function ProductStoryPanel({ batchId, sku }: { batchId: string; sku: string }) {
 
   useEffect(() => { setOrigin(window.location.origin) }, [])
 
-  const traceUrl = `${origin}/trace/${sku}`
+  const traceUrl = `${origin}/trace/${batchId}`
 
   function handleCopy() {
     navigator.clipboard?.writeText(traceUrl).then(() => {

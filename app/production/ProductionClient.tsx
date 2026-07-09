@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react'
+import { QRCodeCanvas } from 'qrcode.react'
+import { BatchLabel, type LabelSize } from '../components/BatchLabel'
 import { supabase } from '../lib/supabase'
 import type { ProductionOrder, BomEntry, BatchQcResult } from '../types/traceflow'
 import StatusBadge from '../components/StatusBadge'
@@ -13,7 +14,7 @@ import { logActivity, actorName } from '../lib/activity'
 import { useT, fmtNum } from '../lib/i18n'
 import {
   Plus, Pencil, Trash2, X, Check, AlertTriangle, ClipboardList,
-  QrCode, Copy, Download, ExternalLink, Layers, FlaskConical, GitBranch,
+  QrCode, Copy, Download, ExternalLink, Layers, FlaskConical, GitBranch, Printer,
 } from 'lucide-react'
 import PaginationBar from '../components/PaginationBar'
 
@@ -45,7 +46,7 @@ export default function ProductionClient() {
   const toast   = useToast()
   const confirm = useConfirm()
   const role       = useRole()
-  const { user, companyId } = useAuth()
+  const { user, companyId, companyName } = useAuth()
   const canWrite   = canEdit(role, 'production')
   const canWriteQc = canEdit(role, 'quality-control')
   const { t, lang } = useT()
@@ -62,8 +63,9 @@ export default function ProductionClient() {
   const [saving, setSaving]       = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
-  const [qrOrder, setQrOrder] = useState<OrderWithProduct | null>(null)
-  const qrDlRef               = useRef<HTMLDivElement>(null)
+  const [qrOrder,    setQrOrder]    = useState<OrderWithProduct | null>(null)
+  const [labelSize,  setLabelSize]  = useState<LabelSize>('standard')
+  const qrDlRef                     = useRef<HTMLDivElement>(null)
 
   const [materialsOrder, setMaterialsOrder] = useState<OrderWithProduct | null>(null)
   const [bomEntries, setBomEntries]         = useState<BomEntry[]>([])
@@ -204,7 +206,7 @@ export default function ProductionClient() {
 
   function handleCopyLink() {
     if (!qrOrder) return
-    navigator.clipboard?.writeText(`${window.location.origin}/trace/${qrOrder.products?.sku ?? qrOrder.id}`)
+    navigator.clipboard?.writeText(`${window.location.origin}/trace/${qrOrder.id}`)
     toast.success(t('production.link_copied'))
   }
 
@@ -345,44 +347,91 @@ export default function ProductionClient() {
         </div>
       )}
 
-      {/* QR modal */}
+      {/* ── Batch Label Modal ──────────────────────────────────────────────── */}
       {qrOrder && (() => {
-        const traceUrl = `${window.location.origin}/trace/${qrOrder.products?.sku ?? qrOrder.id}`
+        const traceUrl = `${window.location.origin}/trace/${qrOrder.id}`
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <div className="w-full max-w-sm rounded-2xl border border-white/[0.08] bg-[#F1EFEC] dark:bg-[#141e28] dark:backdrop-blur-xl p-6 shadow-2xl">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('production.batch_qr')}</h2>
-                <button onClick={() => setQrOrder(null)} className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"><X size={20} /></button>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+            <div className="w-full max-w-[440px] rounded-2xl border border-white/[0.08] bg-[#F1EFEC] dark:bg-[#141e28] dark:backdrop-blur-xl shadow-2xl overflow-hidden">
+
+              {/* Header: title + size selector + close */}
+              <div className="flex items-center gap-3 border-b border-gray-200/60 dark:border-white/[0.07] px-5 py-3.5">
+                <h2 className="text-sm font-semibold text-gray-900 dark:text-white shrink-0">Batch Label</h2>
+                <div className="flex rounded-lg border border-[#B3B7BA]/40 dark:border-white/[0.08] overflow-hidden">
+                  {(['standard', 'large'] as const).map(s => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setLabelSize(s)}
+                      className={`px-2.5 py-1 text-[10px] font-semibold transition-colors whitespace-nowrap ${
+                        labelSize === s
+                          ? 'bg-gray-900 dark:bg-white/90 text-white dark:text-gray-900'
+                          : 'text-gray-500 dark:text-gray-400 hover:bg-[#D1CFC9]/40 dark:hover:bg-white/[0.06]'
+                      }`}
+                    >
+                      {s === 'standard' ? 'Standard 4″×2″' : 'Large 4″×4″'}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setQrOrder(null)}
+                  className="ml-auto text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+                >
+                  <X size={18} />
+                </button>
               </div>
-              <div className="flex flex-col items-center gap-4">
-                <div className="rounded-xl bg-white p-4 shadow-inner ring-1 ring-gray-100">
-                  <QRCodeSVG value={traceUrl} size={192} level="H" marginSize={1} />
-                </div>
-                <div className="w-full text-center">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-white">{qrOrder.products?.name ?? '—'}</p>
-                  <p className="mt-0.5 text-xs text-gray-400">
-                    {t('production.batch_ref')} ···{qrOrder.id.slice(-8)}
-                  </p>
-                </div>
-                <div className="flex w-full gap-2">
-                  <button onClick={handleCopyLink}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/45 transition-colors">
-                    <Copy size={13} /> {t('production.copy_link')}
-                  </button>
-                  <button onClick={handleDownloadQR}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/45 transition-colors">
-                    <Download size={13} /> {t('production.download')}
-                  </button>
-                  <a href={`/trace/${qrOrder.products?.sku ?? qrOrder.id}`} target="_blank" rel="noopener noreferrer"
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#3a6f8f] px-3 py-2 text-xs font-medium text-white hover:bg-[#2d5a74] transition-colors">
-                    <ExternalLink size={13} /> {t('production.open')}
-                  </a>
-                </div>
+
+              {/* Label preview */}
+              <div className="flex items-center justify-center px-5 py-5 bg-[#E2E1DE] dark:bg-[#0a0f18] overflow-auto">
+                <BatchLabel
+                  order={qrOrder}
+                  companyName={companyName}
+                  size={labelSize}
+                  traceUrl={traceUrl}
+                />
               </div>
-              <div ref={qrDlRef} className="hidden">
+
+              {/* Action bar */}
+              <div className="flex items-center gap-2 border-t border-gray-200/60 dark:border-white/[0.07] px-5 py-3.5">
+                {/* Print Label — primary action */}
+                <button
+                  onClick={() => window.print()}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#3a6f8f] px-3 py-2 text-xs font-semibold text-white hover:bg-[#2d5a74] transition-colors"
+                >
+                  <Printer size={13} /> Print Label
+                </button>
+                {/* Copy link */}
+                <button
+                  onClick={handleCopyLink}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/45 transition-colors"
+                >
+                  <Copy size={13} /> Copy Link
+                </button>
+                {/* Download QR PNG */}
+                <button
+                  onClick={handleDownloadQR}
+                  title="Download QR code as PNG"
+                  className="flex items-center justify-center gap-1.5 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/45 transition-colors"
+                >
+                  <Download size={13} />
+                </button>
+                {/* Open passport */}
+                <a
+                  href={`/trace/${qrOrder.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open Digital Product Passport"
+                  className="flex items-center justify-center gap-1.5 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/45 transition-colors"
+                >
+                  <ExternalLink size={13} />
+                </a>
+              </div>
+
+              {/* Hidden high-res canvas for PNG download (QR only) */}
+              <div ref={qrDlRef} className="hidden" aria-hidden="true">
                 <QRCodeCanvas value={traceUrl} size={512} level="H" marginSize={4} />
               </div>
+
             </div>
           </div>
         )
