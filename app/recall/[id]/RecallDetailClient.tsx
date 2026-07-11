@@ -73,10 +73,12 @@ function Field({ label: l, children }: { label: string; children: React.ReactNod
 
 // ── Component ────────────────────────────────────────────────────────────────
 
+type CapaWithTimestamp = LinkedCapaSummary & { created_at: string }
+
 export default function RecallDetailClient({ id }: { id: string }) {
   const { companyId } = useAuth()
   const [recall,    setRecall]    = useState<Recall | null>(null)
-  const [capas,     setCapas]     = useState<LinkedCapaSummary[]>([])
+  const [capas,     setCapas]     = useState<CapaWithTimestamp[]>([])
   const [loading,   setLoading]   = useState(true)
   const [notFound,  setNotFound]  = useState(false)
 
@@ -102,13 +104,13 @@ export default function RecallDetailClient({ id }: { id: string }) {
 
       const { data: capaRows } = await supabase
         .from('capas')
-        .select('id, capa_number, status, severity')
+        .select('id, capa_number, status, severity, created_at')
         .eq('recall_id', id)
         .eq('company_id', companyId)
         .order('created_at', { ascending: false })
 
       setRecall(r)
-      setCapas((capaRows ?? []) as LinkedCapaSummary[])
+      setCapas((capaRows ?? []) as CapaWithTimestamp[])
       setLoading(false)
     })()
   }, [id, companyId])
@@ -243,8 +245,8 @@ export default function RecallDetailClient({ id }: { id: string }) {
         const closedDate  = recall.closed_at ? new Date(recall.closed_at) : null
         const refDate     = closedDate ?? new Date()
         const daysOpen    = Math.floor((refDate.getTime() - openedDate.getTime()) / 86_400_000)
-        // Recovery is 100% when closed; for in-progress recalls we show "Tracking"
-        const recoveryPct = recall.status === 'closed' ? 100 : null
+        const closedCapas = capas.filter(c => c.status === 'closed').length
+        const totalCapas  = capas.length
 
         return (
           <>
@@ -257,12 +259,18 @@ export default function RecallDetailClient({ id }: { id: string }) {
                 <p className="text-[10px] text-gray-400 mt-0.5">Total impacted</p>
               </div>
               <div className={`${card} px-4 py-3`}>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Recovery Rate</p>
-                <p className={`text-xl font-bold mt-0.5 ${recoveryPct === 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                  {recoveryPct != null ? `${recoveryPct}%` : 'Tracking'}
+                <p className="text-xs text-gray-500 dark:text-gray-400">CAPA Progress</p>
+                <p className={`text-xl font-bold mt-0.5 ${
+                  totalCapas === 0
+                    ? 'text-gray-400 dark:text-gray-500'
+                    : closedCapas === totalCapas
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-amber-600 dark:text-amber-400'
+                }`}>
+                  {totalCapas === 0 ? '—' : `${closedCapas}/${totalCapas}`}
                 </p>
                 <p className="text-[10px] text-gray-400 mt-0.5">
-                  {recall.status === 'closed' ? 'Fully recovered' : recall.status === 'in_progress' ? 'In progress' : 'Pending'}
+                  {totalCapas === 0 ? 'No CAPAs linked' : closedCapas === totalCapas ? 'All CAPAs closed' : 'Actions in progress'}
                 </p>
               </div>
               <div className={`${card} px-4 py-3`}>
@@ -403,6 +411,74 @@ export default function RecallDetailClient({ id }: { id: string }) {
           <p className={valMuted}>No CAPA actions have been linked to this recall.</p>
         )}
       </div>
+
+      {/* Activity Timeline */}
+      {(() => {
+        type TLEvent = { label: string; ts: string; sub?: string }
+        const events: TLEvent[] = [
+          {
+            label: 'Recall Initiated',
+            ts:    recall.initiated_at,
+            sub:   recall.initiated_by_name ?? undefined,
+          },
+          ...capas
+            .slice()
+            .sort((a, b) => a.created_at.localeCompare(b.created_at))
+            .map(c => ({
+              label: `CAPA Opened — ${c.capa_number ?? c.id.slice(0, 8)}`,
+              ts:    c.created_at,
+              sub:   `${c.severity} severity · ${c.status.replace('_', ' ')}`,
+            })),
+        ]
+        if (recall.closed_at) events.push({ label: 'Recall Closed', ts: recall.closed_at })
+        events.sort((a, b) => a.ts.localeCompare(b.ts))
+
+        function fmtTs(iso: string) {
+          const d = new Date(iso)
+          return (
+            d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) +
+            ' · ' +
+            d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+          )
+        }
+
+        return (
+          <div className={`${card} px-5 py-4`}>
+            <p className={`${lbl} mb-3`}>Activity Timeline</p>
+            <ol className="space-y-0">
+              {events.map((ev, idx) => {
+                const isLast = idx === events.length - 1
+                return (
+                  <li key={`${ev.label}-${ev.ts}`} className="flex gap-3">
+                    <div className="flex flex-col items-center pt-0.5">
+                      <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                        isLast
+                          ? recall.status === 'closed'
+                            ? 'bg-emerald-500'
+                            : 'bg-[#3a6f8f] dark:bg-[#7ab3d0]'
+                          : 'bg-gray-300 dark:bg-gray-600'
+                      }`} />
+                      {!isLast && (
+                        <div
+                          className="mt-1 w-px flex-1 bg-gray-200 dark:bg-[#B3B7BA]/[0.15]"
+                          style={{ minHeight: '1.5rem' }}
+                        />
+                      )}
+                    </div>
+                    <div className={isLast ? 'pb-0' : 'pb-4'}>
+                      <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">{ev.label}</p>
+                      <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500 tabular-nums">{fmtTs(ev.ts)}</p>
+                      {ev.sub && (
+                        <p className="mt-0.5 text-[10px] text-gray-400 dark:text-gray-600 capitalize">{ev.sub}</p>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
+            </ol>
+          </div>
+        )
+      })()}
 
       {/* Impact Analysis shortcut */}
       {batchId && (

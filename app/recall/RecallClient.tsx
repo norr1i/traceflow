@@ -10,6 +10,7 @@ import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
 import { logActivity, actorName } from '../lib/activity'
 import { useRecalls, type RecallFormData, type RecallSeverity, type RecallStatus, type LinkedCapaSummary } from '../hooks/useRecalls'
+import { deriveBatchRef } from '../lib/batch'
 import {
   AlertTriangle, Search, Download, ChevronDown, ChevronRight,
   Package, FlaskConical, Layers, ShoppingCart, Network,
@@ -370,12 +371,26 @@ const EMPTY_RECALL: RecallFormData = {
   batch_id: null, product_id: null,
 }
 
-function RecallCreateModal({ onClose, onSave, saving }: {
-  onClose: () => void
-  onSave:  (d: RecallFormData) => Promise<void>
-  saving:  boolean
+// ── Shared batch context type ──────────────────────────────────────────────────
+type BatchContext = {
+  // Single-batch mode (1 batch selected)
+  productName?: string
+  sku?:         string
+  batchRef?:    string
+  quantity?:    number
+  // Multi-batch mode (impact set with N > 1 batches)
+  batchCount?:  number
+  totalUnits?:  number
+}
+
+function RecallCreateModal({ onClose, onSave, saving, initialData, batchContext }: {
+  onClose:      () => void
+  onSave:       (d: RecallFormData) => Promise<void>
+  saving:       boolean
+  initialData?: Partial<RecallFormData>
+  batchContext?: BatchContext | null
 }) {
-  const [form, setForm] = useState<RecallFormData>(EMPTY_RECALL)
+  const [form, setForm] = useState<RecallFormData>({ ...EMPTY_RECALL, ...initialData })
   const f = (k: keyof RecallFormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
       setForm(prev => ({ ...prev, [k]: e.target.value }))
@@ -390,6 +405,37 @@ function RecallCreateModal({ onClose, onSave, saving }: {
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">New Recall</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"><X size={20} /></button>
         </div>
+
+        {/* Batch context banner — shown when opened from Impact Lookup */}
+        {batchContext && (
+          <div className="mb-4 rounded-lg border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/15 px-4 py-3">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400 mb-1">
+              {batchContext.batchCount ? 'Impact Scope' : 'Creating Recall For'}
+            </p>
+            {batchContext.batchCount ? (
+              <>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white leading-snug">
+                  {batchContext.batchCount} affected {batchContext.batchCount === 1 ? 'batch' : 'batches'}
+                </p>
+                {batchContext.totalUnits != null && (
+                  <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {batchContext.totalUnits.toLocaleString()} total units across selected batches
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white leading-snug">{batchContext.productName ?? ''}</p>
+                <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-gray-500 dark:text-gray-400">
+                  <span className="font-mono">{batchContext.sku ?? ''}</span>
+                  {batchContext.batchRef && <span>{batchContext.batchRef}</span>}
+                  {batchContext.quantity != null && <span>{batchContext.quantity.toLocaleString()} units produced</span>}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         <form onSubmit={async e => { e.preventDefault(); await onSave(form) }} className="space-y-4">
           <div>
             <label className={lbl}>Title *</label>
@@ -427,8 +473,29 @@ function RecallCreateModal({ onClose, onSave, saving }: {
             <textarea rows={2} value={form.corrective_action} onChange={f('corrective_action')} className={cls} placeholder="Actions taken or planned" />
           </div>
           <div>
-            <label className={lbl}>Linked Batch ID <span className="font-normal text-gray-400">(optional UUID)</span></label>
-            <input value={form.batch_id ?? ''} onChange={f('batch_id')} className={cls} placeholder="e.g. 6db4527d-cbe8-…" />
+            <label className={lbl}>
+              Linked Batch{' '}
+              <span className="font-normal text-gray-400">
+                {batchContext?.batchCount && batchContext.batchCount > 1
+                  ? '(anchor — highest-risk batch in scope)'
+                  : batchContext
+                  ? '(pre-filled from Impact Lookup)'
+                  : '(optional UUID)'}
+              </span>
+            </label>
+            {batchContext ? (
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC]/60 dark:bg-[#262E36]/30 px-3 py-2">
+                <span className="font-mono text-xs text-gray-500 dark:text-gray-400 truncate">{form.batch_id}</span>
+                <span className="shrink-0 text-[10px] font-semibold text-[#3a6f8f] dark:text-[#7ab3d0]">
+                  {batchContext.batchCount && batchContext.batchCount > 1 ? 'Anchor batch' : 'From Impact Lookup'}
+                </span>
+              </div>
+            ) : (
+              <>
+                <input value={form.batch_id ?? ''} onChange={f('batch_id')} className={cls} placeholder="e.g. 6db4527d-cbe8-…" />
+                <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">Optional — paste the production order UUID from the Impact Lookup tool</p>
+              </>
+            )}
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose}
@@ -446,7 +513,17 @@ function RecallCreateModal({ onClose, onSave, saving }: {
   )
 }
 
-function RecallRegistry() {
+function RecallRegistry({
+  prefill,
+  batchContext: externalBatchContext,
+  onPrefillConsumed,
+  affectedBatchIds: externalAffectedBatchIds,
+}: {
+  prefill?:             Partial<RecallFormData> | null
+  batchContext?:        BatchContext | null
+  onPrefillConsumed?:  () => void
+  affectedBatchIds?:   string[] | null
+}) {
   const { user, companyId } = useAuth()
   const role         = useRole()
   const toast        = useToast()
@@ -467,6 +544,21 @@ function RecallRegistry() {
   const [showCreate, setShowCreate] = useState(false)
   const [saving,     setSaving]     = useState(false)
 
+  // Capture prefill into local state so parent re-renders can't clear it mid-open
+  const [pendingPrefill,         setPendingPrefill]         = useState<Partial<RecallFormData> | undefined>(undefined)
+  const [pendingContext,         setPendingContext]          = useState<BatchContext | null | undefined>(undefined)
+  const [pendingAffectedBatchIds, setPendingAffectedBatchIds] = useState<string[] | null>(null)
+
+  useEffect(() => {
+    if (prefill) {
+      setPendingPrefill(prefill)
+      setPendingContext(externalBatchContext)
+      setPendingAffectedBatchIds(externalAffectedBatchIds ?? null)
+      setShowCreate(true)
+      onPrefillConsumed?.()
+    }
+  }, [prefill]) // eslint-disable-line react-hooks/exhaustive-deps
+
   async function handleCreate(data: RecallFormData) {
     if (!companyId) return
     setSaving(true)
@@ -477,6 +569,21 @@ function RecallRegistry() {
       setSaving(false)
       toast.error('Failed to create recall')
       return
+    }
+
+    // Step 1.5: persist affected batch scope into recall_affected_batches.
+    // Only fires for Impact Lookup recalls that carry a batch list.
+    if (pendingAffectedBatchIds && pendingAffectedBatchIds.length > 0) {
+      const anchorId = data.batch_id ?? pendingAffectedBatchIds[0]
+      const payload = pendingAffectedBatchIds.map(batchId => ({
+        recall_id:  result.id,
+        batch_id:   batchId,
+        company_id: companyId,
+        is_anchor:  batchId === anchorId,
+      }))
+      await supabase
+        .from('recall_affected_batches')
+        .insert(payload)
     }
 
     // Step 2: create the linked CAPA via SECURITY DEFINER RPC — bypasses RLS
@@ -550,7 +657,18 @@ function RecallRegistry() {
   return (
     <div className="space-y-4">
       {showCreate && (
-        <RecallCreateModal onClose={() => setShowCreate(false)} onSave={handleCreate} saving={saving} />
+        <RecallCreateModal
+          onClose={() => {
+            setShowCreate(false)
+            setPendingPrefill(undefined)
+            setPendingContext(undefined)
+            setPendingAffectedBatchIds(null)
+          }}
+          onSave={handleCreate}
+          saving={saving}
+          initialData={pendingPrefill}
+          batchContext={pendingContext}
+        />
       )}
 
       {/* Stats row */}
@@ -927,7 +1045,59 @@ export default function RecallClient() {
     }
   }, [query, searchType, companyId])
 
+  const role          = useRole()
+  const canEditRecall = canEdit(role, 'recall')
+
   const [view, setView] = useState<'lookup' | 'registry'>('lookup')
+
+  const [createPrefill, setCreatePrefill] = useState<{
+    form:             Partial<RecallFormData>
+    context:          BatchContext
+    affectedBatchIds: string[]
+  } | null>(null)
+
+  // Selection state for the bulk-action "Create Recall" pattern.
+  // Defaults to all batches selected when results load; users deselect to refine.
+  const [selectedBatchIds, setSelectedBatchIds] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    setSelectedBatchIds(new Set((batches ?? []).map(b => b.id)))
+  }, [batches])
+  const selectedBatches = useMemo(
+    () => (batches ?? []).filter(b => selectedBatchIds.has(b.id)),
+    [batches, selectedBatchIds],
+  )
+  const selectedTotalUnits = selectedBatches.reduce((s, b) => s + b.quantity, 0)
+
+  // Builds prefill for the recall modal from the current selection.
+  // Anchor selection: prefer QC-fail + downstream shipments (highest compliance risk);
+  // fall back to the first selected batch. The anchor is stored in recalls.batch_id
+  // so existing CAPA, Product Journey, and Impact Analysis queries continue to work.
+  // All selected batch IDs are passed through for recall_affected_batches persistence.
+  function handleCreateRecallFromImpactSet(selected: RecallBatch[]) {
+    const totalUnits = selected.reduce((s, b) => s + b.quantity, 0)
+    const isSingle   = selected.length === 1
+    const anchor =
+      selected.find(b =>
+        b.qc_results.some(q => q.status === 'fail') && b.shipments.length > 0
+      ) ?? selected[0]
+    setCreatePrefill({
+      form: {
+        affected_units: String(totalUnits),
+        batch_id:       anchor.id,   // always set — anchor drives CAPA + journey linkage
+      },
+      context: isSingle ? {
+        productName: anchor.product_name,
+        sku:         anchor.sku,
+        batchRef:    deriveBatchRef(anchor.id, anchor.created_at),
+        quantity:    anchor.quantity,
+      } : {
+        batchCount: selected.length,
+        totalUnits,
+      },
+      affectedBatchIds: selected.map(b => b.id),
+    })
+    setView('registry')
+  }
 
   return (
     <div className="space-y-5">
@@ -949,7 +1119,14 @@ export default function RecallClient() {
         ))}
       </div>
 
-      {view === 'registry' && <RecallRegistry />}
+      {view === 'registry' && (
+        <RecallRegistry
+          prefill={createPrefill?.form}
+          batchContext={createPrefill?.context}
+          affectedBatchIds={createPrefill?.affectedBatchIds}
+          onPrefillConsumed={() => setCreatePrefill(null)}
+        />
+      )}
 
       {view === 'lookup' && <>
 
@@ -1093,13 +1270,24 @@ export default function RecallClient() {
                 {batches.length}
               </span>
             </div>
-            <button
-              onClick={() => exportToCSV(batches)}
-              className="flex items-center gap-1.5 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/45 transition-colors"
-            >
-              <Download size={13} />
-              {t('recall.export_csv')}
-            </button>
+            <div className="flex items-center gap-2">
+              {canEditRecall && selectedBatches.length > 0 && (
+                <button
+                  onClick={() => handleCreateRecallFromImpactSet(selectedBatches)}
+                  className="flex items-center gap-1.5 rounded-lg bg-[#3a6f8f] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#2d5a74] transition-colors"
+                >
+                  <Plus size={12} />
+                  Create Recall ({selectedBatches.length})
+                </button>
+              )}
+              <button
+                onClick={() => exportToCSV(batches)}
+                className="flex items-center gap-1.5 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/45 transition-colors"
+              >
+                <Download size={13} />
+                {t('recall.export_csv')}
+              </button>
+            </div>
           </div>
 
           <div className="divide-y divide-gray-50 dark:divide-[#B3B7BA]/[0.07]">
@@ -1111,40 +1299,54 @@ export default function RecallClient() {
               return (
                 <div key={batch.id}>
                   {/* ── Row ──────────────────────────────────────────── */}
-                  <button
-                    onClick={() => setExpandedId(isExpanded ? null : batch.id)}
-                    className={`w-full flex items-start gap-3 px-5 py-4 text-start transition-colors hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/22 ${
-                      hasRisk ? 'border-s-2 border-red-500' : ''
-                    }`}
-                  >
-                    <span className="mt-0.5 shrink-0">
-                      {isExpanded
-                        ? <ChevronDown size={15} className="text-gray-400" />
-                        : <ChevronRight size={15} className="text-gray-400" />}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                          {batch.product_name}
-                        </span>
-                        <span className="font-mono text-xs text-gray-400">{batch.sku}</span>
-                        <Badge
-                          label={batch.status}
-                          className={statusColors[batch.status] ?? 'bg-gray-100 text-gray-600'}
-                        />
-                        {latestQc && (
-                          <Badge label={latestQc.status} className={qcColors[latestQc.status]} />
-                        )}
+                  <div className={`flex items-stretch ${hasRisk ? 'border-s-2 border-red-500' : ''}`}>
+                    {/* Selection checkbox — label wrapper for larger click target */}
+                    <label className="flex shrink-0 items-center self-stretch px-4 border-e border-gray-100 dark:border-[#B3B7BA]/[0.07] cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedBatchIds.has(batch.id)}
+                        onChange={e => setSelectedBatchIds(prev => {
+                          const next = new Set(prev)
+                          if (e.target.checked) next.add(batch.id)
+                          else next.delete(batch.id)
+                          return next
+                        })}
+                        className="h-3.5 w-3.5 rounded border-gray-300 dark:border-gray-600 accent-[#3a6f8f] cursor-pointer"
+                      />
+                    </label>
+                    <button
+                      onClick={() => setExpandedId(isExpanded ? null : batch.id)}
+                      className="flex flex-1 items-start gap-3 px-5 py-4 text-start transition-colors hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/22"
+                    >
+                      <span className="mt-0.5 shrink-0">
+                        {isExpanded
+                          ? <ChevronDown size={15} className="text-gray-400" />
+                          : <ChevronRight size={15} className="text-gray-400" />}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                            {batch.product_name}
+                          </span>
+                          <span className="font-mono text-xs text-gray-400">{batch.sku}</span>
+                          <Badge
+                            label={batch.status}
+                            className={statusColors[batch.status] ?? 'bg-gray-100 text-gray-600'}
+                          />
+                          {latestQc && (
+                            <Badge label={latestQc.status} className={qcColors[latestQc.status]} />
+                          )}
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-400">
+                          <span className="font-mono">{batch.id.slice(0, 13)}…</span>
+                          <span>{t('recall.qty_row', { n: fmtNum(batch.quantity, lang) })}</span>
+                          <span>{t('recall.created_row', { date: fmt(batch.created_at, locale) })}</span>
+                          {batch.completed_at && <span>{t('recall.done_row', { date: fmt(batch.completed_at, locale) })}</span>}
+                          <span>{t(batch.scan_count !== 1 ? 'recall.scans_plural' : 'recall.scans', { n: fmtNum(batch.scan_count, lang) })}</span>
+                        </div>
                       </div>
-                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-400">
-                        <span className="font-mono">{batch.id.slice(0, 13)}…</span>
-                        <span>{t('recall.qty_row', { n: fmtNum(batch.quantity, lang) })}</span>
-                        <span>{t('recall.created_row', { date: fmt(batch.created_at, locale) })}</span>
-                        {batch.completed_at && <span>{t('recall.done_row', { date: fmt(batch.completed_at, locale) })}</span>}
-                        <span>{t(batch.scan_count !== 1 ? 'recall.scans_plural' : 'recall.scans', { n: fmtNum(batch.scan_count, lang) })}</span>
-                      </div>
-                    </div>
-                  </button>
+                    </button>
+                  </div>
 
                   {/* ── Expanded detail ───────────────────────────────── */}
                   {isExpanded && (
