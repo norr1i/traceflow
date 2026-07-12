@@ -89,7 +89,7 @@ export default function RecallDetailClient({ id }: { id: string }) {
 
       const { data, error } = await supabase
         .from('recalls')
-        .select('*, products(name, sku), production_orders(id, status)')
+        .select('*, products(name, sku)')
         .eq('id', id)
         .eq('company_id', companyId)
         .single()

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import { useAuth, useRole } from '../lib/auth-context'
@@ -8,7 +8,7 @@ import { canEdit } from '../lib/permissions'
 import { useToast } from '../components/Toast'
 import {
   Search, AlertTriangle, Package, Layers, Truck,
-  FileDown, Plus, X, ChevronDown, ChevronUp,
+  FileDown, Plus, X, ChevronDown,
   Building2, Hash, Calendar, ShieldAlert, ShieldCheck,
 } from 'lucide-react'
 
@@ -251,10 +251,10 @@ function SummaryCard({ label, value, icon: Icon, valueClass }: {
   )
 }
 
-function TableSection({ title, icon: Icon, count, children }: {
-  title: string; icon: React.ElementType; count: number; children: React.ReactNode
+function TableSection({ title, icon: Icon, count, children, defaultOpen = true }: {
+  title: string; icon: React.ElementType; count: number; children: React.ReactNode; defaultOpen?: boolean
 }) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(defaultOpen)
   return (
     <div className="rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 shadow-sm overflow-hidden">
       <button
@@ -268,11 +268,22 @@ function TableSection({ title, icon: Icon, count, children }: {
             {count}
           </span>
         )}
-        <span className="ml-auto text-gray-300 dark:text-gray-600">
-          {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-        </span>
+        <ChevronDown
+          size={14}
+          className={`ml-auto shrink-0 text-gray-300 dark:text-gray-600 transition-transform duration-250 ${open ? 'rotate-180' : 'rotate-0'}`}
+        />
       </button>
-      {open && <div className="px-5 py-4">{children}</div>}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateRows: open ? '1fr' : '0fr',
+          transition: 'grid-template-rows 250ms ease',
+        }}
+      >
+        <div className="overflow-hidden">
+          <div className="px-5 py-4">{children}</div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -406,6 +417,7 @@ export default function RecallImpactClient() {
   const [result,     setResult]     = useState<ImpactResult | null>(null)
   const [searched,   setSearched]   = useState(false)
   const [showModal,  setShowModal]  = useState(false)
+  const autoSearchFired = useRef(false)
 
   async function runSearch(type: SearchType, q: string) {
     if (!q.trim()) return
@@ -426,10 +438,12 @@ export default function RecallImpactClient() {
   }
 
   useEffect(() => {
+    if (autoSearchFired.current) return
     const type  = (urlParams.get('type') ?? '') as SearchType
     const q     = urlParams.get('q') ?? ''
     const valid: SearchType[] = ['lot', 'material', 'batch']
     if (q && valid.includes(type)) {
+      autoSearchFired.current = true
       setSearchType(type)
       setQuery(q)
       runSearch(type, q)
@@ -665,7 +679,7 @@ export default function RecallImpactClient() {
           </TableSection>
 
           {/* Affected Batches table */}
-          <TableSection title="Affected Batches" icon={Layers} count={result.affected_batches.length}>
+          <TableSection title="Affected Batches" icon={Layers} count={result.affected_batches.length} defaultOpen={false}>
             {result.affected_batches.length === 0
               ? <Empty text="No affected batches found." />
               : (
@@ -699,7 +713,7 @@ export default function RecallImpactClient() {
           </TableSection>
 
           {/* Affected Distributors table */}
-          <TableSection title="Affected Distributors" icon={Truck} count={result.affected_distributors.length}>
+          <TableSection title="Affected Distributors" icon={Truck} count={result.affected_distributors.length} defaultOpen={false}>
             {result.affected_distributors.length === 0
               ? <Empty text="No distribution records linked to affected batches." />
               : (

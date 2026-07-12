@@ -45,6 +45,26 @@
 --   Supabase Dashboard → SQL Editor → New Query → paste → Run
 -- ============================================================
 
+-- Drop all overloads so PostgREST can resolve the single canonical signature.
+-- PGRST203 ("Could not choose the best candidate function") occurs when an
+-- older 3-parameter version coexists with the current 4-parameter version and
+-- PostgREST cannot pick one when only named defaults are supplied.
+DO $drop_overloads$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT oid::regprocedure::text AS sig
+    FROM   pg_proc
+    WHERE  proname        = 'get_recall_impact'
+      AND  pronamespace   = 'public'::regnamespace
+  LOOP
+    EXECUTE 'DROP FUNCTION IF EXISTS ' || r.sig;
+    RAISE NOTICE 'Dropped overload: %', r.sig;
+  END LOOP;
+END;
+$drop_overloads$;
+
 CREATE OR REPLACE FUNCTION get_recall_impact(
   p_lot_number          text DEFAULT NULL,
   p_material_name       text DEFAULT NULL,
