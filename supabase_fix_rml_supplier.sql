@@ -43,6 +43,20 @@
 -- batch_qc_results, production_orders, and products.
 -- The function's WHERE clause always scopes by company_id, so
 -- exposing lot records to the anon role is safe.
+--
+-- ⚠️  SUPERSEDED — 2026-07-14
+--   The reasoning above is incorrect. get_batch_trace is SECURITY
+--   DEFINER and runs as the function owner (postgres superuser),
+--   which is unconditionally exempt from RLS (FORCE ROW LEVEL
+--   SECURITY is not set on raw_material_lots). The function reads
+--   raw_material_lots via a direct SQL LEFT JOIN inside the function
+--   body — it never goes through PostgREST and is not subject to this
+--   anon policy. The policy's only real effect was to expose all
+--   raw_material_lots rows (all companies) to unauthenticated REST
+--   API requests. Confirmed live: 15 rows leaked on 2026-07-13.
+--
+--   The policy was removed by supabase_fix_rml_anon_policy_drop.sql.
+--   Do not re-add it. get_batch_trace continues to work without it.
 DROP POLICY IF EXISTS "public_trace_rml" ON public.raw_material_lots;
 CREATE POLICY "public_trace_rml"
   ON public.raw_material_lots
