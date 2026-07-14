@@ -81,9 +81,9 @@ async function runSearch(q: string, companyId: string): Promise<SearchResult[]> 
       .limit(12),
     supabase
       .from('production_orders')
-      .select('id, status, products(name, sku)')
+      .select('id, status, products!inner(name, sku)')
       .eq('company_id', companyId)
-      .ilike('id', `%${q}%`)
+      .or(`name.ilike.%${q}%,sku.ilike.%${q}%`, { referencedTable: 'products' })
       .limit(8),
     supabase
       .from('sales')
@@ -112,7 +112,9 @@ async function runSearch(q: string, companyId: string): Promise<SearchResult[]> 
   for (const o of orders ?? []) {
     const prod     = o.products as unknown as { name: string; sku: string } | null
     const title    = prod?.name ?? `Batch ${String(o.id).slice(0, 8)}`
-    const subtitle = o.status.replace(/_/g, ' ')
+    const sku      = prod?.sku ?? ''
+    const status   = o.status.replace(/_/g, ' ')
+    const subtitle = [sku ? `SKU ${sku}` : '', status].filter(Boolean).join(' · ')
     const s        = score(title, subtitle, q)
     if (s > 0) results.push({ id: `order-${o.id}`, category: 'production', title, subtitle, route: '/production', score: s })
   }
