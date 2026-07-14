@@ -20,7 +20,7 @@ const AuthContext = createContext<AuthCtx>({
   loading: true, signOut: async () => {},
 })
 
-type UserInfo = { role: Role; companyId: string | null; companyName: string | null }
+type UserInfo = { role: Role | null; companyId: string | null; companyName: string | null }
 
 const SAFE_DEFAULTS: UserInfo = { role: 'manager', companyId: null, companyName: null }
 
@@ -43,7 +43,7 @@ async function fetchProfileRow(userId: string) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function buildInfo(data: any): UserInfo {
-  const role       = (data?.role as Role | undefined) ?? 'manager'
+  const role       = (data?.role as Role | undefined) ?? null
   const companyId  = (data?.company_id as string | undefined) ?? null
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const companyName = (data?.companies as any)?.name ?? null
