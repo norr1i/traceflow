@@ -632,6 +632,8 @@ function RecallRegistry({
         actionType: 'recall.initiated', entityType: 'recall', entityId: result.id,
         message: `${actorName(user?.email)} initiated recall: ${data.title}`,
         metadata: { recall_number: result.recall_number, severity: data.severity },
+      }).catch(err => {
+        console.error('[logActivity]', err)
       })
     }
   }

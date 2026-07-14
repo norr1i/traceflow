@@ -635,6 +635,8 @@ export default function CapaClient() {
         actionType: 'capa.opened', entityType: 'capa', entityId: result.id,
         message: `${actorName(user?.email)} opened CAPA: ${data.title}`,
         metadata: { capa_number: result.capa_number, owner: data.owner_name },
+      }).catch(err => {
+        console.error('[logActivity]', err)
       })
     }
   }
@@ -672,6 +674,8 @@ export default function CapaClient() {
         actionType: next === 'closed' ? 'capa.closed' : 'capa.updated',
         entityType: 'capa', entityId: id,
         message: `${actorName(user?.email)} advanced CAPA to ${STATUS_META[next].label}`,
+      }).catch(err => {
+        console.error('[logActivity]', err)
       })
     }
   }
