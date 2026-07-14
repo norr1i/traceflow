@@ -11,6 +11,7 @@ import {
   useCapas, useCapaAnalytics,
   NEXT_STATUS, ADVANCE_LABEL, SOURCE_LABELS,
   type CapaStatus, type CapaFormData, type Capa, type CapaSourceType,
+  type CapaFilterStatus,
   PAGE_SIZE,
 } from '../hooks/useCapas'
 import { useAuth, useRole } from '../lib/auth-context'
@@ -577,7 +578,7 @@ function exportJSON(rows: Capa[]) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-type FilterTab = 'all' | 'open' | 'in_progress' | 'overdue' | 'closed'
+type FilterTab = CapaFilterStatus
 
 export default function CapaClient() {
   const router  = useRouter()
@@ -587,47 +588,37 @@ export default function CapaClient() {
   const { user, companyId } = useAuth()
   const canEditCapa = canEdit(role, 'capa')
 
+  const [searchInput, setSearchInput] = useState('')
+  const [search,      setSearch]      = useState('')
+  const [filterTab,   setFilterTab]   = useState<FilterTab>('all')
+  const [filterPri,   setFilterPri]   = useState<'critical' | 'major' | 'minor' | ''>('')
+  const [filterSrc,   setFilterSrc]   = useState<CapaSourceType | ''>('')
+  const [showCreate,  setShowCreate]  = useState(false)
+  const [editCapa,    setEditCapa]    = useState<Capa | null>(null)
+  const [saving,      setSaving]      = useState(false)
+  const [advancing,   setAdvancing]   = useState<string | null>(null)
+  const [exporting,   setExporting]   = useState(false)
+
+  // Debounce search: fire a Supabase request only after 300 ms of inactivity.
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput), 300)
+    return () => clearTimeout(t)
+  }, [searchInput])
+
   const {
     capas, stats, loading, error, refresh,
     page, totalCount, totalPages, goToPage,
     createCapa, advanceStatus, updateCapa, deleteCapa,
-  } = useCapas()
-
-  const [search,     setSearch]     = useState('')
-  const [filterTab,  setFilterTab]  = useState<FilterTab>('all')
-  const [filterPri,  setFilterPri]  = useState<'critical' | 'major' | 'minor' | ''>('')
-  const [filterSrc,  setFilterSrc]  = useState<CapaSourceType | ''>('')
-  const [showCreate, setShowCreate] = useState(false)
-  const [editCapa,   setEditCapa]   = useState<Capa | null>(null)
-  const [saving,     setSaving]     = useState(false)
-  const [advancing,  setAdvancing]  = useState<string | null>(null)
+    fetchAllFiltered,
+  } = useCapas(filterTab, filterPri, filterSrc, search)
 
   const today = new Date().toISOString().slice(0, 10)
 
-  const filtered = capas.filter(c => {
-    const matchSearch =
-      search === '' ||
-      c.title?.toLowerCase().includes(search.toLowerCase()) ||
-      c.capa_number?.toLowerCase().includes(search.toLowerCase()) ||
-      c.owner_name?.toLowerCase().includes(search.toLowerCase()) ||
-      c.batch_id?.includes(search)
-
-    const overdue    = c.status !== 'closed' && !!c.due_date && c.due_date < today
-    const inProgress = ['investigation', 'corrective_action', 'verification'].includes(c.status)
-
-    const matchTab =
-      filterTab === 'all'          ? true
-      : filterTab === 'open'       ? c.status === 'open'
-      : filterTab === 'in_progress'? inProgress
-      : filterTab === 'overdue'    ? overdue
-      : filterTab === 'closed'     ? c.status === 'closed'
-      : true
-
-    const matchPri = filterPri === '' || c.severity === filterPri
-    const matchSrc = filterSrc === '' || c.source_type === filterSrc
-
-    return matchSearch && matchTab && matchPri && matchSrc
-  })
+  // Company-wide total from stats (always unfiltered — independent of active filters).
+  const companyTotal = stats
+    ? stats.open + stats.investigation + stats.corrective_action + stats.verification + stats.closed
+    : null
+  const hasActiveFilter = filterTab !== 'all' || filterPri !== '' || filterSrc !== '' || search !== ''
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -697,6 +688,32 @@ export default function CapaClient() {
     else         toast.error('Failed to delete CAPA')
   }
 
+  async function handleExportCSV() {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const all = await fetchAllFiltered()
+      exportCSV(all)
+    } catch {
+      toast.error('Export failed — please try again')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  async function handleExportJSON() {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const all = await fetchAllFiltered()
+      exportJSON(all)
+    } catch {
+      toast.error('Export failed — please try again')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const inProgressCount = !loading
     ? (stats?.investigation ?? 0) + (stats?.corrective_action ?? 0) + (stats?.verification ?? 0)
     : null
@@ -743,7 +760,7 @@ export default function CapaClient() {
 
       {/* KPI cards */}
       <div className={`mb-5 grid gap-3 ${!loading && openIsZero ? 'sm:grid-cols-2 xl:grid-cols-4' : 'sm:grid-cols-3 xl:grid-cols-5'}`}>
-        <KpiCard label="Total"       value={loading ? '—' : totalCount}        color="text-gray-800 dark:text-gray-100" sub="all time" />
+        <KpiCard label="Total"       value={loading ? '—' : (companyTotal ?? totalCount)} color="text-gray-800 dark:text-gray-100" sub="all time" />
         {(!loading && !openIsZero) && (
           <KpiCard label="Open"      value={stats?.open ?? 0}                  color="text-blue-600 dark:text-blue-400" sub="needs action" />
         )}
@@ -810,21 +827,23 @@ export default function CapaClient() {
           <div className="relative w-full sm:w-72">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input type="text" placeholder="Search by title, CAPA #, owner, batch…"
-              value={search} onChange={e => setSearch(e.target.value)}
+              value={searchInput} onChange={e => setSearchInput(e.target.value)}
               className="w-full rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#D1CFC9]/50 dark:bg-[#262E36]/55 py-2 pl-9 pr-3 text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:border-[#4a7fa5] focus:outline-none focus:ring-1 focus:ring-[#4a7fa5]/30" />
           </div>
           <div className="ml-auto flex gap-2">
             <button
-              onClick={() => exportCSV(filtered)}
-              className="flex items-center gap-1.5 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-white/50 dark:bg-[#262E36]/25 px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-[#262E36]/45 transition"
+              onClick={handleExportCSV}
+              disabled={exporting || loading}
+              className="flex items-center gap-1.5 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-white/50 dark:bg-[#262E36]/25 px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-[#262E36]/45 disabled:opacity-50 disabled:cursor-not-allowed transition"
             >
-              <FileDown size={14} />CSV
+              {exporting ? <RefreshCw size={14} className="animate-spin" /> : <FileDown size={14} />}CSV
             </button>
             <button
-              onClick={() => exportJSON(filtered)}
-              className="flex items-center gap-1.5 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-white/50 dark:bg-[#262E36]/25 px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-[#262E36]/45 transition"
+              onClick={handleExportJSON}
+              disabled={exporting || loading}
+              className="flex items-center gap-1.5 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-white/50 dark:bg-[#262E36]/25 px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-[#262E36]/45 disabled:opacity-50 disabled:cursor-not-allowed transition"
             >
-              <FileDown size={14} />JSON
+              {exporting ? <RefreshCw size={14} className="animate-spin" /> : <FileDown size={14} />}JSON
             </button>
           </div>
         </div>
@@ -835,8 +854,8 @@ export default function CapaClient() {
               <div key={i} className="h-10 animate-pulse rounded-lg bg-gray-100 dark:bg-[#262E36]/55" />
             ))}
           </div>
-        ) : filtered.length === 0 ? (
-          <EmptyState message={search ? 'No CAPAs match your search.' : 'No CAPAs recorded yet.'} />
+        ) : capas.length === 0 ? (
+          <EmptyState message={hasActiveFilter ? 'No CAPAs match your filters.' : 'No CAPAs recorded yet.'} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -854,7 +873,7 @@ export default function CapaClient() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-[#B3B7BA]/[0.08]">
-                {filtered.map(capa => {
+                {capas.map(capa => {
                   const nextStatus   = NEXT_STATUS[capa.status]
                   const advanceLabel = ADVANCE_LABEL[capa.status]
                   const overdue      = capa.status !== 'closed' && !!capa.due_date && capa.due_date < today
@@ -947,7 +966,7 @@ export default function CapaClient() {
 
         {!loading && (
           <div className="border-t border-gray-100 dark:border-[#B3B7BA]/[0.10] px-5 py-3.5 text-xs text-gray-400 dark:text-gray-500">
-            Showing {filtered.length} of {totalCount} CAPA{totalCount !== 1 ? 's' : ''}
+            Showing {capas.length} of {totalCount} {hasActiveFilter ? 'filtered ' : ''}CAPA{totalCount !== 1 ? 's' : ''}
             {(stats?.closed ?? 0) > 0 && ` · ${stats?.closed} closed`}
             {(stats?.overdue ?? 0) > 0 && ` · ${stats?.overdue} overdue`}
           </div>

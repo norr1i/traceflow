@@ -197,9 +197,76 @@ function extractMessage(err: unknown): string {
   return (err instanceof Error ? err.message : (err as { message?: string })?.message) ?? 'Unknown error'
 }
 
+// ── Filter types and shared query helper ─────────────────────────────────────
+
+export type CapaFilterStatus = 'all' | 'open' | 'in_progress' | 'overdue' | 'closed'
+
+// Minimal structural type covering the filter methods applyCapaFilters calls.
+// Using a structural interface avoids threading all 7 PostgrestFilterBuilder
+// generics through the helper while still preserving the caller's exact return type.
+type CapaFilterable<Q> = {
+  eq(col: string, val: unknown): Q
+  neq(col: string, val: unknown): Q
+  in(col: string, vals: readonly unknown[]): Q
+  not(col: string, op: string, val: unknown): Q
+  lt(col: string, val: unknown): Q
+  or(filters: string): Q
+}
+
+// Applies all four CAPA list filters to a Supabase query builder.
+// Called identically from load() and fetchAllFiltered() so list and export
+// cannot drift. Column type notes:
+//   status, severity, source_type — text/enum columns, ILIKE/eq safe.
+//   batch_id — native uuid column; PostgreSQL rejects ILIKE on uuid types.
+//     A full UUID term uses .eq() inside the OR string; partial UUID terms
+//     produce no batch_id condition (text columns still searched).
+//   today — 'YYYY-MM-DD'; lexicographic < is chronologically correct for
+//     ISO date columns stored as date or text.
+function applyCapaFilters<Q extends CapaFilterable<Q>>(
+  q:              Q,
+  filterStatus:   CapaFilterStatus,
+  filterSeverity: 'critical' | 'major' | 'minor' | '',
+  filterSource:   CapaSourceType | '',
+  filterSearch:   string,
+  today:          string,
+): Q {
+  if      (filterStatus === 'open')        q = q.eq('status', 'open')
+  else if (filterStatus === 'in_progress') q = q.in('status', ['investigation', 'corrective_action', 'verification'])
+  else if (filterStatus === 'overdue')     q = q.neq('status', 'closed').not('due_date', 'is', null).lt('due_date', today)
+  else if (filterStatus === 'closed')      q = q.eq('status', 'closed')
+
+  if (filterSeverity !== '') q = q.eq('severity', filterSeverity)
+  if (filterSource   !== '') q = q.eq('source_type', filterSource)
+
+  const term = filterSearch.trim()
+  if (term !== '') {
+    // Strip PostgREST OR-string reserved chars (, ( )) before building the filter.
+    // PostgREST parameterises values internally so % is safe as an ILIKE wildcard.
+    const safe = term.replace(/[,()]/g, '')
+    if (safe.length >= 1) {
+      const isFullUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(safe)
+      const orParts = [
+        `title.ilike.%${safe}%`,
+        `capa_number.ilike.%${safe}%`,
+        `owner_name.ilike.%${safe}%`,
+      ]
+      if (isFullUuid) orParts.push(`batch_id.eq.${safe}`)
+      q = q.or(orParts.join(','))
+    }
+  }
+
+  return q
+}
+
 // ── useCapas (list / dashboard) ───────────────────────────────────────────────
 
-export function useCapas() {
+export function useCapas(
+  filterStatus:   CapaFilterStatus,
+  filterSeverity: 'critical' | 'major' | 'minor' | '',
+  filterSource:   CapaSourceType | '',
+  filterSearch:   string,
+) {
   const { companyId } = useAuth()
 
   const [capas,      setCapas]      = useState<Capa[]>([])
@@ -216,14 +283,17 @@ export function useCapas() {
     setLoading(true); setError(null)
 
     try {
+      const today  = new Date().toISOString().slice(0, 10)
       const offset = (pageNum - 1) * PAGE_SIZE
 
-      const { data, count, error: listErr } = await supabase
-        .from('capas')
-        .select('*', { count: 'exact' })
-        .eq('company_id', companyId)
-        .order('created_at', { ascending: false })
-        .range(offset, offset + PAGE_SIZE - 1)
+      const { data, count, error: listErr } = await applyCapaFilters(
+        supabase
+          .from('capas')
+          .select('*', { count: 'exact' })
+          .eq('company_id', companyId)
+          .order('created_at', { ascending: false }),
+        filterStatus, filterSeverity, filterSource, filterSearch, today,
+      ).range(offset, offset + PAGE_SIZE - 1)
 
       if (listErr) throw listErr
       setCapas((data ?? []) as Capa[])
@@ -252,10 +322,38 @@ export function useCapas() {
     } finally {
       setLoading(false)
     }
-  }, [companyId])
+  }, [companyId, filterStatus, filterSeverity, filterSource, filterSearch])
 
   const goToPage = useCallback((p: number) => { setPageState(p); load(p) }, [load])
   useEffect(() => { load(1); setPageState(1) }, [load])
+
+  // Export: fetch every matching row using 1 000-row batches.
+  // Uses the same applyCapaFilters call as load() so list and export cannot drift.
+  const fetchAllFiltered = useCallback(async (): Promise<Capa[]> => {
+    if (!companyId) return []
+    const today   = new Date().toISOString().slice(0, 10)
+    const BATCH   = 1_000
+    const results: Capa[] = []
+    let offset = 0
+
+    while (true) {
+      const { data, error: fetchErr } = await applyCapaFilters(
+        supabase
+          .from('capas')
+          .select('*')
+          .eq('company_id', companyId)
+          .order('created_at', { ascending: false }),
+        filterStatus, filterSeverity, filterSource, filterSearch, today,
+      ).range(offset, offset + BATCH - 1)
+
+      if (fetchErr) throw fetchErr
+      results.push(...((data ?? []) as Capa[]))
+      if ((data?.length ?? 0) < BATCH) break
+      offset += BATCH
+    }
+
+    return results
+  }, [companyId, filterStatus, filterSeverity, filterSource, filterSearch])
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
@@ -335,6 +433,7 @@ export function useCapas() {
     capas, stats, loading, error,
     page, totalCount, totalPages, goToPage,
     createCapa, advanceStatus, updateCapa, deleteCapa,
+    fetchAllFiltered,
     refresh: () => load(page),
   }
 }
