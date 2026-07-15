@@ -44,7 +44,7 @@ function BatchSearchBar({
   onSelect:      (b: BatchResult) => void
   loading:       boolean
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(query.trim().length > 0)
   const ref = useRef<HTMLDivElement>(null)
 
   const filtered = batches.filter(b => {
