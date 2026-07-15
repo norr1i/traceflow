@@ -99,7 +99,7 @@ async function runSearch(q: string, companyId: string): Promise<SearchResult[]> 
     const title    = p.name
     const subtitle = p.sku ? `SKU ${p.sku}` : ''
     const s        = score(title, subtitle, q)
-    if (s > 0) results.push({ id: `product-${p.id}`, category: 'products', title, subtitle, route: '/products', score: s })
+    if (s > 0) results.push({ id: `product-${p.id}`, category: 'products', title, subtitle, route: `/product-journey?q=${encodeURIComponent(p.sku || p.name)}`, score: s })
   }
 
   for (const m of materials ?? []) {
@@ -116,7 +116,7 @@ async function runSearch(q: string, companyId: string): Promise<SearchResult[]> 
     const status   = o.status.replace(/_/g, ' ')
     const subtitle = [sku ? `SKU ${sku}` : '', status].filter(Boolean).join(' · ')
     const s        = score(title, subtitle, q)
-    if (s > 0) results.push({ id: `order-${o.id}`, category: 'production', title, subtitle, route: '/production', score: s })
+    if (s > 0) results.push({ id: `order-${o.id}`, category: 'production', title, subtitle, route: `/product-journey/${o.id}`, score: s })
   }
 
   for (const sv of sales ?? []) {
