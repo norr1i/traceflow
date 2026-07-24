@@ -15,6 +15,8 @@ import { useT, fmtNum } from '../lib/i18n'
 import {
   Plus, Pencil, Trash2, X, Check, AlertTriangle, ClipboardList,
   QrCode, Copy, Download, ExternalLink, Layers, FlaskConical, GitBranch, Printer,
+  MoreHorizontal, XCircle, ChevronsUpDown, ChevronUp, ChevronDown, Search,
+  Play, Package,
 } from 'lucide-react'
 import PaginationBar from '../components/PaginationBar'
 
@@ -22,8 +24,10 @@ const PAGE_SIZE = 50
 
 type OrderWithProduct = ProductionOrder & { products?: { name: string; sku?: string | null } | null }
 type SimpleProduct    = { id: string; name: string }
+type SortColProd     = 'urgency' | 'order_number' | 'quantity' | 'due_date'
+type StatusFilter    = 'all' | ProductionOrder['status']
 
-const emptyOrder = { product_id: '', quantity: 1, status: 'pending' as ProductionOrder['status'] }
+const emptyOrder = { product_id: '', quantity: 1, status: 'pending' as ProductionOrder['status'], due_date: '' }
 const statuses: ProductionOrder['status'][] = ['pending', 'in_progress', 'completed', 'cancelled']
 const emptyBom = { material_name: '', lot_number: '', quantity: '', unit: '' }
 
@@ -34,11 +38,141 @@ const qcStatusConfig: Record<QcStatus, string> = {
   hold: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
 }
 
+function formatOrderNumber(id: string, createdAt: string): string {
+  const year = new Date(createdAt).getFullYear()
+  const hash = parseInt(id.replace(/-/g, '').slice(0, 8), 16) % 1000000
+  return `PO-${year}-${String(hash).padStart(6, '0')}`
+}
+
+function urgencyTier(o: OrderWithProduct, today: string): number {
+  if (o.status === 'completed') return 3
+  if (o.status === 'cancelled') return 4
+  if (o.due_date && o.due_date < today) return 0
+  if (o.status === 'in_progress') return 1
+  return 2
+}
+
+function isOverdue(o: OrderWithProduct, today: string): boolean {
+  return !!(o.due_date && o.due_date < today && o.status !== 'completed' && o.status !== 'cancelled')
+}
+
+function fmtDueDate(dateStr: string): string {
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
 function QcBadge({ status, label }: { status: QcStatus; label: string }) {
   return (
     <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-bold uppercase tracking-wider ${qcStatusConfig[status]}`}>
       {label}
     </span>
+  )
+}
+
+function SortIcon({ col, sortCol, sortAsc }: { col: SortColProd; sortCol: SortColProd; sortAsc: boolean }) {
+  if (sortCol !== col) return <ChevronsUpDown size={12} className="ms-1 opacity-40" />
+  return sortAsc ? <ChevronUp size={12} className="ms-1" /> : <ChevronDown size={12} className="ms-1" />
+}
+
+function OrderRowMenu({
+  order,
+  canWrite,
+  onBom,
+  onQc,
+  onEdit,
+  onCancel,
+  onStartProduction,
+  onPrintLabel,
+}: {
+  order: OrderWithProduct
+  canWrite: boolean
+  onBom: () => void
+  onQc: () => void
+  onEdit: () => void
+  onCancel: () => void
+  onStartProduction: () => void
+  onPrintLabel: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const { t } = useT()
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const status = order.status
+  const itemCls = 'flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-[#262E36]/55 transition-colors'
+  const divider  = <div className="mx-3 my-1 h-px bg-gray-100 dark:bg-[#B3B7BA]/[0.10]" />
+  const viewBatchesItem = (
+    <a href={`/trace/${order.id}`} onClick={() => setOpen(false)} className={itemCls}>
+      <Package size={13} /> View batches
+    </a>
+  )
+
+  return (
+    <div ref={ref} className="relative inline-block">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-[#262E36]/55 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+      >
+        <MoreHorizontal size={15} />
+      </button>
+      {open && (
+        <div className="absolute end-0 z-10 mt-1 w-48 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-white dark:bg-[#141e28] shadow-lg overflow-hidden">
+
+          {status === 'pending' && canWrite && (<>
+            <button onClick={() => { onEdit(); setOpen(false) }} className={itemCls}>
+              <Pencil size={13} /> Edit order
+            </button>
+            <button onClick={() => { onStartProduction(); setOpen(false) }} className={itemCls}>
+              <Play size={13} /> Start production
+            </button>
+            {divider}
+            <button onClick={() => { onCancel(); setOpen(false) }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors">
+              <XCircle size={13} /> {t('production.cancel_order')}
+            </button>
+          </>)}
+
+          {status === 'in_progress' && (<>
+            {canWrite && (
+              <button onClick={() => { onBom(); setOpen(false) }} className={itemCls}>
+                <Layers size={13} /> Record output
+              </button>
+            )}
+            {viewBatchesItem}
+            <button onClick={() => { onQc(); setOpen(false) }} className={itemCls}>
+              <FlaskConical size={13} /> Quality records
+            </button>
+            {canWrite && (<>
+              {divider}
+              <button onClick={() => { onCancel(); setOpen(false) }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors">
+                <XCircle size={13} /> {t('production.cancel_order')}
+              </button>
+            </>)}
+          </>)}
+
+          {status === 'completed' && (<>
+            {viewBatchesItem}
+            <button onClick={() => { onQc(); setOpen(false) }} className={itemCls}>
+              <FlaskConical size={13} /> Quality records
+            </button>
+            <button onClick={() => { onPrintLabel(); setOpen(false) }} className={itemCls}>
+              <Printer size={13} /> Print batch record
+            </button>
+          </>)}
+
+          {status === 'cancelled' && viewBatchesItem}
+
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -51,12 +185,16 @@ export default function ProductionClient() {
   const canWriteQc = canEdit(role, 'quality-control')
   const { t, lang } = useT()
 
-  const [orders,      setOrders]      = useState<OrderWithProduct[]>([])
+  const [allOrders,   setAllOrders]   = useState<OrderWithProduct[]>([])
   const [products,    setProducts]    = useState<SimpleProduct[]>([])
   const [loading,     setLoading]     = useState(true)
   const [page,        setPage]        = useState(1)
-  const [totalCount,  setTotalCount]  = useState(0)
-  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
+
+  const [searchInput,   setSearchInput]   = useState('')
+  const [statusFilter,  setStatusFilter]  = useState<StatusFilter>('all')
+  const [sortCol,       setSortCol]       = useState<SortColProd>('urgency')
+  const [sortAsc,       setSortAsc]       = useState(true)
+
   const [showForm, setShowForm]   = useState(false)
   const [editing, setEditing]     = useState<OrderWithProduct | null>(null)
   const [form, setForm]           = useState(emptyOrder)
@@ -81,31 +219,31 @@ export default function ProductionClient() {
     status: 'pass', inspector_name: '', notes: '', inspected_at: '',
   })
 
-  const loadPage = (pageNum: number) => {
+  const locale = lang === 'ar' ? 'ar-SA-u-nu-latn' : 'en-US'
+  const today  = new Date().toISOString().slice(0, 10)
+
+  function loadOrders() {
     if (!companyId) return
     setLoading(true)
-    const offset = (pageNum - 1) * PAGE_SIZE
     Promise.all([
       supabase
         .from('production_orders')
-        .select('*, products(name, sku)', { count: 'exact' })
+        .select('*, products(name, sku)')
         .eq('company_id', companyId)
-        .order('created_at', { ascending: false })
-        .range(offset, offset + PAGE_SIZE - 1),
+        .order('created_at', { ascending: false }),
       supabase
         .from('products')
         .select('id, name')
         .eq('company_id', companyId)
         .limit(200),
-    ]).then(([{ data: orderData, count }, { data: productData }]) => {
-      setOrders(orderData ?? [])
-      setTotalCount(count ?? 0)
+    ]).then(([{ data: orderData }, { data: productData }]) => {
+      setAllOrders((orderData ?? []) as OrderWithProduct[])
       setProducts(productData ?? [])
       setLoading(false)
     })
   }
 
-  useEffect(() => { loadPage(1) }, [companyId]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadOrders() }, [companyId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!materialsOrder) return
@@ -127,18 +265,67 @@ export default function ProductionClient() {
       .then(({ data }) => { setQcEntries(data ?? []); setQcLoading(false) })
   }, [qcOrder])
 
-  if (loading) {
-    return (
-      <div className="space-y-3">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="h-12 animate-pulse rounded-xl bg-gray-200 dark:bg-[#262E36]/55" />
-        ))}
-      </div>
+  // ── Client-side derived state ────────────────────────────────────────────
+  const searchLower = searchInput.trim().toLowerCase()
+
+  let filteredOrders = allOrders
+  if (statusFilter !== 'all') {
+    filteredOrders = filteredOrders.filter((o) => o.status === statusFilter)
+  }
+  if (searchLower) {
+    filteredOrders = filteredOrders.filter((o) =>
+      formatOrderNumber(o.id, o.created_at).toLowerCase().includes(searchLower) ||
+      (o.products?.name ?? '').toLowerCase().includes(searchLower)
     )
   }
 
-  const locale = lang === 'ar' ? 'ar-SA-u-nu-latn' : 'en-US'
+  const statusCounts: Record<string, number> = {
+    all:         allOrders.length,
+    pending:     allOrders.filter((o) => o.status === 'pending').length,
+    in_progress: allOrders.filter((o) => o.status === 'in_progress').length,
+    completed:   allOrders.filter((o) => o.status === 'completed').length,
+    cancelled:   allOrders.filter((o) => o.status === 'cancelled').length,
+  }
 
+  const sortedOrders = [...filteredOrders].sort((a, b) => {
+    switch (sortCol) {
+      case 'urgency': {
+        const diff = urgencyTier(a, today) - urgencyTier(b, today)
+        if (diff !== 0) return diff
+        if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date)
+        if (a.due_date) return -1
+        if (b.due_date) return 1
+        return b.created_at.localeCompare(a.created_at)
+      }
+      case 'order_number':
+        return sortAsc
+          ? a.created_at.localeCompare(b.created_at)
+          : b.created_at.localeCompare(a.created_at)
+      case 'quantity':
+        return sortAsc ? a.quantity - b.quantity : b.quantity - a.quantity
+      case 'due_date': {
+        if (!a.due_date && !b.due_date) return 0
+        if (!a.due_date) return 1
+        if (!b.due_date) return -1
+        return sortAsc ? a.due_date.localeCompare(b.due_date) : b.due_date.localeCompare(a.due_date)
+      }
+      default: return 0
+    }
+  })
+
+  const totalCount    = sortedOrders.length
+  const totalPages    = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
+  const safePage      = Math.min(page, totalPages)
+  const offset        = (safePage - 1) * PAGE_SIZE
+  const displayOrders = sortedOrders.slice(offset, offset + PAGE_SIZE)
+  const isFiltered    = statusFilter !== 'all' || searchLower !== ''
+
+  function toggleSort(col: SortColProd) {
+    if (col === sortCol) { setSortAsc((a) => !a) } else { setSortCol(col); setSortAsc(true) }
+    setPage(1)
+  }
+
+  // ── Form handlers ────────────────────────────────────────────────────────
   function openCreate() {
     setEditing(null)
     setForm({ ...emptyOrder, product_id: products[0]?.id ?? '' })
@@ -147,7 +334,7 @@ export default function ProductionClient() {
 
   function openEdit(o: OrderWithProduct) {
     setEditing(o)
-    setForm({ product_id: o.product_id, quantity: o.quantity, status: o.status })
+    setForm({ product_id: o.product_id, quantity: o.quantity, status: o.status, due_date: o.due_date ?? '' })
     setFormError(null); setShowForm(true)
   }
 
@@ -155,13 +342,22 @@ export default function ProductionClient() {
 
   async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault(); setSaving(true); setFormError(null)
-    const payload = { product_id: form.product_id, quantity: Number(form.quantity), status: form.status }
+    const payload: Record<string, unknown> = {
+      product_id: form.product_id,
+      quantity: Number(form.quantity),
+      status: form.status,
+    }
+    if (form.due_date) {
+      payload.due_date = form.due_date
+    } else if (editing && editing.due_date) {
+      payload.due_date = null
+    }
     if (editing) {
       const { data, error: err } = await supabase
         .from('production_orders').update(payload).eq('id', editing.id).eq('company_id', companyId ?? '')
         .select('*, products(name, sku)').single()
       if (err) { setFormError(err.message); toast.error(t('production.error_update')); setSaving(false); return }
-      setOrders((prev) => prev.map((o) => (o.id === editing.id ? data : o)))
+      setAllOrders((prev) => prev.map((o) => (o.id === editing.id ? data : o)))
       toast.success(t('production.updated_toast'))
       if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
         actionType: 'production_order.updated', entityType: 'production_order', entityId: editing.id,
@@ -172,7 +368,7 @@ export default function ProductionClient() {
         .from('production_orders').insert([{ ...payload, company_id: companyId }])
         .select('*, products(name, sku)').single()
       if (err) { setFormError(err.message); toast.error(t('production.error_create')); setSaving(false); return }
-      setOrders((prev) => [data, ...prev])
+      setAllOrders((prev) => [data as OrderWithProduct, ...prev])
       toast.success(t('production.created_toast'))
       if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
         actionType: 'production_order.created', entityType: 'production_order', entityId: data.id,
@@ -187,12 +383,34 @@ export default function ProductionClient() {
     if (!ok) return
     const { error: err } = await supabase.from('production_orders').delete().eq('id', id).eq('company_id', companyId ?? '')
     if (err) { toast.error(err.message); return }
-    setOrders((prev) => prev.filter((o) => o.id !== id))
+    setAllOrders((prev) => prev.filter((o) => o.id !== id))
     toast.success(t('production.deleted_toast'))
     if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
       actionType: 'production_order.deleted', entityType: 'production_order', entityId: id,
       message: `${actorName(user?.email)} deleted a production order`,
     }).catch(err => console.error('[logActivity] production_order.deleted failed:', err))
+  }
+
+  async function handleCancel(o: OrderWithProduct) {
+    const ok = await confirm({ title: t('production.cancel_title'), message: t('production.cancel_message'), confirmLabel: t('production.cancel_order') })
+    if (!ok) return
+    const { error: err } = await supabase
+      .from('production_orders').update({ status: 'cancelled' }).eq('id', o.id).eq('company_id', companyId ?? '')
+    if (err) { toast.error(err.message); return }
+    setAllOrders((prev) => prev.map((ord) => ord.id === o.id ? { ...ord, status: 'cancelled' as const } : ord))
+    toast.success(t('production.cancelled_toast'))
+  }
+
+  async function handleStartProduction(o: OrderWithProduct) {
+    const { error: err } = await supabase
+      .from('production_orders').update({ status: 'in_progress' }).eq('id', o.id).eq('company_id', companyId ?? '')
+    if (err) { toast.error(err.message); return }
+    setAllOrders((prev) => prev.map((ord) => ord.id === o.id ? { ...ord, status: 'in_progress' as const } : ord))
+    toast.success('Production started')
+    if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
+      actionType: 'production_order.updated', entityType: 'production_order', entityId: o.id,
+      message: `${actorName(user?.email)} started production for order`,
+    }).catch(err => console.error('[logActivity] production_order.started failed:', err))
   }
 
   function handleDownloadQR() {
@@ -283,21 +501,72 @@ export default function ProductionClient() {
     }).catch(err => console.error('[logActivity] qc_result.deleted failed:', err))
   }
 
+  // Suppress unused-var warning — handleDelete is kept but not exposed in UI per product decision
+  void handleDelete
+
   return (
     <>
-      <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          {t(totalCount !== 1 ? 'production.count_plural' : 'production.count', { n: fmtNum(totalCount, lang) })}
-        </p>
+      {/* ── Toolbar ──────────────────────────────────────────────────────── */}
+      <div className="mb-4 flex items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <p className="shrink-0 text-sm text-gray-500 dark:text-gray-400">
+            {isFiltered
+              ? t('production.count_filtered', { n: fmtNum(totalCount, lang), total: fmtNum(allOrders.length, lang) })
+              : t(allOrders.length !== 1 ? 'production.count_plural' : 'production.count', { n: fmtNum(allOrders.length, lang) })
+            }
+          </p>
+          <div className="relative min-w-0 max-w-xs flex-1">
+            <Search size={13} className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
+            <input
+              type="search"
+              value={searchInput}
+              onChange={(e) => { setSearchInput(e.target.value); setPage(1) }}
+              placeholder={t('production.search_placeholder')}
+              className="w-full rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC] dark:bg-[#262E36]/55 ps-8 pe-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]/30 transition-colors"
+            />
+          </div>
+        </div>
         {canWrite && (
-          <button onClick={openCreate}
-            className="flex items-center gap-2 rounded-lg bg-[#3a6f8f] px-4 py-2 text-sm font-medium text-white hover:bg-[#2d5a74] transition-colors">
-            <Plus size={16} /> {t('production.new_order')}
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button onClick={openCreate}
+              className="flex items-center gap-1.5 rounded-lg bg-[#3a6f8f] px-4 py-2 text-sm font-medium text-white hover:bg-[#2d5a74] transition-colors">
+              <Plus size={15} /> {t('production.new_order')}
+            </button>
+          </div>
         )}
       </div>
 
-      {/* Order create / edit modal */}
+      {/* Status filter pills */}
+      <div className="mb-4 flex flex-wrap gap-1.5">
+        {([
+          ['all',         t('common.all')],
+          ['pending',     t('status.pending')],
+          ['in_progress', t('status.in_progress')],
+          ['completed',   t('status.completed')],
+          ['cancelled',   t('status.cancelled')],
+        ] as [StatusFilter, string][]).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => { setStatusFilter(key); setPage(1) }}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              statusFilter === key
+                ? 'bg-[#3a6f8f] text-white'
+                : 'bg-[#E6E4E0] dark:bg-[#262E36]/55 text-gray-600 dark:text-gray-400 hover:bg-[#D1CFC9]/80 dark:hover:bg-[#262E36]/75'
+            }`}
+          >
+            {label}
+            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+              statusFilter === key
+                ? 'bg-white/20 text-white'
+                : 'bg-gray-200/70 dark:bg-[#B3B7BA]/20 text-gray-500 dark:text-gray-400'
+            }`}>
+              {fmtNum(statusCounts[key] ?? 0, lang)}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* ── Order create / edit modal ─────────────────────────────────────── */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="w-full max-w-md rounded-2xl border border-white/[0.08] bg-[#F1EFEC] dark:bg-[#141e28] dark:backdrop-blur-xl p-6 shadow-2xl">
@@ -328,6 +597,14 @@ export default function ProductionClient() {
                   className="w-full rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC] dark:bg-[#262E36]/55 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]/30 transition-colors">
                   {statuses.map((s) => <option key={s} value={s}>{t(`status.${s}`)}</option>)}
                 </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {t('production.due_date_col')} <span className="font-normal text-gray-400">({t('common.optional')})</span>
+                </label>
+                <input type="date" value={form.due_date}
+                  onChange={(e) => setForm({ ...form, due_date: e.target.value })}
+                  className="w-full rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC] dark:bg-[#262E36]/55 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]/30 transition-colors" />
               </div>
               {formError && (
                 <div className="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
@@ -437,7 +714,7 @@ export default function ProductionClient() {
         )
       })()}
 
-      {/* BOM modal */}
+      {/* ── BOM modal ─────────────────────────────────────────────────────── */}
       {materialsOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="flex w-full max-w-lg flex-col rounded-2xl border border-white/[0.08] bg-[#F1EFEC] dark:bg-[#141e28] dark:backdrop-blur-xl shadow-2xl" style={{ maxHeight: '90vh' }}>
@@ -525,7 +802,7 @@ export default function ProductionClient() {
         </div>
       )}
 
-      {/* QC Inspection modal */}
+      {/* ── QC Inspection modal ───────────────────────────────────────────── */}
       {qcOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="flex w-full max-w-lg flex-col rounded-2xl border border-white/[0.08] bg-[#F1EFEC] dark:bg-[#141e28] dark:backdrop-blur-xl shadow-2xl" style={{ maxHeight: '90vh' }}>
@@ -614,9 +891,15 @@ export default function ProductionClient() {
         </div>
       )}
 
-      {/* Orders table */}
+      {/* ── Orders table ──────────────────────────────────────────────────── */}
       <div className="overflow-hidden rounded-2xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 shadow-sm">
-        {orders.length === 0 ? (
+        {loading ? (
+          <div className="p-4 space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-12 animate-pulse rounded-xl bg-gray-200 dark:bg-[#262E36]/55" />
+            ))}
+          </div>
+        ) : displayOrders.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
             <ClipboardList size={40} className="mb-3 opacity-40" />
             <p className="text-sm font-medium">{t('production.empty')}</p>
@@ -626,73 +909,107 @@ export default function ProductionClient() {
           <table className="w-full text-sm">
             <thead className="bg-[#D1CFC9]/50 dark:bg-[#262E36]/38 text-xs text-gray-500 dark:text-gray-400">
               <tr>
+                <th className="px-4 py-3 text-start font-medium">
+                  <button onClick={() => toggleSort('order_number')} className="inline-flex items-center hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+                    {t('production.order_number_col')}
+                    <SortIcon col="order_number" sortCol={sortCol} sortAsc={sortAsc} />
+                  </button>
+                </th>
                 <th className="px-4 py-3 text-start font-medium">{t('production.product_col')}</th>
-                <th className="px-4 py-3 text-start font-medium">{t('production.quantity_col')}</th>
+                <th className="px-4 py-3 text-start font-medium">
+                  <button onClick={() => toggleSort('quantity')} className="inline-flex items-center hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+                    {t('production.quantity_col')}
+                    <SortIcon col="quantity" sortCol={sortCol} sortAsc={sortAsc} />
+                  </button>
+                </th>
                 <th className="px-4 py-3 text-start font-medium">{t('production.status_col')}</th>
-                <th className="px-4 py-3 text-start font-medium hidden sm:table-cell">{t('production.created_col')}</th>
-                <th className="px-4 py-3 text-end font-medium">{t('production.actions_col')}</th>
+                <th className="px-4 py-3 text-start font-medium hidden sm:table-cell">
+                  <button onClick={() => toggleSort('due_date')} className="inline-flex items-center hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+                    {t('production.due_date_col')}
+                    <SortIcon col="due_date" sortCol={sortCol} sortAsc={sortAsc} />
+                  </button>
+                </th>
+                <th className="px-4 py-3 text-start font-medium">{t('production.actions_col')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 dark:divide-[#B3B7BA]/[0.07]">
-              {orders.map((o) => (
-                <tr key={o.id} className="hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/22 transition-colors">
-                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{o.products?.name ?? '—'}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{fmtNum(o.quantity, lang)}</td>
-                  <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
-                  <td className="px-4 py-3 text-gray-400 dark:text-gray-500 hidden sm:table-cell">
-                    {new Date(o.created_at).toLocaleDateString(locale)}
-                  </td>
-                  <td className="px-4 py-3 text-end">
-                    <div className="flex items-center justify-end gap-2">
-                      <a
-                        href={`/product-journey/${o.id}`}
-                        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-[#3a6f8f] dark:text-[#7ab3d0] hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
-                        title="View Product Journey"
-                      >
-                        <GitBranch size={13} />Journey
-                      </a>
-                      {canWrite && (
-                        <button onClick={() => { setBomLoading(true); setMaterialsOrder(o) }}
-                          className="rounded-lg p-1.5 text-gray-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
-                          title={t('production.bom_title')}>
-                          <Layers size={15} />
-                        </button>
+              {displayOrders.map((o) => {
+                const late = isOverdue(o, today)
+                return (
+                  <tr key={o.id} className="hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/22 transition-colors">
+                    <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                      {formatOrderNumber(o.id, o.created_at)}
+                    </td>
+                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{o.products?.name ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{fmtNum(o.quantity, lang)}</td>
+                    <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
+                    <td className="px-4 py-3 hidden sm:table-cell">
+                      {o.due_date ? (
+                        <span className={late ? 'text-red-600 dark:text-red-400 font-medium' : 'text-gray-600 dark:text-gray-400'}>
+                          {fmtDueDate(o.due_date)}
+                          {late && (
+                            <span className="ms-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                              {t('production.late')}
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300 dark:text-gray-600">—</span>
                       )}
-                      <button onClick={() => openQc(o)}
-                        className="rounded-lg p-1.5 text-gray-400 hover:bg-amber-50 dark:hover:bg-amber-900/30 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
-                        title={t('production.qc_title')}>
-                        <FlaskConical size={15} />
-                      </button>
-                      <button onClick={() => setQrOrder(o)}
-                        className="rounded-lg p-1.5 text-gray-400 hover:bg-purple-50 dark:hover:bg-purple-900/30 hover:text-purple-600 dark:hover:text-purple-400 transition-colors"
-                        title={t('production.batch_qr')}>
-                        <QrCode size={15} />
-                      </button>
-                      {canWrite && (
-                        <>
-                          <button onClick={() => openEdit(o)}
-                            className="rounded-lg p-1.5 text-gray-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-                            <Pencil size={15} />
-                          </button>
-                          <button onClick={() => handleDelete(o.id)}
-                            className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-600 dark:hover:text-red-400 transition-colors">
-                            <Trash2 size={15} />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        {(() => {
+                          const qrEnabled = o.status === 'in_progress' || o.status === 'completed'
+                          const qrTooltip = o.status === 'pending'   ? 'No batches produced yet'
+                                          : o.status === 'cancelled' ? 'Order cancelled'
+                                          : 'Print batch QR labels'
+                          return (
+                            <button
+                              onClick={qrEnabled ? () => setQrOrder(o) : undefined}
+                              disabled={!qrEnabled}
+                              title={qrTooltip}
+                              className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors ${
+                                qrEnabled
+                                  ? 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#262E36]/55 hover:text-gray-700 dark:hover:text-gray-200'
+                                  : 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
+                              }`}
+                            >
+                              <QrCode size={13} />QR
+                            </button>
+                          )
+                        })()}
+                        <a
+                          href={`/product-journey/${o.id}`}
+                          className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#262E36]/55 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+                          title="View Product Journey"
+                        >
+                          <GitBranch size={13} />Journey
+                        </a>
+                        <OrderRowMenu
+                          order={o}
+                          canWrite={canWrite}
+                          onBom={() => { setBomLoading(true); setMaterialsOrder(o) }}
+                          onQc={() => openQc(o)}
+                          onEdit={() => openEdit(o)}
+                          onCancel={() => handleCancel(o)}
+                          onStartProduction={() => handleStartProduction(o)}
+                          onPrintLabel={() => setQrOrder(o)}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         )}
         <PaginationBar
-          page={page}
+          page={safePage}
           totalPages={totalPages}
           totalCount={totalCount}
           pageSize={PAGE_SIZE}
-          onPage={(p) => { setPage(p); loadPage(p) }}
+          onPage={setPage}
         />
       </div>
     </>

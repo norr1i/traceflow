@@ -57,10 +57,10 @@ DECLARE
   lot_cs235  uuid := gen_random_uuid();
   lot_chrome uuid := gen_random_uuid();
 
-  -- Story production orders
-  batch_01 uuid := gen_random_uuid();   -- Ball Valve   (Story 1)
-  batch_02 uuid := gen_random_uuid();   -- Hyd Cylinder (Story 2)
-  batch_03 uuid := gen_random_uuid();   -- Relief Valve (Story 3)
+  -- Story production order IDs — FK target for batch_journey_events, recalls, capas, BOM, QC
+  production_order_01 uuid := gen_random_uuid();   -- Ball Valve   (Story 1)
+  production_order_02 uuid := gen_random_uuid();   -- Hyd Cylinder (Story 2)
+  production_order_03 uuid := gen_random_uuid();   -- Relief Valve (Story 3)
 
   -- Supporting production orders
   b04 uuid := gen_random_uuid();  b05 uuid := gen_random_uuid();
@@ -100,8 +100,8 @@ DECLARE
   i   int;
 
   -- batches rows required by distribution_records.batch_id FK → batches.id
-  dist_b01 uuid := gen_random_uuid();  -- batches row: ball valve story
-  dist_b03 uuid := gen_random_uuid();  -- batches row: relief valve story
+  physical_batch_01 uuid;  -- resolved from batches by (company_id, lot_number); avoids uq_active_lot_per_company
+  physical_batch_03 uuid;  -- resolved from batches by (company_id, lot_number); avoids uq_active_lot_per_company
   bt_first text;                        -- first label of batch_type enum
 
 BEGIN
@@ -210,6 +210,19 @@ BEGIN
     (p_helmet, 'Safety Helmet Class G EN397 White', 'PPH-CG-WHT',   'Polypropylene hard hat, 6-point suspension. EN 397.', cid, t_base)
   ON CONFLICT (sku) DO NOTHING;
 
+  -- Resolve supporting product IDs by SKU.
+  -- ON CONFLICT (sku) DO NOTHING skips the INSERT on re-run, leaving the
+  -- variable as a stale gen_random_uuid(). SELECT ensures the variable holds
+  -- the real products.id whether the row was just inserted or already existed.
+  SELECT id INTO p_bolt   FROM products WHERE sku = 'IFB-M12-880'  AND company_id = cid LIMIT 1;
+  SELECT id INTO p_nut    FROM products WHERE sku = 'IFN-M12-934'  AND company_id = cid LIMIT 1;
+  SELECT id INTO p_gate   FROM products WHERE sku = 'VGV-DN50-16'  AND company_id = cid LIMIT 1;
+  SELECT id INTO p_mccb   FROM products WHERE sku = 'ELM-3P-250A'  AND company_id = cid LIMIT 1;
+  SELECT id INTO p_vfd    FROM products WHERE sku = 'ELV-7K5-VFD'  AND company_id = cid LIMIT 1;
+  SELECT id INTO p_gear   FROM products WHERE sku = 'HPG-16CC-250' AND company_id = cid LIMIT 1;
+  SELECT id INTO p_flange FROM products WHERE sku = 'SPF-DN80-40'  AND company_id = cid LIMIT 1;
+  SELECT id INTO p_helmet FROM products WHERE sku = 'PPH-CG-WHT'   AND company_id = cid LIMIT 1;
+
   -- ══════════════════════════════════════════════════════════════
   -- 3. RAW MATERIALS
   -- ══════════════════════════════════════════════════════════════
@@ -260,7 +273,7 @@ BEGIN
   -- production_orders: id UUID, product_id UUID, company_id UUID
   INSERT INTO production_orders
     (id, product_id, quantity, status, started_at, completed_at, company_id, created_at)
-  VALUES (batch_01, p_valve, 250, 'completed', t1+interval '1 day', t1+interval '8 days', cid, t1)
+  VALUES (production_order_01, p_valve, 250, 'completed', t1+interval '1 day', t1+interval '8 days', cid, t1)
   ON CONFLICT DO NOTHING;
 
   -- bill_of_materials: production_order_id UUID
@@ -269,14 +282,14 @@ BEGIN
   -- actual received_at timestamps and supplier names.
   INSERT INTO bill_of_materials (production_order_id, material_name, lot_number, quantity, unit, raw_material_lot_id, company_id, created_at)
   VALUES
-    (batch_01, 'Stainless Steel 316 Round Bar 25mm', 'LOT-2025-SS316-0891', 87.5, 'kg',    lot_ss316, cid, t1+interval '1 day'),
-    (batch_01, 'PTFE Virgin Rod Stock 20mm dia.',    'LOT-2025-PTFE-0054',  12.5, 'm',     NULL,      cid, t1+interval '1 day'),
-    (batch_01, 'NBR Nitrile Rubber Sheet 3mm',       'LOT-2025-NBR-0203',    2.5, 'sheet', NULL,      cid, t1+interval '1 day')
+    (production_order_01, 'Stainless Steel 316 Round Bar 25mm', 'LOT-2025-SS316-0891', 87.5, 'kg',    lot_ss316, cid, t1+interval '1 day'),
+    (production_order_01, 'PTFE Virgin Rod Stock 20mm dia.',    'LOT-2025-PTFE-0054',  12.5, 'm',     NULL,      cid, t1+interval '1 day'),
+    (production_order_01, 'NBR Nitrile Rubber Sheet 3mm',       'LOT-2025-NBR-0203',    2.5, 'sheet', NULL,      cid, t1+interval '1 day')
   ON CONFLICT DO NOTHING;
 
   -- batch_qc_results: batch_id UUID (FK production_orders.id)
   INSERT INTO batch_qc_results (id, batch_id, status, inspector_name, notes, inspected_at, company_id, created_at)
-  VALUES (qc_01, batch_01, 'pass', 'Khalid Al-Rashidi',
+  VALUES (qc_01, production_order_01, 'pass', 'Khalid Al-Rashidi',
     'All 250 units inspected. Ball rotation torque 7.8 Nm (spec 7–9 Nm). '
     'Pressure test 1.5× WP: PASS. Fire-safe seat ISO 10497: PASS. Ra 0.8 μm. CC-2025-0891 issued.',
     t1+interval '9 days', cid, t1+interval '9 days')
@@ -286,7 +299,7 @@ BEGIN
   INSERT INTO quality_inspections
     (id, batch_id, inspector_id, inspector_name, inspection_date, inspection_type,
      status, overall_score, notes, company_id, created_at, updated_at)
-  VALUES (qi_01, batch_01::text, 'INS-001', 'Khalid Al-Rashidi',
+  VALUES (qi_01, production_order_01::text, 'INS-001', 'Khalid Al-Rashidi',
     (t1+interval '9 days')::date, 'final', 'passed', 97.5,
     'QCP-003 Rev 4. All dimensional checks ±0.05 mm. Pressure, fire-safe seat, material certs reviewed. '
     '100% units certified. CC-2025-0891 filed.',
@@ -294,38 +307,44 @@ BEGIN
   ON CONFLICT DO NOTHING;
 
   -- ── batches row for ball valve story ─────────────────────────────
-  -- distribution_records.batch_id FK → batches.id (confirmed from live audit).
-  -- batch_01 is the production_orders.id; dist_b01 is the matching batches.id.
-  INSERT INTO batches
-    (id, company_id, type, sku, name, lot_number,
-     quantity_initial, quantity_remaining, product_id, production_order_id)
-  VALUES
-    (dist_b01, cid, bt_first::batch_type, 'BV-2IN-316SS',
-     'Ball Valve 2in 316 Stainless Steel — Batch 2025-Q1-001',
-     'LOT-2025-BV316-0001', 250, 80, p_valve, batch_01)
-  ON CONFLICT (id) DO NOTHING;
+  -- uq_active_lot_per_company is an EXCLUSION constraint on (company_id, lot_number).
+  -- ON CONFLICT (id) DO NOTHING does not cover it → 23P01 on re-run.
+  -- Fix: resolve the existing batch by lot_number; only insert when absent.
+  SELECT id INTO physical_batch_01 FROM batches
+  WHERE company_id = cid AND lot_number = 'LOT-2025-BV316-0001' LIMIT 1;
+
+  IF physical_batch_01 IS NULL THEN
+    physical_batch_01 := gen_random_uuid();
+    INSERT INTO batches
+      (id, company_id, type, sku, name, lot_number,
+       quantity_initial, quantity_remaining, product_id, production_order_id)
+    VALUES
+      (physical_batch_01, cid, bt_first::batch_type, 'BV-2IN-316SS',
+       'Ball Valve 2in 316 Stainless Steel — Batch 2025-Q1-001',
+       'LOT-2025-BV316-0001', 250, 80, p_valve, production_order_01);
+  END IF;
 
   -- distribution_records: 3 shipments for ball valve batch
-  -- NOT NULL required: company_id, batch_id(→dist_b01), recipient_type, recipient_name, quantity_shipped
+  -- NOT NULL required: company_id, batch_id(→physical_batch_01), recipient_type, recipient_name, quantity_shipped
   -- Columns with server defaults omitted: recipient_country('SA'), unit('kg'), recall_acknowledged(false), timestamps
   INSERT INTO distribution_records
     (company_id, batch_id, recipient_type, recipient_name, quantity_shipped, shipped_at, notes)
   VALUES
-    (cid, dist_b01, 'distributor'::recipient_type,
+    (cid, physical_batch_01, 'distributor'::recipient_type,
      'Saudi Aramco — Jubail Industrial Area', 120, t1+interval '12 days',
      'DN-SA-2025-0441 | 120 units | PO SAP-PO-84231 | SAPTCO cargo | Delivery confirmed.');
 
   INSERT INTO distribution_records
     (company_id, batch_id, recipient_type, recipient_name, quantity_shipped, shipped_at, notes)
   VALUES
-    (cid, dist_b01, 'distributor'::recipient_type,
+    (cid, physical_batch_01, 'distributor'::recipient_type,
      'Sipchem Jubail Plant 4', 80, t1+interval '14 days',
      'DN-SPC-2025-0217 | 80 units | Plant 4 process isolation upgrade. Customer accepted.');
 
   INSERT INTO distribution_records
     (company_id, batch_id, recipient_type, recipient_name, quantity_shipped, shipped_at, notes)
   VALUES
-    (cid, dist_b01, 'distributor'::recipient_type,
+    (cid, physical_batch_01, 'distributor'::recipient_type,
      'Maaden Mining — Wa''ad Al Shamal', 50, t1+interval '16 days',
      'DN-MAD-2025-0089 | 50 units | Potash plant valve replacement program.');
 
@@ -341,7 +360,7 @@ BEGIN
   FOR i IN 1..35 LOOP
     INSERT INTO scan_events (batch_id, scanned_at, device_type, browser, user_agent, company_id)
     VALUES (
-      batch_01,
+      production_order_01,
       t1 + interval '12 days' + (i * 2.8 || ' days')::interval,
       CASE WHEN i%3=0 THEN 'desktop' ELSE 'mobile' END,
       (ARRAY['Chrome','Safari','Safari','Chrome','Edge','Firefox','Chrome','Safari'])[1+(i%8)],
@@ -356,7 +375,7 @@ BEGIN
   FOR i IN 1..12 LOOP
     INSERT INTO scan_events (batch_id, scanned_at, device_type, browser, user_agent, company_id)
     VALUES (
-      batch_01,
+      production_order_01,
       now() - ((i*0.55)||' days')::interval,
       CASE WHEN i%2=0 THEN 'desktop' ELSE 'mobile' END,
       (ARRAY['Chrome','Safari','Chrome','Edge','Chrome'])[1+(i%5)],
@@ -366,68 +385,38 @@ BEGIN
       END, cid);
   END LOOP;
 
-  -- batch_journey_events: batch_id UUID FK production_orders.id
-  -- Story 1 — Ball Valve: complete lifecycle events
+  -- ── Validation: production_order_01 must exist before inserting journey events ──
+  IF NOT EXISTS (
+    SELECT 1 FROM production_orders WHERE id = production_order_01 AND company_id = cid
+  ) THEN
+    RAISE EXCEPTION '[seed] production_order_01 (%) not found in production_orders for company %',
+      production_order_01, cid;
+  END IF;
+
+  -- batch_journey_events Story 1 — batch_id references production_orders.id
   INSERT INTO batch_journey_events
     (company_id, batch_id, event_type, event_timestamp, actor_email, entity_type, metadata, created_at)
   VALUES
-    (cid, batch_01, 'raw_material.received', t_base, 'warehouse@company.sa', 'raw_material',
+    (cid, production_order_01, 'raw_material.received', t_base, 'warehouse@company.sa', 'raw_material',
      '{"title":"Raw Materials Received","description":"SS316 lot LOT-2025-SS316-0891 (500 kg) received from Gulf Steel Industries. Mill cert EN 10204 3.1 attached. Stored in quarantine pending incoming QC."}'::jsonb, t_base),
 
-    (cid, batch_01, 'incoming_qc.approved', t_base+interval '1 day', 'qa@company.sa', 'raw_material',
+    (cid, production_order_01, 'incoming_qc.approved', t_base+interval '1 day', 'qa@company.sa', 'raw_material',
      '{"title":"Incoming QC Approved","description":"LOT-2025-SS316-0891 passed incoming inspection. Hardness 187 HB confirmed (spec 150–200 HB). Chemical cert reviewed. Lot approved and transferred to approved stock."}'::jsonb, t_base+interval '1 day'),
 
-    (cid, batch_01, 'raw_material.released', t1, 'qa@company.sa', 'raw_material',
+    (cid, production_order_01, 'raw_material.released', t1, 'qa@company.sa', 'raw_material',
      '{"title":"Raw Material Released for Production","description":"LOT-2025-SS316-0891 passed incoming inspection. Hardness 187 HB confirmed (spec 150–200 HB). 87.5 kg allocated to Ball Valve order. Cleared for production."}'::jsonb, t1),
 
-    (cid, batch_01, 'packaging.completed', t1+interval '10 days', 'ops@company.sa', 'production_order',
+    (cid, production_order_01, 'packaging.completed', t1+interval '10 days', 'ops@company.sa', 'production_order',
      '{"title":"Packaging & Labelling Complete","description":"250 units packed in VCI-coated cartons. SFDA traceability labels and QR codes applied. Ready for dispatch."}'::jsonb, t1+interval '10 days'),
 
-    (cid, batch_01, 'distribution.delivered', t1+interval '13 days', 'logistics@company.sa', 'sales',
+    (cid, production_order_01, 'distribution.delivered', t1+interval '13 days', 'logistics@company.sa', 'sales',
      '{"title":"Shipment Delivered — Saudi Aramco","description":"120 units confirmed received at Jubail Industrial Area. DN-SA-2025-0441 delivery note signed. Customer acceptance complete."}'::jsonb, t1+interval '13 days'),
 
-    (cid, batch_01, 'distribution.delivered', t1+interval '15 days', 'logistics@company.sa', 'sales',
+    (cid, production_order_01, 'distribution.delivered', t1+interval '15 days', 'logistics@company.sa', 'sales',
      '{"title":"Shipment Delivered — Sipchem Jubail","description":"80 units confirmed received at Plant 4. DN-SPC-2025-0217 delivery note signed. Customer acceptance complete."}'::jsonb, t1+interval '15 days'),
 
-    (cid, batch_01, 'distribution.delivered', t1+interval '18 days', 'logistics@company.sa', 'sales',
+    (cid, production_order_01, 'distribution.delivered', t1+interval '18 days', 'logistics@company.sa', 'sales',
      '{"title":"Shipment Delivered — Maaden Mining","description":"50 units confirmed received at Wa''ad Al Shamal. DN-MAD-2025-0089 delivery note signed. Customer acceptance complete."}'::jsonb, t1+interval '18 days')
-  ON CONFLICT DO NOTHING;
-
-  -- Story 2 — Hydraulic Cylinder: raw material receipt + release (then QC fail)
-  INSERT INTO batch_journey_events
-    (company_id, batch_id, event_type, event_timestamp, actor_email, entity_type, metadata, created_at)
-  VALUES
-    (cid, batch_02, 'raw_material.received', t2-interval '2 days', 'warehouse@company.sa', 'raw_material',
-     '{"title":"Raw Materials Received","description":"Chrome rod LOT-2025-CRROD-0115 (300 kg) from Yanbu Precision Engineering. Carbon steel LOT-2025-CS235-0442 (800 kg) from Gulf Steel Industries. Both delivered — incoming QC pending."}'::jsonb, t2-interval '2 days'),
-
-    (cid, batch_02, 'incoming_qc.conditional', t2-interval '1 day', 'qa@company.sa', 'raw_material',
-     '{"title":"Incoming QC — Conditional Release","description":"LOT-2025-CS235-0442 (Carbon steel): PASS. LOT-2025-CRROD-0115 (Chrome rod): CoC reviewed — hardness deferred to in-process Rockwell check per revised QCP-011. Both lots released conditionally for production start."}'::jsonb, t2-interval '1 day'),
-
-    (cid, batch_02, 'raw_material.released', t2, 'qa@company.sa', 'raw_material',
-     '{"title":"Raw Materials Released for Production","description":"45 kg chrome rod and 120 kg carbon steel allocated to Hydraulic Cylinder batch HPC-50-200-2025-080. Conditional release — in-process hardness check required before machining."}'::jsonb, t2)
-  ON CONFLICT DO NOTHING;
-
-  -- Story 3 — Safety Relief Valve: full lifecycle including recall
-  INSERT INTO batch_journey_events
-    (company_id, batch_id, event_type, event_timestamp, actor_email, entity_type, metadata, created_at)
-  VALUES
-    (cid, batch_03, 'raw_material.received', t3-interval '1 day', 'warehouse@company.sa', 'raw_material',
-     '{"title":"Raw Materials Received","description":"Carbon steel LOT-2025-CS235-0442 (62 kg), SS316 LOT-2025-SS316-0891 (18 kg), and NBR sheet LOT-2025-NBR-0223 (3 sheets) received. Spring assemblies from SHV-Springs also received — material cert on file."}'::jsonb, t3-interval '1 day'),
-
-    (cid, batch_03, 'incoming_qc.approved', t3, 'qa@company.sa', 'raw_material',
-     '{"title":"Incoming QC Approved","description":"All incoming lots passed visual and dimensional inspection. Mill certs reviewed. Spring assembly CoC declares Inconel 625 — XRF/PMI not performed at this stage. All lots approved for production."}'::jsonb, t3),
-
-    (cid, batch_03, 'raw_material.released', t3, 'qa@company.sa', 'raw_material',
-     '{"title":"Raw Materials Released for Production","description":"Carbon steel, SS316, NBR sheet, and spring assemblies allocated to Safety Relief Valve batch VSR-05-010-2025-150. All cleared for production floor."}'::jsonb, t3),
-
-    (cid, batch_03, 'distribution.delivered', t3+interval '11 days', 'logistics@company.sa', 'sales',
-     '{"title":"Shipment Delivered — Tasnee Petrochemicals","description":"60 units confirmed received at Jubail. DN-TAS-2025-0388 delivery note signed. Units installed in process safety system."}'::jsonb, t3+interval '11 days'),
-
-    (cid, batch_03, 'distribution.delivered', t3+interval '13 days', 'logistics@company.sa', 'sales',
-     '{"title":"Shipment Delivered — National Gas Co.","description":"55 units confirmed received at NGIC Riyadh. DN-NGC-2025-0154 delivery note signed."}'::jsonb, t3+interval '13 days'),
-
-    (cid, batch_03, 'distribution.delivered', t3+interval '15 days', 'logistics@company.sa', 'sales',
-     '{"title":"Shipment Delivered — Advanced Polypropylene Co.","description":"35 units confirmed received at Jubail reactor facility. DN-APC-2025-0071 delivery note signed."}'::jsonb, t3+interval '15 days')
   ON CONFLICT DO NOTHING;
 
   -- ══════════════════════════════════════════════════════════════
@@ -439,19 +428,19 @@ BEGIN
 
   INSERT INTO production_orders
     (id, product_id, quantity, status, started_at, completed_at, company_id, created_at)
-  VALUES (batch_02, p_hyd, 80, 'completed', t2+interval '1 day', t2+interval '7 days', cid, t2)
+  VALUES (production_order_02, p_hyd, 80, 'completed', t2+interval '1 day', t2+interval '7 days', cid, t2)
   ON CONFLICT DO NOTHING;
 
   INSERT INTO bill_of_materials (production_order_id, material_name, lot_number, quantity, unit, raw_material_lot_id, company_id, created_at)
   VALUES
-    (batch_02,'Chrome-Plated Steel Rod 50mm',  'LOT-2025-CRROD-0115', 45.0,'kg',    lot_chrome, cid,t2+interval '1 day'),
-    (batch_02,'Carbon Steel Sheet S235 6mm',   'LOT-2025-CS235-0442',120.0,'kg',    lot_cs235,  cid,t2+interval '1 day'),
-    (batch_02,'NBR Nitrile Rubber Sheet 3mm',  'LOT-2025-NBR-0203',    4.0,'sheet', NULL,       cid,t2+interval '1 day')
+    (production_order_02,'Chrome-Plated Steel Rod 50mm',  'LOT-2025-CRROD-0115', 45.0,'kg',    lot_chrome, cid,t2+interval '1 day'),
+    (production_order_02,'Carbon Steel Sheet S235 6mm',   'LOT-2025-CS235-0442',120.0,'kg',    lot_cs235,  cid,t2+interval '1 day'),
+    (production_order_02,'NBR Nitrile Rubber Sheet 3mm',  'LOT-2025-NBR-0203',    4.0,'sheet', NULL,       cid,t2+interval '1 day')
   ON CONFLICT DO NOTHING;
 
   -- batch_qc_results.batch_id UUID
   INSERT INTO batch_qc_results (id, batch_id, status, inspector_name, notes, inspected_at, company_id, created_at)
-  VALUES (qc_02, batch_02, 'fail', 'Ahmed Al-Mutairi',
+  VALUES (qc_02, production_order_02, 'fail', 'Ahmed Al-Mutairi',
     'CRITICAL FAILURE — Chrome rod hardness 48–51 HRC (spec 58–62 HRC min) across all 80 units. '
     'Bore honing ±0.05 mm actual vs ±0.02 mm spec. All 80 units QUARANTINED. NCR-2025-0041 raised. '
     'Root cause: Yanbu Precision incorrect heat treatment 850°C/2h vs 920°C/4h.',
@@ -462,7 +451,7 @@ BEGIN
   INSERT INTO quality_inspections
     (id, batch_id, inspector_id, inspector_name, inspection_date, inspection_type,
      status, overall_score, notes, company_id, created_at, updated_at)
-  VALUES (qi_02, batch_02::text, 'INS-003', 'Ahmed Al-Mutairi',
+  VALUES (qi_02, production_order_02::text, 'INS-003', 'Ahmed Al-Mutairi',
     (t2+interval '8 days')::date, 'final', 'failed', 41.0,
     'FAILED — QCP-003 Rev 4. Hardness OOS 48–51 HRC vs 58–62 HRC min. Bore tolerance exceeded. '
     'Batch scrapped — no rework possible. 8D report HYD-8D-2025-041 initiated.',
@@ -491,7 +480,7 @@ BEGIN
     investigation_at, corrective_action_at, verification_at, closed_at,
     created_at, updated_at
   ) VALUES (
-    capa_01, cid, qi_02, batch_02,
+    capa_01, cid, qi_02, production_order_02,
     'Critical Hardness Non-Conformance — Hydraulic Cylinder Batch HPC-2025-080',
     'critical',
     'Yanbu Precision Engineering applied 850°C/2h heat treatment (spec: 920°C/4h) to chrome rod '
@@ -508,6 +497,28 @@ BEGIN
     t2+interval '8 days', t2+interval '42 days'
   ) ON CONFLICT DO NOTHING;
 
+  -- ── Validation: production_order_02 must exist before inserting journey events ──
+  IF NOT EXISTS (
+    SELECT 1 FROM production_orders WHERE id = production_order_02 AND company_id = cid
+  ) THEN
+    RAISE EXCEPTION '[seed] production_order_02 (%) not found in production_orders for company %',
+      production_order_02, cid;
+  END IF;
+
+  -- batch_journey_events Story 2 — placed after production_order_02 is inserted
+  INSERT INTO batch_journey_events
+    (company_id, batch_id, event_type, event_timestamp, actor_email, entity_type, metadata, created_at)
+  VALUES
+    (cid, production_order_02, 'raw_material.received', t2-interval '2 days', 'warehouse@company.sa', 'raw_material',
+     '{"title":"Raw Materials Received","description":"Chrome rod LOT-2025-CRROD-0115 (300 kg) from Yanbu Precision Engineering. Carbon steel LOT-2025-CS235-0442 (800 kg) from Gulf Steel Industries. Both delivered — incoming QC pending."}'::jsonb, t2-interval '2 days'),
+
+    (cid, production_order_02, 'incoming_qc.conditional', t2-interval '1 day', 'qa@company.sa', 'raw_material',
+     '{"title":"Incoming QC — Conditional Release","description":"LOT-2025-CS235-0442 (Carbon steel): PASS. LOT-2025-CRROD-0115 (Chrome rod): CoC reviewed — hardness deferred to in-process Rockwell check per revised QCP-011. Both lots released conditionally for production start."}'::jsonb, t2-interval '1 day'),
+
+    (cid, production_order_02, 'raw_material.released', t2, 'qa@company.sa', 'raw_material',
+     '{"title":"Raw Materials Released for Production","description":"45 kg chrome rod and 120 kg carbon steel allocated to Hydraulic Cylinder batch HPC-50-200-2025-080. Conditional release — in-process hardness check required before machining."}'::jsonb, t2)
+  ON CONFLICT DO NOTHING;
+
   -- ══════════════════════════════════════════════════════════════
   -- STORY 3 — Safety Relief Valve 0.5in 10 bar
   -- Production → QC Pass → Distribution → Field Failure →
@@ -518,19 +529,19 @@ BEGIN
 
   INSERT INTO production_orders
     (id, product_id, quantity, status, started_at, completed_at, company_id, created_at)
-  VALUES (batch_03, p_relief, 150, 'completed', t3+interval '1 day', t3+interval '6 days', cid, t3)
+  VALUES (production_order_03, p_relief, 150, 'completed', t3+interval '1 day', t3+interval '6 days', cid, t3)
   ON CONFLICT DO NOTHING;
 
   INSERT INTO bill_of_materials (production_order_id, material_name, lot_number, quantity, unit, raw_material_lot_id, company_id, created_at)
   VALUES
-    (batch_03,'Carbon Steel Sheet S235 6mm',       'LOT-2025-CS235-0442', 62.0,'kg',    lot_cs235, cid,t3+interval '1 day'),
-    (batch_03,'NBR Nitrile Rubber Sheet 3mm',       'LOT-2025-NBR-0223',   3.0,'sheet', NULL,      cid,t3+interval '1 day'),
-    (batch_03,'Stainless Steel 316 Round Bar 25mm','LOT-2025-SS316-0891', 18.0,'kg',    lot_ss316, cid,t3+interval '1 day')
+    (production_order_03,'Carbon Steel Sheet S235 6mm',       'LOT-2025-CS235-0442', 62.0,'kg',    lot_cs235, cid,t3+interval '1 day'),
+    (production_order_03,'NBR Nitrile Rubber Sheet 3mm',       'LOT-2025-NBR-0223',   3.0,'sheet', NULL,      cid,t3+interval '1 day'),
+    (production_order_03,'Stainless Steel 316 Round Bar 25mm','LOT-2025-SS316-0891', 18.0,'kg',    lot_ss316, cid,t3+interval '1 day')
   ON CONFLICT DO NOTHING;
 
   -- batch_qc_results.batch_id UUID
   INSERT INTO batch_qc_results (id, batch_id, status, inspector_name, notes, inspected_at, company_id, created_at)
-  VALUES (qc_03, batch_03, 'pass', 'Mohammed Al-Harbi',
+  VALUES (qc_03, production_order_03, 'pass', 'Mohammed Al-Harbi',
     'Final inspection per ASME UG-136. Set pressure 10.0 bar ±0.28 bar. Full-lift at 110%: PASS. '
     'Seat tightness 90%: PASS. 150 units stamped and tagged. CoC CC-2025-0903 issued. '
     'Note: ambient-temp only — latent high-temp spring defect undetected.',
@@ -541,7 +552,7 @@ BEGIN
   INSERT INTO quality_inspections
     (id, batch_id, inspector_id, inspector_name, inspection_date, inspection_type,
      status, overall_score, notes, company_id, created_at, updated_at)
-  VALUES (qi_03, batch_03::text, 'INS-002', 'Mohammed Al-Harbi',
+  VALUES (qi_03, production_order_03::text, 'INS-002', 'Mohammed Al-Harbi',
     (t3+interval '7 days')::date, 'final', 'passed', 91.0,
     'Passed — ASME UG-136. 100% cold pressure tested. Documentation complete. '
     'Ambient-temp only: high-temp performance assumed per spring cert — gap identified post-recall.',
@@ -549,34 +560,40 @@ BEGIN
   ON CONFLICT DO NOTHING;
 
   -- ── batches row for relief valve story ────────────────────────────
-  INSERT INTO batches
-    (id, company_id, type, sku, name, lot_number,
-     quantity_initial, quantity_remaining, product_id, production_order_id)
-  VALUES
-    (dist_b03, cid, bt_first::batch_type, 'SRV-05-010',
-     'Safety Relief Valve 0.5in 10 bar — Batch 2025-Q1-003',
-     'LOT-2025-SRV-0003', 150, 0, p_relief, batch_03)
-  ON CONFLICT (id) DO NOTHING;
+  -- Same resolve-or-insert pattern: avoid uq_active_lot_per_company on re-run.
+  SELECT id INTO physical_batch_03 FROM batches
+  WHERE company_id = cid AND lot_number = 'LOT-2025-SRV-0003' LIMIT 1;
+
+  IF physical_batch_03 IS NULL THEN
+    physical_batch_03 := gen_random_uuid();
+    INSERT INTO batches
+      (id, company_id, type, sku, name, lot_number,
+       quantity_initial, quantity_remaining, product_id, production_order_id)
+    VALUES
+      (physical_batch_03, cid, bt_first::batch_type, 'SRV-05-010',
+       'Safety Relief Valve 0.5in 10 bar — Batch 2025-Q1-003',
+       'LOT-2025-SRV-0003', 150, 0, p_relief, production_order_03);
+  END IF;
 
   -- distribution_records: 3 shipments for relief valve batch (all later recalled)
   INSERT INTO distribution_records
     (company_id, batch_id, recipient_type, recipient_name, quantity_shipped, shipped_at, notes)
   VALUES
-    (cid, dist_b03, 'distributor'::recipient_type,
+    (cid, physical_batch_03, 'distributor'::recipient_type,
      'Tasnee Petrochemicals — Jubail', 60, t3+interval '10 days',
      'DN-TAS-2025-0388 | 60 units | Process safety system upgrade.');
 
   INSERT INTO distribution_records
     (company_id, batch_id, recipient_type, recipient_name, quantity_shipped, shipped_at, notes)
   VALUES
-    (cid, dist_b03, 'government'::recipient_type,
+    (cid, physical_batch_03, 'government'::recipient_type,
      'National Gas Co. NGIC — Riyadh', 55, t3+interval '12 days',
      'DN-NGC-2025-0154 | 55 units | Pipeline pressure management project.');
 
   INSERT INTO distribution_records
     (company_id, batch_id, recipient_type, recipient_name, quantity_shipped, shipped_at, notes)
   VALUES
-    (cid, dist_b03, 'distributor'::recipient_type,
+    (cid, physical_batch_03, 'distributor'::recipient_type,
      'Advanced Polypropylene Co. — Jubail', 35, t3+interval '14 days',
      'DN-APC-2025-0071 | 35 units | Polypropylene reactor safety system.');
 
@@ -587,6 +604,32 @@ BEGIN
     (p_relief,'Safety Relief Valve 0.5in 10 bar',35,1680.00, 58800.00,'Advanced Polypropylene Co.','completed',t3+interval '14 days',cid,t3+interval '14 days')
   ON CONFLICT DO NOTHING;
 
+  -- Pre-insert validation: supporting product variables must be real rows in products
+  IF p_bolt IS NULL THEN
+    RAISE EXCEPTION '[seed] p_bolt (IFB-M12-880) not found in products for company %', cid;
+  END IF;
+  IF p_nut IS NULL THEN
+    RAISE EXCEPTION '[seed] p_nut (IFN-M12-934) not found in products for company %', cid;
+  END IF;
+  IF p_gate IS NULL THEN
+    RAISE EXCEPTION '[seed] p_gate (VGV-DN50-16) not found in products for company %', cid;
+  END IF;
+  IF p_mccb IS NULL THEN
+    RAISE EXCEPTION '[seed] p_mccb (ELM-3P-250A) not found in products for company %', cid;
+  END IF;
+  IF p_vfd IS NULL THEN
+    RAISE EXCEPTION '[seed] p_vfd (ELV-7K5-VFD) not found in products for company %', cid;
+  END IF;
+  IF p_gear IS NULL THEN
+    RAISE EXCEPTION '[seed] p_gear (HPG-16CC-250) not found in products for company %', cid;
+  END IF;
+  IF p_flange IS NULL THEN
+    RAISE EXCEPTION '[seed] p_flange (SPF-DN80-40) not found in products for company %', cid;
+  END IF;
+  IF p_helmet IS NULL THEN
+    RAISE EXCEPTION '[seed] p_helmet (PPH-CG-WHT) not found in products for company %', cid;
+  END IF;
+
   -- recalls.product_id UUID, recalls.batch_id UUID — no cast
   INSERT INTO recalls (
     id, company_id, product_id, batch_id,
@@ -594,7 +637,7 @@ BEGIN
     root_cause, corrective_action, affected_units,
     initiated_by_name, initiated_at, closed_at, created_at, updated_at
   ) VALUES (
-    recall_01, cid, p_relief, batch_03,
+    recall_01, cid, p_relief, production_order_03,
     'Voluntary Recall — VSR-05-010 Safety Relief Valves, Batch 2025-Q1-003 (150 units)',
     'Field report from Tasnee: 4 units failed to open at set pressure at 185°C. '
     'Post-failure analysis: spring seat substituted (17-7PH SS vs Inconel 625 specified). '
@@ -619,7 +662,7 @@ BEGIN
     investigation_at, corrective_action_at, verification_at, closed_at,
     created_at, updated_at
   ) VALUES (
-    capa_02, cid, recall_01, qi_03, batch_03,
+    capa_02, cid, recall_01, qi_03, production_order_03,
     'Spring Material Deviation — Safety Relief Valve Recall VSR-2025-Q1-003',
     'critical',
     'Undisclosed substitution: 17-7PH SS vs Inconel 625. XRF confirmed post-failure. '
@@ -635,6 +678,37 @@ BEGIN
     t3+interval '26 days', t3+interval '34 days', t3+interval '54 days', NULL,
     t3+interval '25 days', now()-interval '4 days'
   ) ON CONFLICT DO NOTHING;
+
+  -- ── Validation: production_order_03 must exist before inserting journey events ──
+  IF NOT EXISTS (
+    SELECT 1 FROM production_orders WHERE id = production_order_03 AND company_id = cid
+  ) THEN
+    RAISE EXCEPTION '[seed] production_order_03 (%) not found in production_orders for company %',
+      production_order_03, cid;
+  END IF;
+
+  -- batch_journey_events Story 3 — placed after production_order_03 is inserted
+  INSERT INTO batch_journey_events
+    (company_id, batch_id, event_type, event_timestamp, actor_email, entity_type, metadata, created_at)
+  VALUES
+    (cid, production_order_03, 'raw_material.received', t3-interval '1 day', 'warehouse@company.sa', 'raw_material',
+     '{"title":"Raw Materials Received","description":"Carbon steel LOT-2025-CS235-0442 (62 kg), SS316 LOT-2025-SS316-0891 (18 kg), and NBR sheet LOT-2025-NBR-0223 (3 sheets) received. Spring assemblies from SHV-Springs also received — material cert on file."}'::jsonb, t3-interval '1 day'),
+
+    (cid, production_order_03, 'incoming_qc.approved', t3, 'qa@company.sa', 'raw_material',
+     '{"title":"Incoming QC Approved","description":"All incoming lots passed visual and dimensional inspection. Mill certs reviewed. Spring assembly CoC declares Inconel 625 — XRF/PMI not performed at this stage. All lots approved for production."}'::jsonb, t3),
+
+    (cid, production_order_03, 'raw_material.released', t3, 'qa@company.sa', 'raw_material',
+     '{"title":"Raw Materials Released for Production","description":"Carbon steel, SS316, NBR sheet, and spring assemblies allocated to Safety Relief Valve batch VSR-05-010-2025-150. All cleared for production floor."}'::jsonb, t3),
+
+    (cid, production_order_03, 'distribution.delivered', t3+interval '11 days', 'logistics@company.sa', 'sales',
+     '{"title":"Shipment Delivered — Tasnee Petrochemicals","description":"60 units confirmed received at Jubail. DN-TAS-2025-0388 delivery note signed. Units installed in process safety system."}'::jsonb, t3+interval '11 days'),
+
+    (cid, production_order_03, 'distribution.delivered', t3+interval '13 days', 'logistics@company.sa', 'sales',
+     '{"title":"Shipment Delivered — National Gas Co.","description":"55 units confirmed received at NGIC Riyadh. DN-NGC-2025-0154 delivery note signed."}'::jsonb, t3+interval '13 days'),
+
+    (cid, production_order_03, 'distribution.delivered', t3+interval '15 days', 'logistics@company.sa', 'sales',
+     '{"title":"Shipment Delivered — Advanced Polypropylene Co.","description":"35 units confirmed received at Jubail reactor facility. DN-APC-2025-0071 delivery note signed."}'::jsonb, t3+interval '15 days')
+  ON CONFLICT DO NOTHING;
 
   -- ══════════════════════════════════════════════════════════════
   -- 5. ACTIVE / OPEN RECORDS (for live KPI card state)
@@ -694,19 +768,19 @@ BEGIN
   -- 6. SUPPORTING PRODUCTION ORDERS (dashboard charts & KPIs)
   -- ══════════════════════════════════════════════════════════════
 
-  INSERT INTO production_orders (id, product_id, quantity, status, started_at, completed_at, company_id, created_at) VALUES
-    (b04,p_bolt,   5000,'completed',   t_base+interval '8d',  t_base+interval '15d',cid,t_base+interval '7d'),
-    (b05,p_nut,    8000,'completed',   t_base+interval '12d', t_base+interval '18d',cid,t_base+interval '11d'),
-    (b06,p_gate,    120,'completed',   t_base+interval '18d', t_base+interval '26d',cid,t_base+interval '17d'),
-    (b07,p_mccb,    200,'completed',   t_base+interval '22d', t_base+interval '30d',cid,t_base+interval '21d'),
-    (b08,p_vfd,      75,'completed',   t_base+interval '30d', t_base+interval '40d',cid,t_base+interval '29d'),
-    (b09,p_gear,    300,'completed',   t_base+interval '38d', t_base+interval '46d',cid,t_base+interval '37d'),
-    (b10,p_flange,  500,'completed',   t_base+interval '45d', t_base+interval '52d',cid,t_base+interval '44d'),
-    (b11,p_helmet, 1200,'completed',   t_base+interval '50d', t_base+interval '56d',cid,t_base+interval '49d'),
-    (b12,p_bolt,   3000,'in_progress', t_base+interval '82d', NULL,                 cid,t_base+interval '81d'),
-    (b13,p_gate,    180,'in_progress', t_base+interval '85d', NULL,                 cid,t_base+interval '84d'),
-    (b14,p_vfd,      60,'in_progress', t_base+interval '87d', NULL,                 cid,t_base+interval '86d'),
-    (b15,p_mccb,    250,'pending',     NULL,                   NULL,                 cid,t_base+interval '88d')
+  INSERT INTO production_orders (id, product_id, quantity, status, started_at, completed_at, company_id, created_at, due_date) VALUES
+    (b04,p_bolt,   5000,'completed',   t_base+interval '8d',  t_base+interval '15d',cid,t_base+interval '7d',  (t_base+interval '18d')::date),
+    (b05,p_nut,    8000,'completed',   t_base+interval '12d', t_base+interval '18d',cid,t_base+interval '11d', (t_base+interval '21d')::date),
+    (b06,p_gate,    120,'completed',   t_base+interval '18d', t_base+interval '26d',cid,t_base+interval '17d', (t_base+interval '30d')::date),
+    (b07,p_mccb,    200,'completed',   t_base+interval '22d', t_base+interval '30d',cid,t_base+interval '21d', (t_base+interval '30d')::date),
+    (b08,p_vfd,      75,'completed',   t_base+interval '30d', t_base+interval '40d',cid,t_base+interval '29d', (t_base+interval '44d')::date),
+    (b09,p_gear,    300,'completed',   t_base+interval '38d', t_base+interval '46d',cid,t_base+interval '37d', (t_base+interval '44d')::date),
+    (b10,p_flange,  500,'completed',   t_base+interval '45d', t_base+interval '52d',cid,t_base+interval '44d', (t_base+interval '50d')::date),
+    (b11,p_helmet, 1200,'completed',   t_base+interval '50d', t_base+interval '56d',cid,t_base+interval '49d', (t_base+interval '55d')::date),
+    (b12,p_bolt,   3000,'in_progress', t_base+interval '82d', NULL,                 cid,t_base+interval '81d', CURRENT_DATE + 5),
+    (b13,p_gate,    180,'in_progress', t_base+interval '85d', NULL,                 cid,t_base+interval '84d', CURRENT_DATE - 2),
+    (b14,p_vfd,      60,'in_progress', t_base+interval '87d', NULL,                 cid,t_base+interval '86d', CURRENT_DATE + 7),
+    (b15,p_mccb,    250,'pending',     NULL,                   NULL,                 cid,t_base+interval '88d', CURRENT_DATE + 14)
   ON CONFLICT DO NOTHING;
 
   -- batch_qc_results.batch_id UUID — no cast
@@ -786,15 +860,15 @@ BEGIN
   INSERT INTO activity_logs
     (company_id, actor_user_id, actor_email, action_type, entity_type, entity_id, message, created_at)
   VALUES
-    (cid,uid,'ops@company.sa',      'production_order.created','production_order',batch_01::text,'Production order: 250 × Ball Valve 2in 316 SS (VBC-2IN-316).',                         t1),
-    (cid,uid,'qa@company.sa',       'qc_result.added',         'production_order',batch_01::text,'QC PASS: Ball Valve batch. CC-2025-0891 issued. Cleared for shipment.',                t1+interval '9d'),
-    (cid,uid,'ops@company.sa',      'production_order.created','production_order',batch_02::text,'Production order: 80 × Hydraulic Cylinder HPC-50-200.',                               t2),
-    (cid,uid,'qa@company.sa',       'qc_result.added',         'production_order',batch_02::text,'QC FAIL: Hydraulic Cylinder batch. 80 units quarantined. NCR-2025-0041 raised.',      t2+interval '8d'),
+    (cid,uid,'ops@company.sa',      'production_order.created','production_order',production_order_01::text,'Production order: 250 × Ball Valve 2in 316 SS (VBC-2IN-316).',                         t1),
+    (cid,uid,'qa@company.sa',       'qc_result.added',         'production_order',production_order_01::text,'QC PASS: Ball Valve batch. CC-2025-0891 issued. Cleared for shipment.',                t1+interval '9d'),
+    (cid,uid,'ops@company.sa',      'production_order.created','production_order',production_order_02::text,'Production order: 80 × Hydraulic Cylinder HPC-50-200.',                               t2),
+    (cid,uid,'qa@company.sa',       'qc_result.added',         'production_order',production_order_02::text,'QC FAIL: Hydraulic Cylinder batch. 80 units quarantined. NCR-2025-0041 raised.',      t2+interval '8d'),
     (cid,uid,'qa@company.sa',       'capa.created',            'capa',            capa_01::text, 'CAPA opened: Critical hardness non-conformance — Hydraulic Cylinder HPC-2025-080.',   t2+interval '8d'),
     (cid,uid,'qa@company.sa',       'capa.status_changed',     'capa',            capa_01::text, 'CAPA → Corrective Action. Supplier NCR issued. Replacement lot sourced.',              t2+interval '18d'),
     (cid,uid,'qa@company.sa',       'capa.closed',             'capa',            capa_01::text, 'CAPA closed. Replacement lot passed 100% Rockwell hardness test.',                    t2+interval '42d'),
-    (cid,uid,'ops@company.sa',      'production_order.created','production_order',batch_03::text,'Production order: 150 × Safety Relief Valve VSR-05-010.',                             t3),
-    (cid,uid,'qa@company.sa',       'qc_result.added',         'production_order',batch_03::text,'QC PASS: Relief Valve batch. 150 units certified. CC-2025-0903.',                    t3+interval '7d'),
+    (cid,uid,'ops@company.sa',      'production_order.created','production_order',production_order_03::text,'Production order: 150 × Safety Relief Valve VSR-05-010.',                             t3),
+    (cid,uid,'qa@company.sa',       'qc_result.added',         'production_order',production_order_03::text,'QC PASS: Relief Valve batch. 150 units certified. CC-2025-0903.',                    t3+interval '7d'),
     (cid,uid,'qa@company.sa',       'recall.created',          'recall',          recall_01::text,'Voluntary recall: VSR-05-010 batch 2025-Q1-003. Spring material deviation. SFDA RN filed.',t3+interval '25d'),
     (cid,uid,'qa@company.sa',       'capa.created',            'capa',            capa_02::text, 'CAPA opened: Spring material deviation — VSR-2025-Q1-003.',                           t3+interval '25d'),
     (cid,uid,'qa@company.sa',       'capa.status_changed',     'capa',            capa_02::text, 'CAPA → Verification. Field retrofit confirmed at all 3 sites. SFDA documentation under review.', t3+interval '54d'),
@@ -804,12 +878,12 @@ BEGIN
   ON CONFLICT DO NOTHING;
 
   RAISE NOTICE '=== Seed complete ===';
-  RAISE NOTICE 'Story 1 — Ball Valve complete lifecycle:   batch_01 = %', batch_01;
-  RAISE NOTICE 'Story 2 — Hydraulic Cylinder QC→CAPA:     batch_02 = %', batch_02;
-  RAISE NOTICE 'Story 3 — Safety Relief Valve Recall:     batch_03 = %', batch_03;
+  RAISE NOTICE 'Story 1 — Ball Valve:        production_order_01=% | physical_batch_01=%', production_order_01, physical_batch_01;
+  RAISE NOTICE 'Story 2 — Hyd Cylinder:     production_order_02=%', production_order_02;
+  RAISE NOTICE 'Story 3 — Relief Valve:      production_order_03=% | physical_batch_03=%', production_order_03, physical_batch_03;
   RAISE NOTICE 'Active recall:  recall_02 = %', recall_02;
   RAISE NOTICE 'CAPA states:    capa_01=closed | capa_02=verification | capa_03=investigation | capa_04=corrective_action';
-  RAISE NOTICE 'Product Journey: navigate to /trace/<batch_01>';
+  RAISE NOTICE 'Product Journey: navigate to /trace/<production_order_01>';
 
 END;
 $$;

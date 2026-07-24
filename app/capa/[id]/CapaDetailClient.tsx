@@ -454,7 +454,7 @@ function LinkedRecallPanel({ recall, impact }: { recall: RecallForCapa; impact: 
           )}
 
           {!impact && recall.batch_id && (
-            <p className="text-xs italic text-gray-400">No distribution records are available for this recall's affected batch yet.</p>
+            <p className="text-xs italic text-gray-400">No distribution records are available for this recall&apos;s affected batch yet.</p>
           )}
           {!impact && !recall.batch_id && (
             <p className="text-xs italic text-gray-400">No production batch is linked to this recall. Use Impact Analysis to search by material or lot number.</p>

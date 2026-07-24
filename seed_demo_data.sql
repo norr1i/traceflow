@@ -2,14 +2,19 @@
 -- TraceFlow — Enterprise Demo Seed Data
 -- ==============================================================================
 -- USAGE   : Paste into Supabase Dashboard → SQL Editor → New Query → Run
--- STEP 1  : Replace 'YOUR-USER-ID-HERE' on the next line with your user UUID
---           (Authentication → Users → copy your user's UUID)
--- WARNING : Run only once. UUIDs are random — re-running stacks data.
+-- IDEMPOTENT: Safe to re-run. Products resolved by SKU; suppliers by email;
+--             raw materials by name. Existing rows are reused, not duplicated.
+--             Production orders, QC results, sales, and scan events are always
+--             appended (no unique constraint — each run adds a fresh dataset
+--             that references the same resolved products/suppliers).
+-- NOTE    : user_id and company_id are resolved automatically from your
+--           existing companies/user_profiles rows — no UUID replacement needed.
 -- ==============================================================================
 
 DO $$
 DECLARE
-  uid  uuid := 'c58fa34d-5f2b-4413-84f5-205d41ff6731'::uuid;
+  uid  uuid;   -- resolved from user_profiles at runtime
+  cid  uuid;   -- resolved from companies at runtime
 
   -- Entity ID arrays
   s    uuid[] := '{}';   -- suppliers      [1..10]
@@ -21,9 +26,11 @@ DECLARE
   i         int;
   j         int;
   stat      text;
+  temp_id   uuid;   -- scratch variable for SELECT-or-INSERT resolution
   crt       timestamptz;
   srt       timestamptz;
   cmp       timestamptz;
+  due_date  date;
   qty       int;
   ord_idx   int;
   prod_idx  int;
@@ -35,6 +42,11 @@ DECLARE
   def_cnt   int;
   unit_p    numeric;
   tot       numeric;
+  bad_cnt         int;          -- pre-lineage validation counter
+  bt_first        text;         -- first value of batch_type enum (resolved at runtime)
+  bl              uuid[] := '{}'; -- batches.id values for o[1..200], used in batch_lineage
+  bl_transfer_col text := NULL;   -- batch_lineage quantity column name (detected at runtime)
+  temp_text       text;           -- scratch for diagnostic NOTICEs
   base      timestamptz := NOW() - INTERVAL '180 days';
 
   -- ── Lookup arrays ──────────────────────────────────────────────────────
@@ -311,6 +323,23 @@ DECLARE
 
 BEGIN
 
+  -- ── 0. Resolve company & user from live data ────────────────────────────
+  SELECT c.id,
+         (SELECT up.user_id FROM user_profiles up
+          WHERE up.company_id = c.id LIMIT 1)
+  INTO   cid, uid
+  FROM   companies c
+  ORDER  BY c.created_at
+  LIMIT  1;
+
+  IF cid IS NULL THEN
+    RAISE EXCEPTION 'No company found. Complete onboarding first (sign in and visit the app to trigger company creation).';
+  END IF;
+  IF uid IS NULL THEN
+    RAISE EXCEPTION 'No user found in user_profiles for company %. Complete onboarding first.', cid;
+  END IF;
+  RAISE NOTICE 'Seeding: company_id=%, user_id=%', cid, uid;
+
   -- ── 1. Generate all entity IDs ──────────────────────────────────────────
   FOR i IN 1..10  LOOP s := array_append(s, gen_random_uuid()); END LOOP;
   FOR i IN 1..50  LOOP p := array_append(p, gen_random_uuid()); END LOOP;
@@ -318,35 +347,66 @@ BEGIN
   FOR i IN 1..200 LOOP o := array_append(o, gen_random_uuid()); END LOOP;
 
   -- ── 2. Suppliers ────────────────────────────────────────────────────────
+  -- Resolve by contact_email within this company; insert only when absent.
   FOR i IN 1..10 LOOP
-    INSERT INTO suppliers (id, user_id, name, contact_email, contact_phone, created_at)
-    VALUES (
-      s[i], uid, sup_names[i], sup_emails[i], sup_phones[i],
-      base + (random() * 20 || ' days')::interval
-    );
+    SELECT id INTO temp_id
+    FROM   suppliers
+    WHERE  company_id = cid AND contact_email = sup_emails[i]
+    LIMIT  1;
+
+    IF temp_id IS NULL THEN
+      INSERT INTO suppliers (id, user_id, company_id, name, contact_email, contact_phone, created_at)
+      VALUES (
+        s[i], uid, cid, sup_names[i], sup_emails[i], sup_phones[i],
+        base + (random() * 20 || ' days')::interval
+      );
+      temp_id := s[i];
+    END IF;
+
+    s[i] := temp_id;
   END LOOP;
 
   -- ── 3. Products ─────────────────────────────────────────────────────────
+  -- products_sku_key is a global UNIQUE(sku) constraint.
+  -- Insert when the SKU is new; skip when it already exists.
+  -- Always resolve p[i] to the canonical row ID so later FKs are correct.
   FOR i IN 1..50 LOOP
-    INSERT INTO products (id, user_id, name, sku, description, created_at)
+    INSERT INTO products (id, user_id, company_id, name, sku, description, created_at)
     VALUES (
-      p[i], uid, prod_names[i], prod_skus[i], prod_descs[i],
+      p[i], uid, cid, prod_names[i], prod_skus[i], prod_descs[i],
       base + (random() * 15 || ' days')::interval
-    );
+    )
+    ON CONFLICT (sku) DO NOTHING;
+
+    SELECT id INTO temp_id FROM products WHERE sku = prod_skus[i];
+    p[i] := temp_id;
   END LOOP;
 
   -- ── 4. Raw Materials ────────────────────────────────────────────────────
+  -- No unique constraint, but material names are logically unique per company.
+  -- Resolve by name within company; insert only when absent.
   FOR i IN 1..30 LOOP
     sup_idx := 1 + ((i - 1) % 10);
-    INSERT INTO raw_materials (id, user_id, name, unit, quantity_in_stock, reorder_level, supplier_id, created_at)
-    VALUES (
-      m[i], uid,
-      mat_names[i], mat_units[i],
-      ROUND((50 + random() * 2000)::numeric, 2),
-      ROUND((10 + random() * 200)::numeric, 2),
-      s[sup_idx],
-      base + (random() * 10 || ' days')::interval
-    );
+
+    SELECT id INTO temp_id
+    FROM   raw_materials
+    WHERE  company_id = cid AND name = mat_names[i]
+    LIMIT  1;
+
+    IF temp_id IS NULL THEN
+      INSERT INTO raw_materials (id, user_id, company_id, name, unit, quantity_in_stock, reorder_level, supplier_id, created_at)
+      VALUES (
+        m[i], uid, cid,
+        mat_names[i], mat_units[i],
+        ROUND((50 + random() * 2000)::numeric, 2),
+        ROUND((10 + random() * 200)::numeric, 2),
+        s[sup_idx],
+        base + (random() * 10 || ' days')::interval
+      );
+      temp_id := m[i];
+    END IF;
+
+    m[i] := temp_id;
   END LOOP;
 
   -- ── 5. Production Orders ────────────────────────────────────────────────
@@ -367,21 +427,77 @@ BEGIN
       cmp := NULL;
     END IF;
 
-    INSERT INTO production_orders (id, user_id, product_id, quantity, status, started_at, completed_at, created_at)
+    -- Due date: 7–60 days after order creation. Naturally creates a mix of
+    -- upcoming, on-time, and overdue orders across the 170-day date range.
+    due_date := (crt + ((7 + floor(random() * 53)) || ' days')::interval)::date;
+
+    INSERT INTO production_orders (id, user_id, company_id, product_id, quantity, status, started_at, completed_at, created_at, due_date)
     VALUES (
-      o[i], uid, p[prod_idx],
+      o[i], uid, cid, p[prod_idx],
       (10 + floor(random() * 4990))::int,
-      stat, srt, cmp, crt
+      stat, srt, cmp, crt, due_date
     );
+  END LOOP;
+
+  -- ── 5b. Resolve batch_type enum ─────────────────────────────────────────
+  BEGIN
+    SELECT enumlabel INTO bt_first
+    FROM   pg_enum
+    WHERE  enumtypid = 'batch_type'::regtype
+    ORDER  BY enumsortorder
+    LIMIT  1;
+  EXCEPTION WHEN OTHERS THEN
+    bt_first := NULL;
+  END;
+
+  IF bt_first IS NULL THEN
+    RAISE EXCEPTION
+      '[seed] batch_type enum not found — run the batches table migration first.';
+  END IF;
+
+  -- ── 5c. Batches (one per production order, covering ALL 200 orders)
+  -- batch_lineage.parent_batch_id / child_batch_id reference batches.id,
+  -- NOT production_orders.id. We create batches for all 200 orders so that:
+  --   (a) validate_lineage_company() finds the batch rows for bl[1..100]
+  --   (b) any BOM-triggered consumption UPDATE finds a batch for every order
+  --       and never evaluates quantity_remaining - NULL (which would violate NOT NULL)
+  -- quantity_initial and quantity_remaining are set to 5000 — large enough
+  -- to absorb BOM consumption (≤ 3 lines × 500 units = 1500 max) and stay positive.
+  FOR i IN 1..200 LOOP
+    prod_idx := 1 + ((i - 1) % 50);
+
+    -- Prefer an existing batches row for this production order + company.
+    SELECT id INTO temp_id
+    FROM   batches
+    WHERE  production_order_id = o[i]
+      AND  company_id          = cid
+    LIMIT  1;
+
+    IF temp_id IS NULL THEN
+      temp_id := gen_random_uuid();
+      INSERT INTO batches (
+        id, company_id, type, sku, name, lot_number,
+        quantity_initial, quantity_remaining, product_id, production_order_id
+      ) VALUES (
+        temp_id, cid, bt_first::batch_type,
+        prod_skus[prod_idx],
+        prod_names[prod_idx] || ' — Demo Batch ' || lpad(i::text, 3, '0'),
+        'LOT-DEMO-' || left(o[i]::text, 16),
+        5000, 5000,
+        p[prod_idx], o[i]
+      );
+    END IF;
+
+    bl := array_append(bl, temp_id);
   END LOOP;
 
   -- ── 6. Bill of Materials (2-3 entries per order) ────────────────────────
   FOR i IN 1..200 LOOP
     FOR j IN 1..(2 + (floor(random() * 2))::int) LOOP
       mat_idx := 1 + ((i * 3 + j - 1) % 30);
-      INSERT INTO bill_of_materials (id, user_id, production_order_id, material_name, lot_number, quantity, unit, created_at)
+      INSERT INTO bill_of_materials (id, user_id, company_id, production_order_id, material_name, lot_number, quantity, unit, created_at)
       VALUES (
-        gen_random_uuid(), uid, o[i],
+        gen_random_uuid(), uid, cid, o[i],
         mat_names[mat_idx],
         'LOT-' || lot_years[1 + (floor(random() * 3))::int] || '-' || lpad((floor(random() * 9999) + 1)::text, 4, '0'),
         ROUND((1 + random() * 500)::numeric, 2),
@@ -396,9 +512,9 @@ BEGIN
     ord_idx := 1 + ((i - 1) * 2 % 199);
     stat    := qc_statuses[1 + (floor(random() * array_length(qc_statuses, 1)))::int];
 
-    INSERT INTO batch_qc_results (id, user_id, batch_id, status, inspector_name, notes, inspected_at, created_at)
+    INSERT INTO batch_qc_results (id, user_id, company_id, batch_id, status, inspector_name, notes, inspected_at, created_at)
     VALUES (
-      gen_random_uuid(), uid,
+      gen_random_uuid(), uid, cid,
       o[ord_idx],
       stat,
       inspectors[1 + (floor(random() * 8))::int],
@@ -425,10 +541,10 @@ BEGIN
     qc_id := gen_random_uuid();
 
     INSERT INTO quality_inspections (
-      id, user_id, batch_id, inspector_id, inspection_date,
+      id, user_id, company_id, batch_id, inspector_id, inspection_date,
       inspection_type, status, overall_score, notes, created_at, updated_at
     ) VALUES (
-      qc_id, uid,
+      qc_id, uid, cid,
       o[ord_idx],
       inspector_ids[1 + (floor(random() * 8))::int],
       (base + (random() * 170 || ' days')::interval)::date,
@@ -450,10 +566,10 @@ BEGIN
       def_cnt := 1 + (floor(random() * 3))::int;
       FOR j IN 1..def_cnt LOOP
         INSERT INTO quality_defects (
-          id, inspection_id, defect_type, severity, quantity,
+          id, company_id, inspection_id, defect_type, severity, quantity,
           description, corrective_action, resolved, resolved_at, created_at
         ) VALUES (
-          gen_random_uuid(), qc_id,
+          gen_random_uuid(), cid, qc_id,
           defect_types[1 + (floor(random() * array_length(defect_types, 1)))::int],
           defect_sevs[1 + (floor(random() * array_length(defect_sevs, 1)))::int],
           (1 + floor(random() * 50))::int,
@@ -484,11 +600,11 @@ BEGIN
     tot := ROUND((qty * unit_p)::numeric, 2);
 
     INSERT INTO sales (
-      id, user_id, product_id, product_name,
+      id, user_id, company_id, product_id, product_name,
       quantity, unit_price, total_price,
       customer_name, status, sold_at, created_at
     ) VALUES (
-      gen_random_uuid(), uid,
+      gen_random_uuid(), uid, cid,
       p[prod_idx], prod_names[prod_idx],
       qty, unit_p, tot,
       customers[1 + (floor(random() * array_length(customers, 1)))::int],
@@ -501,9 +617,9 @@ BEGIN
   -- ── 10. Scan Events (500 records) ───────────────────────────────────────
   FOR i IN 1..500 LOOP
     ord_idx := 1 + ((i - 1) % 200);
-    INSERT INTO scan_events (batch_id, scanned_at, device_type, browser, user_agent)
+    INSERT INTO scan_events (company_id, batch_id, scanned_at, device_type, browser, user_agent)
     VALUES (
-      o[ord_idx],
+      cid, o[ord_idx],
       base + (random() * 179 || ' days')::interval,
       CASE WHEN random() > 0.4 THEN 'mobile' ELSE 'desktop' END,
       (ARRAY['Chrome','Chrome','Safari','Firefox','Edge','Safari','Chrome'])[1 + (floor(random() * 7))::int],
@@ -514,15 +630,79 @@ BEGIN
     );
   END LOOP;
 
+  -- ── Pre-lineage validation ──────────────────────────────────────────────
+  -- Only bl[1..100] are used in batch_lineage (parents = bl[1..50],
+  -- children = bl[51..100]). Confirm those 100 rows exist with company_id = cid.
+  SELECT (
+    (SELECT COUNT(*) FROM batches WHERE id = ANY(bl[1:100]) AND company_id IS DISTINCT FROM cid)
+    + (100 - (SELECT COUNT(*) FROM batches WHERE id = ANY(bl[1:100])))
+  ) INTO bad_cnt;
+
+  IF bad_cnt > 0 THEN
+    RAISE EXCEPTION
+      '[seed validation] % batches row(s) in bl[1..100] missing or have wrong company_id. '
+      'Expected all 100 to have company_id = %. '
+      'Cannot safely insert batch_lineage.', bad_cnt, cid;
+  END IF;
+
+  RAISE NOTICE 'Pre-lineage validation passed: bl[1..100] confirmed with company_id = %', cid;
+
+  -- ── Detect optional quantity column on batch_lineage ──────────────────
+  -- The live DB may have a consumption trigger on batch_lineage that reads
+  -- NEW.<qty_col> as p_consumed. If p_consumed is NULL, the UPDATE
+  -- "quantity_remaining = quantity_remaining - p_consumed" violates NOT NULL.
+  -- Detect the column name at runtime and provide a non-NULL value.
+  SELECT column_name INTO bl_transfer_col
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name   = 'batch_lineage'
+    AND column_name  IN (
+      'quantity_transferred', 'quantity', 'qty',
+      'transferred_qty', 'consumed_qty', 'transfer_quantity', 'amount'
+    )
+  ORDER BY CASE column_name
+    WHEN 'quantity_transferred' THEN 1
+    WHEN 'quantity'             THEN 2
+    WHEN 'qty'                  THEN 3
+    ELSE 4
+  END
+  LIMIT 1;
+
+  -- Log all batch_lineage columns so errors are diagnosable from NOTICES.
+  SELECT string_agg(column_name || '(' || data_type || ')', ', ' ORDER BY ordinal_position)
+  INTO temp_text
+  FROM information_schema.columns
+  WHERE table_schema = 'public' AND table_name = 'batch_lineage';
+  RAISE NOTICE '[seed] batch_lineage columns: %', temp_text;
+  RAISE NOTICE '[seed] batch_lineage transfer column detected: %', COALESCE(bl_transfer_col, '(none)');
+
   -- ── 11. Batch Lineage (50 parent → child pairs) ─────────────────────────
-  -- Simulates raw material lots traced through to finished goods batches
+  -- bl[1..50]   = batches.id values for parent orders (o[1..50])
+  -- bl[51..100] = batches.id values for child orders  (o[51..100])
+  -- validate_lineage_company() looks up batches by parent_batch_id to resolve
+  -- company_id — using real batches.id values satisfies that check.
+  --
+  -- If the live DB has a consumption trigger that reads NEW.<qty_col> as
+  -- p_consumed, we include it via dynamic SQL so p_consumed is never NULL.
+  -- Each parent batch has quantity_remaining = 5000; we transfer 100–500 units.
   FOR i IN 1..50 LOOP
-    INSERT INTO batch_lineage (parent_batch_id, child_batch_id, relationship_type)
-    VALUES (o[i], o[50 + i], 'material_flow')
-    ON CONFLICT DO NOTHING;
+    IF bl_transfer_col IS NOT NULL THEN
+      EXECUTE format(
+        'INSERT INTO batch_lineage
+           (company_id, parent_batch_id, child_batch_id, relationship_type, %I)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT DO NOTHING',
+        bl_transfer_col
+      ) USING cid, bl[i], bl[50 + i], 'material_flow',
+              ROUND((100 + random() * 400)::numeric, 2);
+    ELSE
+      INSERT INTO batch_lineage (company_id, parent_batch_id, child_batch_id, relationship_type)
+      VALUES (cid, bl[i], bl[50 + i], 'material_flow')
+      ON CONFLICT DO NOTHING;
+    END IF;
   END LOOP;
 
-  RAISE NOTICE 'Seed complete: 10 suppliers, 50 products, 30 raw materials, 200 orders, 100 QC results, 100 quality inspections, 200 sales, 500 scan events, 50 lineage pairs.';
+  RAISE NOTICE 'Seed complete: 10 suppliers, 50 products, 30 raw materials, 200 orders, 200 batches, 100 QC results, 100 quality inspections, 200 sales, 500 scan events, 50 lineage pairs.';
 
 END;
 $$;

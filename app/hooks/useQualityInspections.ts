@@ -64,13 +64,14 @@ type QcAggRpc = {
 export function useQualityInspections() {
   const { companyId } = useAuth();
 
-  const [inspections, setInspections] = useState<QualityInspection[]>([]);
-  const [defects,     setDefects]     = useState<QualityDefect[]>([]);
-  const [metrics,     setMetrics]     = useState<QualityMetrics | null>(null);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState<string | null>(null);
-  const [page,        setPageState]   = useState(1);
-  const [totalCount,  setTotalCount]  = useState(0);
+  const [inspections,    setInspections]    = useState<QualityInspection[]>([]);
+  const [defects,        setDefects]        = useState<QualityDefect[]>([]);
+  const [metrics,        setMetrics]        = useState<QualityMetrics | null>(null);
+  const [batchLabelMap,  setBatchLabelMap]  = useState<Record<string, string>>({});
+  const [loading,        setLoading]        = useState(true);
+  const [error,          setError]          = useState<string | null>(null);
+  const [page,           setPageState]      = useState(1);
+  const [totalCount,     setTotalCount]     = useState(0);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / QC_PAGE_SIZE));
 
@@ -131,6 +132,57 @@ export function useQualityInspections() {
         // RPC not yet deployed — derive from page data as a temporary fallback
         setMetrics(deriveLocalMetrics(insp, defs));
       }
+
+      // Phase 4 — resolve human-readable batch labels (best-effort; never throws)
+      // batch_id is a TEXT column: may hold a production_orders UUID, a batches UUID,
+      // or a free-text identifier entered by the user (lot number, order ref, etc.).
+      const batchIds = insp.map(i => i.batch_id).filter(Boolean) as string[];
+      const labelMap: Record<string, string> = {};
+      if (batchIds.length > 0) {
+        const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        const uuidIds = batchIds.filter(id => UUID_RE.test(id));
+        // Non-UUID batch_ids are already human-readable — record them directly.
+        for (const id of batchIds) {
+          if (!UUID_RE.test(id)) labelMap[id] = id;
+        }
+
+        if (uuidIds.length > 0) {
+          // Primary: production_orders (the common case — seed data stores production_orders.id)
+          const { data: orderRows } = await supabase
+            .from('production_orders')
+            .select('id, created_at, products(name, sku)')
+            .in('id', uuidIds);
+          const matchedSet = new Set<string>();
+          for (const o of (orderRows ?? []) as unknown as { id: string; created_at: string; products: { name: string; sku: string } | null }[]) {
+            matchedSet.add(o.id);
+            const name = o.products?.name;
+            const sku  = o.products?.sku;
+            const year = new Date(o.created_at).getFullYear();
+            const hash = parseInt(o.id.replace(/-/g, '').slice(0, 8), 16) % 1000000;
+            const poNum = `PO-${year}-${String(hash).padStart(6, '0')}`;
+            labelMap[o.id] = name ? `${name} · ${poNum}` : sku ? `${sku} · ${poNum}` : poNum;
+          }
+
+          // Fallback: batches table for UUIDs not found in production_orders
+          const remaining = uuidIds.filter(id => !matchedSet.has(id));
+          if (remaining.length > 0) {
+            const { data: batchRows } = await supabase
+              .from('batches')
+              .select('id, lot_number, name, products(name)')
+              .in('id', remaining);
+            for (const b of (batchRows ?? []) as unknown as { id: string; lot_number: string | null; name: string | null; products: { name: string } | null }[]) {
+              const parts = [b.products?.name, b.lot_number || b.name].filter(Boolean);
+              labelMap[b.id] = parts.length ? parts.join(' · ') : `···${b.id.slice(-8)}`;
+            }
+          }
+
+          // Any UUID with no match in either table → show truncated fragment
+          for (const id of uuidIds) {
+            if (!labelMap[id]) labelMap[id] = `···${id.slice(-8)}`;
+          }
+        }
+      }
+      setBatchLabelMap(labelMap);
     } catch (err) {
       setError(extractMessage(err, 'Failed to load QC data'));
     } finally {
@@ -221,6 +273,7 @@ export function useQualityInspections() {
     inspections,
     defects,
     metrics,
+    batchLabelMap,
     loading,
     error,
     page,
