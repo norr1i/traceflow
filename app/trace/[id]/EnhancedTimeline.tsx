@@ -17,15 +17,9 @@ export type JourneyEvent = {
   event_type:      string
   event_timestamp: string
   title:           string
-  description:     string | null
-  source_table:    string
-  metadata:        Record<string, unknown> | null
-}
-
-export type DistributionRecord = {
-  customer_name: string | null
-  quantity:      number
-  sold_at:       string
+  description?:    string | null
+  source_table?:   string
+  metadata?:       Record<string, unknown> | null
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -216,7 +210,8 @@ const ALWAYS_SHOW: Set<StageGroup> = new Set(['distribution'])
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function getSourceLabel(s: string): string {
+function getSourceLabel(s: string | undefined): string {
+  if (!s) return 'System'
   return SOURCE_LABELS[s] ?? s.replace(/_/g, ' ')
 }
 
@@ -230,12 +225,9 @@ function fmtDateTime(iso: string): string {
 function extractActor(event: JourneyEvent): string | null {
   const m = event.metadata
   if (!m) return null
-  if (typeof m.inspector_name === 'string' && m.inspector_name) return m.inspector_name
-  if (typeof m.performed_by   === 'string' && m.performed_by)   return m.performed_by
-  if (typeof m.created_by     === 'string' && m.created_by)     return m.created_by
-  if (typeof m.user_name      === 'string' && m.user_name)      return m.user_name
-  if (typeof m.inspector_id   === 'string' && m.inspector_id)
-    return `Inspector ···${m.inspector_id.slice(-6)}`
+  if (typeof m.performed_by === 'string' && m.performed_by) return m.performed_by
+  if (typeof m.created_by   === 'string' && m.created_by)   return m.created_by
+  if (typeof m.user_name    === 'string' && m.user_name)    return m.user_name
   return null
 }
 
@@ -294,9 +286,11 @@ const PHASE_CONTEXT: Record<string, { primary: string; secondary: string }> = {
 function StageFlowHeader({
   presentStages,
   activeStage,
+  productStatus,
 }: {
   presentStages: Set<StageGroup>
   activeStage?:  StageGroup
+  productStatus?: string
 }) {
   const stages      = LIFECYCLE_ORDER.filter(s => s !== 'other' && s !== 'compliance') as StageGroup[]
   const activePhase = activeStage ? PHASES.find(p => p.stages.includes(activeStage)) : null
@@ -337,7 +331,7 @@ function StageFlowHeader({
         </span>
         <span className="h-px w-4 shrink-0 self-center bg-gray-400 dark:bg-gray-500" />
         <span className="rounded-lg bg-gray-100 dark:bg-gray-700/80 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300">
-          In Progress
+          {productStatus === 'completed' ? 'Completed' : 'In Progress'}
         </span>
       </div>
 
@@ -585,7 +579,7 @@ function EventCard({
 }) {
   const [showDetails, setShowDetails] = useState(false)
   const actor  = extractActor(event)
-  const source = getSourceLabel(event.source_table)
+  const source = getSourceLabel(event.source_table ?? undefined)
   const { Icon, iconBg, iconColor, badgeClass, borderAccent, label: categoryLabel } = category
 
   return (
@@ -650,44 +644,6 @@ function EventCard({
             </div>
           )}
         </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Distribution placeholder ──────────────────────────────────────────────────
-// Shown when the journey has no distribution_records events.
-
-function DistributionCard({ record, isLast }: {
-  record: DistributionRecord
-  isLast: boolean
-}) {
-  const sc = STAGE_COLORS.distribution
-  return (
-    <div className="flex gap-3 group">
-      <div className="flex shrink-0 flex-col items-center" style={{ width: 36 }}>
-        <div className={`relative z-10 mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-white dark:border-gray-900 shadow-sm ${sc.iconBg}`}>
-          <Truck size={15} className={sc.iconColor} />
-        </div>
-        {!isLast && (
-          <div className={`mt-1 w-0.5 flex-1 ${sc.connectorBg}`} style={{ minHeight: 20 }} />
-        )}
-      </div>
-      <div className={`min-w-0 flex-1 rounded-xl border border-gray-100 dark:border-gray-700/60 border-l-2 border-l-teal-500 bg-white dark:bg-gray-800/60 px-3.5 py-3 shadow-sm ${isLast ? 'mb-0.5' : 'mb-3'}`}>
-        <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
-          <p className="text-sm font-semibold text-gray-900 dark:text-white leading-snug">
-            Shipped — {record.customer_name ?? 'Customer'}
-          </p>
-          <span className="shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400">
-            Distribution
-          </span>
-        </div>
-        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          {record.quantity.toLocaleString()} units dispatched
-        </p>
-        <p className="mt-2 text-[10px] font-medium text-gray-400 dark:text-gray-500 tabular-nums">
-          {fmtDateTime(record.sold_at)}
-        </p>
       </div>
     </div>
   )
@@ -764,11 +720,11 @@ function TimelineSkeleton() {
 export function EnhancedTimeline({
   events,
   isLoading,
-  distributionFallback,
+  productStatus,
 }: {
-  events:               JourneyEvent[]
-  isLoading:            boolean
-  distributionFallback?: DistributionRecord[]
+  events:         JourneyEvent[]
+  isLoading:      boolean
+  productStatus?: string
 }) {
   const [expandedStages, setExpandedStages] = useState<Set<StageGroup>>(new Set())
 
@@ -809,8 +765,6 @@ export function EnhancedTimeline({
 
   // Present stages for the flow header (stages that actually have events)
   const presentStages = new Set(LIFECYCLE_ORDER.filter(s => groups.has(s)))
-  // Distribution fallback (sales records) counts as a present stage for the hero/phase strip
-  if ((distributionFallback?.length ?? 0) > 0) presentStages.add('distribution')
 
   // Active stage = last present stage in lifecycle order (most recent progress checkpoint)
   const orderedPresent = LIFECYCLE_ORDER.filter(s => presentStages.has(s))
@@ -824,7 +778,7 @@ export function EnhancedTimeline({
     return false
   })
 
-  if (stagesToRender.length === 0 && (distributionFallback?.length ?? 0) === 0) {
+  if (stagesToRender.length === 0) {
     return (
       <p className="text-sm italic text-gray-400 dark:text-gray-500">
         No manufacturing events recorded for this batch.
@@ -835,7 +789,7 @@ export function EnhancedTimeline({
   return (
     <div className="pt-0.5">
       {/* Stage progression pills */}
-      <StageFlowHeader presentStages={presentStages} activeStage={activeStage} />
+      <StageFlowHeader presentStages={presentStages} activeStage={activeStage} productStatus={productStatus} />
 
       {stagesToRender.map((stage, stageIdx) => {
         const stageEvents = groups.get(stage) ?? []
@@ -844,24 +798,13 @@ export function EnhancedTimeline({
         const prevStage    = stageIdx > 0 ? stagesToRender[stageIdx - 1] : null
         const prevSc       = prevStage ? STAGE_COLORS[prevStage] : null
 
-        // For distribution: use journey events if any, else fallback from sales, else empty
-        const isDistribution     = stage === 'distribution'
-        const hasJourneyEvents   = stageEvents.length > 0
-        const hasFallbackRecords = isDistribution && !hasJourneyEvents && (distributionFallback?.length ?? 0) > 0
-        const isEmptyDistrib     = isDistribution && !hasJourneyEvents && !hasFallbackRecords
+        const isDistribution   = stage === 'distribution'
+        const hasJourneyEvents = stageEvents.length > 0
+        const isEmptyDistrib   = isDistribution && !hasJourneyEvents
 
-        // Total events shown in this stage (for the header count)
-        const displayCount = hasJourneyEvents
-          ? stageEvents.length
-          : hasFallbackRecords
-          ? (distributionFallback?.length ?? 0)
-          : 0
+        const displayCount = stageEvents.length
 
-        const isLastStage      = stage === lastStageWithContent
-        const totalEventsInStage =
-          hasJourneyEvents      ? stageEvents.length
-          : hasFallbackRecords  ? (distributionFallback?.length ?? 0)
-          : 0
+        const isLastStage = stage === lastStageWithContent
 
         // Determine this stage's position in the journey
         const stageState: 'completed' | 'active' | 'upcoming' =
@@ -896,17 +839,6 @@ export function EnhancedTimeline({
                 />
               )
             })}
-
-            {/* Distribution fallback: sorted by date, only when expanded */}
-            {expandedStages.has(stage) && hasFallbackRecords && [...distributionFallback!]
-              .sort((a, b) => new Date(a.sold_at).getTime() - new Date(b.sold_at).getTime())
-              .map((rec, i, arr) => (
-                <DistributionCard
-                  key={`dist-fallback-${i}`}
-                  record={rec}
-                  isLast={i === arr.length - 1}
-                />
-              ))}
 
             {/* Distribution empty state — only when expanded */}
             {expandedStages.has(stage) && isEmptyDistrib && <DistributionEmpty />}

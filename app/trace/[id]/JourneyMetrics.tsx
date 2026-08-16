@@ -19,37 +19,26 @@ function CountUp({ to }: { to: number }) {
   return <>{n}</>
 }
 
-type Order = {
-  started_at:   string | null
-  completed_at: string | null
-  created_at:   string
+type PublicQc = {
+  overall_result:   'pass' | 'fail' | 'hold' | 'pending'
+  inspection_count: number
 }
 
-type QcResult = {
-  status: 'pass' | 'fail' | 'hold'
-}
-
-type Material = {
+type PublicMaterial = {
   material_name: string
-  supplier_name: string | null
 }
 
-type Sale = {
-  customer_name: string | null
-  quantity: number
-  sold_at: string
-}
-
-type JourneyEvent = {
+type PublicTimelineEvent = {
+  event_type:      string
   event_timestamp: string
 }
 
 type Props = {
-  order: Order
-  qcResults: QcResult[]
-  materials: Material[]
-  sales: Sale[]
-  manufacturingEvents: JourneyEvent[]
+  completedAt:       string | null
+  qc:                PublicQc
+  materials:         PublicMaterial[]
+  distributionCount: number
+  timeline:          PublicTimelineEvent[]
 }
 
 function formatDuration(startIso: string | null, endIso: string | null): string | null {
@@ -66,18 +55,10 @@ function formatDuration(startIso: string | null, endIso: string | null): string 
 }
 
 const QC_DISPLAY: Record<string, { label: string; valueClass: string }> = {
-  pass: {
-    label: 'Passed',
-    valueClass: 'text-emerald-600 dark:text-emerald-400',
-  },
-  fail: {
-    label: 'Failed',
-    valueClass: 'text-red-600 dark:text-red-400',
-  },
-  hold: {
-    label: 'On Hold',
-    valueClass: 'text-amber-600 dark:text-amber-400',
-  },
+  pass:    { label: 'Passed',  valueClass: 'text-emerald-600 dark:text-emerald-400' },
+  fail:    { label: 'Failed',  valueClass: 'text-red-600 dark:text-red-400' },
+  hold:    { label: 'On Hold', valueClass: 'text-amber-600 dark:text-amber-400' },
+  pending: { label: 'Pending', valueClass: 'text-gray-400 dark:text-gray-500' },
 }
 
 function KpiCard({
@@ -99,24 +80,20 @@ function KpiCard({
 }) {
   return (
     <div className={`flex flex-col rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3.5 pt-3 pb-3.5 transition-shadow duration-200 hover:shadow-md ${className ?? ''}`}>
-      {/* Label — small muted header at top */}
       <div className="flex items-center gap-1 mb-2">
         <Icon size={10} className="shrink-0 text-gray-400 dark:text-gray-500" />
         <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 leading-none">
           {label}
         </span>
       </div>
-      {/* Metric — primary element */}
       <p className={`text-lg font-semibold leading-none tabular-nums ${metricClass ?? 'text-gray-900 dark:text-white'}`}>
         {metric}
       </p>
-      {/* Unit descriptor — ~30% smaller than metric, sits directly below */}
       {unit && (
         <p className="mt-1 text-sm font-normal text-gray-500 dark:text-gray-400 leading-none">
           {unit}
         </p>
       )}
-      {/* Supporting description */}
       {sub && (
         <p className="mt-2 text-[10px] text-gray-400 dark:text-gray-500 leading-snug">{sub}</p>
       )}
@@ -124,23 +101,23 @@ function KpiCard({
   )
 }
 
-export function JourneyMetrics({ order, qcResults, materials, sales, manufacturingEvents }: Props) {
-  // Duration: fall back from started_at → created_at so it never shows "—" for completed batches
-  const duration  = formatDuration(order.started_at ?? order.created_at, order.completed_at)
-  const latestQc  = qcResults[0]
-  const qcDisplay = latestQc ? QC_DISPLAY[latestQc.status] : null
-
-  // Total events: prefer journey events; fall back to count of aggregated tracked data
-  const totalEvents =
-    manufacturingEvents.length > 0
-      ? manufacturingEvents.length
-      : qcResults.length + sales.length + materials.length
-
-  const eventDates = manufacturingEvents
+export function JourneyMetrics({ completedAt, qc, materials, distributionCount, timeline }: Props) {
+  const eventDates = timeline
     .map(e => new Date(e.event_timestamp).getTime())
     .filter(t => !isNaN(t))
-  const firstEvent = eventDates.length > 0 ? new Date(Math.min(...eventDates)) : null
-  const lastEvent  = eventDates.length > 0 ? new Date(Math.max(...eventDates)) : null
+
+  const firstMs = eventDates.length > 0 ? Math.min(...eventDates) : null
+  const lastMs  = eventDates.length > 0 ? Math.max(...eventDates) : null
+
+  const duration = firstMs && lastMs && firstMs !== lastMs
+    ? formatDuration(
+        new Date(firstMs).toISOString(),
+        completedAt ?? new Date(lastMs).toISOString(),
+      )
+    : null
+
+  const firstEvent = firstMs ? new Date(firstMs) : null
+  const lastEvent  = lastMs  ? new Date(lastMs)  : null
 
   const dateRange =
     firstEvent && lastEvent && firstEvent.getTime() !== lastEvent.getTime()
@@ -149,16 +126,15 @@ export function JourneyMetrics({ order, qcResults, materials, sales, manufacturi
       ? firstEvent.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
       : undefined
 
-  const totalShipped = sales.reduce((acc, s) => acc + s.quantity, 0)
-  const withSupplier = materials.filter(m => m.supplier_name).length
+  const qcDisplay = QC_DISPLAY[qc.overall_result] ?? null
 
   return (
     <div className="grid grid-cols-2 gap-2">
       {/* Total Events */}
       <KpiCard
         label="Total Events"
-        metric={<CountUp to={totalEvents} />}
-        unit={totalEvents === 1 ? 'Lifecycle Event' : 'Lifecycle Events'}
+        metric={<CountUp to={timeline.length} />}
+        unit={timeline.length === 1 ? 'Lifecycle Event' : 'Lifecycle Events'}
         sub={dateRange}
         icon={Activity}
       />
@@ -166,12 +142,12 @@ export function JourneyMetrics({ order, qcResults, materials, sales, manufacturi
       {/* Production Duration */}
       <KpiCard
         label="Production Duration"
-        metric={duration ?? (order.completed_at ? 'Recorded' : 'In progress')}
+        metric={duration ?? (completedAt ? 'Recorded' : 'In progress')}
         sub={
-          !order.completed_at
+          !completedAt
             ? 'Not yet completed'
-            : qcResults.length > 1
-            ? `${qcResults.length} QC checkpoints`
+            : qc.inspection_count > 1
+            ? `${qc.inspection_count} QC checkpoints`
             : undefined
         }
         icon={Clock}
@@ -180,8 +156,12 @@ export function JourneyMetrics({ order, qcResults, materials, sales, manufacturi
       {/* QC Inspections */}
       <KpiCard
         label="QC Inspections"
-        metric={qcResults.length > 0 ? <CountUp to={qcResults.length} /> : 'No QC'}
-        unit={qcResults.length > 0 ? (qcResults.length !== 1 ? 'Inspections' : 'Inspection') : undefined}
+        metric={qc.inspection_count > 0 ? <CountUp to={qc.inspection_count} /> : 'No QC'}
+        unit={
+          qc.inspection_count > 0
+            ? qc.inspection_count !== 1 ? 'Inspections' : 'Inspection'
+            : undefined
+        }
         sub={qcDisplay ? qcDisplay.label : 'Pending inspection'}
         icon={ShieldCheck}
         metricClass={qcDisplay?.valueClass ?? 'text-gray-400 dark:text-gray-500'}
@@ -190,15 +170,15 @@ export function JourneyMetrics({ order, qcResults, materials, sales, manufacturi
       {/* Distribution */}
       <KpiCard
         label="Distribution"
-        metric={sales.length > 0 ? <CountUp to={sales.length} /> : '—'}
-        unit={sales.length > 0 ? (sales.length !== 1 ? 'Shipments' : 'Shipment') : undefined}
-        sub={
-          sales.length > 0
-            ? `${totalShipped.toLocaleString()} units shipped`
-            : 'No distribution recorded'
+        metric={distributionCount > 0 ? <CountUp to={distributionCount} /> : '—'}
+        unit={
+          distributionCount > 0
+            ? distributionCount !== 1 ? 'Shipments' : 'Shipment'
+            : undefined
         }
+        sub={distributionCount > 0 ? 'Distributed through partners' : 'No distribution recorded'}
         icon={Truck}
-        metricClass={sales.length === 0 ? 'text-gray-400 dark:text-gray-500' : undefined}
+        metricClass={distributionCount === 0 ? 'text-gray-400 dark:text-gray-500' : undefined}
       />
 
       {/* Materials Used — full-width bottom row */}
@@ -206,10 +186,14 @@ export function JourneyMetrics({ order, qcResults, materials, sales, manufacturi
         className="col-span-2"
         label="Materials Used"
         metric={materials.length > 0 ? <CountUp to={materials.length} /> : '—'}
-        unit={materials.length > 0 ? (materials.length !== 1 ? 'Materials' : 'Material') : undefined}
+        unit={
+          materials.length > 0
+            ? materials.length !== 1 ? 'Materials' : 'Material'
+            : undefined
+        }
         sub={
           materials.length > 0
-            ? `${withSupplier} with verified supplier data`
+            ? `${materials.length} raw material${materials.length !== 1 ? 's' : ''} traced`
             : 'No raw materials recorded'
         }
         icon={Layers}

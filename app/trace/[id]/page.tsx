@@ -4,64 +4,60 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 import {
-  ShieldCheck, Package, FlaskConical, Layers, ShoppingCart,
+  ShieldCheck, Package, Layers, ShoppingCart,
   AlertCircle, AlertTriangle, Loader2, Activity,
-  Factory, CheckCircle2, XCircle, Clock,
+  Factory,
 } from 'lucide-react'
 import { LogoIcon } from '../../components/Logo'
 import { JourneyMetrics } from './JourneyMetrics'
-import { EnhancedTimeline, type JourneyEvent } from './EnhancedTimeline'
-import { isScanEvent } from './eventCategories'
+import { EnhancedTimeline } from './EnhancedTimeline'
 import { deriveBatchRef } from '../../lib/batch'
 
-// ── Types ──────────────────────────────────────────────────────────────────
+// ── Types — strict contract matching get_public_batch_trace RPC ─────────────
 
-type QcResult = {
-  status: 'pass' | 'fail' | 'hold'
-  inspector_name: string
-  notes: string | null
-  inspected_at: string
+type PublicQc = {
+  overall_result:    'pass' | 'fail' | 'hold' | 'pending'
+  inspection_count:  number
+  last_inspected_at: string | null
 }
 
-type Material = {
+type PublicMaterial = {
   material_name: string
-  lot_number:    string | null
-  supplier_name: string | null   // populated when RPC returns it; gracefully falls back to '—'
-  quantity: number
-  unit: string
 }
 
-type Sale = {
-  customer_name: string | null
-  quantity: number
-  sold_at: string
+type PublicTimelineEvent = {
+  event_type:      string
+  event_timestamp: string
+  title:           string
 }
 
-type TraceData = {
-  order: {
-    id: string
-    product_name: string
-    sku: string
-    quantity: number
-    status: string
-    created_at: string
-    started_at: string | null
+type PublicRecall = {
+  recall_number:  string
+  title:          string
+  severity:       string
+  status:         string
+  affected_units: number
+  initiated_at:   string
+  closed_at:      string | null
+}
+
+type RecallAlert = {
+  has_active_recall: boolean
+  recalls:           PublicRecall[]
+}
+
+type PublicTraceData = {
+  product: {
+    name:         string
+    sku:          string
+    status:       string
     completed_at: string | null
   }
-  qc_results: QcResult[]
-  materials: Material[]
-  sales: Sale[]
-}
-
-type JourneyData = {
-  batch: Record<string, unknown>
-  timeline: JourneyEvent[]
-  event_count: number
-}
-
-type RcaAlert = {
-  recalls: { recall_number: string; title: string; status: string; affected_units: number | null }[]
-  risk_level: 'none' | 'low' | 'medium' | 'high' | 'critical'
+  qc:           PublicQc
+  materials:    PublicMaterial[]
+  timeline:     PublicTimelineEvent[]
+  recall_alert: RecallAlert | null
+  risk_level:   'none' | 'low' | 'medium' | 'high' | 'critical'
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -77,101 +73,6 @@ function fmtDateTime(iso: string) {
   })
 }
 
-// Clean quantity display — no trailing zeros, max 2 decimal places
-function formatQty(n: number): string {
-  if (Number.isInteger(n)) return n.toLocaleString()
-  return parseFloat(n.toFixed(2)).toLocaleString()
-}
-
-
-// Deterministic operator name — used when no actor is recorded in journey events
-const DEMO_OPERATORS = [
-  'Mohammed Al-Otaibi', 'Ahmed Al-Harbi', 'Khalid Al-Rashid',
-  'Omar Al-Fahad', 'Production Team A', 'Assembly Team B',
-  'Faisal Al-Dosari', 'Quality Team B',
-]
-function deriveDemoOperator(id: string): string {
-  const seed = parseInt(id.replace(/-/g, '').slice(-4), 16)
-  return DEMO_OPERATORS[seed % DEMO_OPERATORS.length]
-}
-
-const DEMO_MANUFACTURERS = [
-  'Al-Rashid Industrial Group', 'Saudi Manufacturing Corp.',
-  'Gulf Industrial Partners',   'Arabian Industries LLC',
-  'Najd Manufacturing Co.',     'Eastern Province Industries',
-]
-function deriveDemoManufacturer(id: string): string {
-  const seed = parseInt(id.replace(/-/g, '').slice(-4), 16)
-  return DEMO_MANUFACTURERS[(seed + 3) % DEMO_MANUFACTURERS.length]
-}
-
-function deriveProdOrderRef(id: string, createdAt: string): string {
-  const year = new Date(createdAt).getFullYear()
-  const num  = parseInt(id.replace(/-/g, '').slice(2, 8), 16) % 9999 + 1
-  return `PO-${year}-${String(num).padStart(4, '0')}`
-}
-
-const QC_INSPECTOR_ROLES = [
-  'Senior QC Engineer', 'QC Inspector', 'Quality Assurance Lead',
-  'QC Technician', 'Quality Control Specialist', 'Lab Analyst',
-]
-function deriveInspectorRole(name: string): string {
-  let h = 0
-  for (const c of name) h = (h * 31 + c.charCodeAt(0)) & 0xffff
-  return QC_INSPECTOR_ROLES[h % QC_INSPECTOR_ROLES.length]
-}
-
-const shipmentStatusClass: Record<string, string> = {
-  'Delivered':  'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-  'Completed':  'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  'In Transit': 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
-  'Warehouse':  'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
-}
-function deriveShipmentStatus(idx: number, soldAt: string): string {
-  const daysAgo = Math.round((Date.now() - new Date(soldAt).getTime()) / 86_400_000)
-  if (daysAgo > 30) return 'Delivered'
-  if (daysAgo > 14) return idx % 2 === 0 ? 'Delivered' : 'Completed'
-  if (daysAgo > 7)  return 'In Transit'
-  return ['Delivered', 'In Transit', 'Delivered', 'Warehouse', 'Completed', 'Delivered'][idx % 6]
-}
-
-// Extract the first identifiable actor from journey event metadata
-function extractActorFromEvents(events: JourneyEvent[]): string | null {
-  for (const e of events) {
-    const m = e.metadata
-    if (!m) continue
-    if (typeof m.inspector_name === 'string' && m.inspector_name) return m.inspector_name
-    if (typeof m.performed_by   === 'string' && m.performed_by)   return m.performed_by
-    if (typeof m.created_by     === 'string' && m.created_by)     return m.created_by
-    if (typeof m.user_name      === 'string' && m.user_name)      return m.user_name
-  }
-  return null
-}
-
-// Smooth-scroll to a section by its DOM id
-function scrollToSection(id: string) {
-  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
-
-const NAV_ITEMS = [
-  { label: 'Overview',     id: 'sec-overview'      },
-  { label: 'Journey',      id: 'sec-journey'        },
-  { label: 'Quality',      id: 'sec-quality'        },
-  { label: 'Distribution', id: 'sec-distribution'  },
-  { label: 'Materials',    id: 'sec-materials'      },
-  { label: 'Production',   id: 'sec-production'    },
-]
-
-// ── Production-info derivation helpers ────────────────────────────────────
-
-function deriveShift(startedAt: string | null): string {
-  if (!startedAt) return 'Morning Shift'
-  const h = new Date(startedAt).getHours()
-  if (h >= 6  && h < 14) return 'Morning Shift  (06:00 – 14:00)'
-  if (h >= 14 && h < 22) return 'Afternoon Shift (14:00 – 22:00)'
-  return 'Night Shift (22:00 – 06:00)'
-}
-
 function deriveLine(sku: string): string {
   const p = sku.slice(0, 3).toUpperCase()
   const MAP: Record<string, string> = {
@@ -185,13 +86,27 @@ function deriveLine(sku: string): string {
   return MAP[p] ?? 'General Manufacturing Line'
 }
 
+function scrollToSection(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+const NAV_ITEMS = [
+  { label: 'Overview',     id: 'sec-overview'     },
+  { label: 'Journey',      id: 'sec-journey'       },
+  { label: 'Quality',      id: 'sec-quality'       },
+  { label: 'Distribution', id: 'sec-distribution' },
+  { label: 'Materials',    id: 'sec-materials'     },
+  { label: 'Production',   id: 'sec-production'   },
+]
+
 // ── Badge / status class maps ──────────────────────────────────────────────
 
-type QcStatus = 'pass' | 'fail' | 'hold'
+type QcStatus = 'pass' | 'fail' | 'hold' | 'pending'
 const qcBadgeClass: Record<QcStatus, string> = {
-  pass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-  fail: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  hold: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
+  pass:    'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+  fail:    'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  hold:    'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
+  pending: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
 }
 
 const orderStatusClass: Record<string, string> = {
@@ -263,107 +178,58 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-// ── Section: Production Information ───────────────────────────────────────
-
-function ProductionInfoSection({
-  order,
-  operator,
-  sectionId,
-}: {
-  order:      TraceData['order']
-  operator:   string
-  sectionId?: string
-}) {
-  const productionDt = order.started_at ?? order.created_at
-  return (
-    <Section icon={<Factory size={15} />} title="Production Information" id={sectionId}>
-      <Row label="Production Order"       value={<span className="font-mono text-xs">{deriveProdOrderRef(order.id, order.created_at)}</span>} />
-      <Row label="Production Date & Time" value={fmtDateTime(productionDt)} />
-      <Row label="Factory / Branch"       value="Main Manufacturing Facility — Plant A" />
-      <Row label="Production Line"        value={deriveLine(order.sku)} />
-      <Row label="Shift"                  value={deriveShift(order.started_at)} />
-      <Row label="Operator / Responsible" value={operator} />
-    </Section>
-  )
-}
-
-// ── Section: QC Inspection card (expandable notes) ────────────────────────
-
-function QcInspectionCard({ r }: { r: QcResult }) {
-  const [expanded, setExpanded] = useState(false)
-  const isLong = (r.notes?.length ?? 0) > 120
-  return (
-    <div className="flex items-start gap-3 rounded-xl border border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-700/20 px-3 py-2.5">
-      <Badge label={r.status} className={`mt-0.5 shrink-0 ${qcBadgeClass[r.status]}`} />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{r.inspector_name}</p>
-            <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{deriveInspectorRole(r.inspector_name)}</p>
-          </div>
-          <span className="shrink-0 text-[10px] text-gray-400 mt-0.5">{fmtDateTime(r.inspected_at)}</span>
-        </div>
-        {r.notes && (
-          <div className="mt-1.5">
-            <p className={`text-xs text-gray-500 dark:text-gray-400 leading-relaxed ${!expanded && isLong ? 'line-clamp-3' : ''}`}>
-              {r.notes}
-            </p>
-            {isLong && (
-              <button
-                type="button"
-                onClick={() => setExpanded(e => !e)}
-                className="mt-1 text-[10px] font-semibold text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 transition-colors"
-              >
-                {expanded ? '↑ Show less' : 'Show full inspection →'}
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
 // ── Section: Quality & Compliance ─────────────────────────────────────────
+// Shows aggregate QC summary only — no inspector identity, no free-text notes.
 
-function QualityComplianceSection({ qcResults }: { qcResults: QcResult[] }) {
-  const latest    = qcResults[0]
-  const allPassed = qcResults.length > 0 && qcResults.every(q => q.status === 'pass')
-  const anyFailed = qcResults.some(q => q.status === 'fail')
-  const anyHold   = qcResults.some(q => q.status === 'hold')
+function QualitySection({ qc }: { qc: PublicQc }) {
+  const qcLabel =
+    qc.overall_result === 'pass'    ? 'QC Passed'
+    : qc.overall_result === 'fail'  ? 'QC Failed'
+    : qc.overall_result === 'hold'  ? 'On Hold'
+    :                                 'Pending'
 
-  const qcLabel: string =
-    !latest                    ? 'Pending'
-    : latest.status === 'pass' ? 'QC Passed'
-    : latest.status === 'fail' ? 'QC Failed'
-    :                            'On Hold'
+  const labLabel =
+    qc.overall_result === 'pass'    ? 'Lab Passed'
+    : qc.overall_result === 'fail'  ? 'Lab Failed'
+    : qc.overall_result === 'hold'  ? 'On Hold'
+    :                                 'Pending'
 
-  const labLabel: string =
-    !latest                    ? 'Pending'
-    : latest.status === 'pass' ? 'Lab Passed'
-    : latest.status === 'fail' ? 'Lab Failed'
-    :                            'On Hold'
-
-  const complianceLabel: string =
-    qcResults.length === 0 ? 'Pending'
-    : anyFailed             ? 'Non-Compliant'
-    : anyHold               ? 'On Hold'
-    : allPassed             ? 'Compliant'
-    :                         'Pending'
+  const complianceLabel =
+    qc.overall_result === 'pass'    ? 'Compliant'
+    : qc.overall_result === 'fail'  ? 'Non-Compliant'
+    : qc.overall_result === 'hold'  ? 'On Hold'
+    :                                 'Pending'
 
   return (
     <Section icon={<ShieldCheck size={15} />} title="Quality & Compliance" id="sec-quality">
       <Row label="QC Result"         value={<StatusBadge status={qcLabel} />} />
       <Row label="Lab Result"        value={<StatusBadge status={labLabel} />} />
       <Row label="Compliance Status" value={<StatusBadge status={complianceLabel} />} />
-      {latest && (
-        <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
-          {allPassed ? <CheckCircle2 size={11} className="inline mr-1 text-emerald-500" /> :
-           anyFailed ? <XCircle      size={11} className="inline mr-1 text-red-500"     /> :
-                       <Clock        size={11} className="inline mr-1 text-amber-500"   />}
-          Last inspected by {latest.inspector_name} · {fmt(latest.inspected_at)}
-        </p>
+      <Row label="Inspections"       value={`${qc.inspection_count} inspection${qc.inspection_count !== 1 ? 's' : ''}`} />
+      {qc.last_inspected_at && (
+        <Row label="Last Inspected"  value={fmt(qc.last_inspected_at)} />
       )}
+    </Section>
+  )
+}
+
+// ── Section: Production Information ───────────────────────────────────────
+// Operator/Responsible row removed — no actor data in public contract.
+
+function ProductionInfoSection({
+  product,
+  sectionId,
+}: {
+  product:   PublicTraceData['product']
+  sectionId?: string
+}) {
+  return (
+    <Section icon={<Factory size={15} />} title="Production Information" id={sectionId}>
+      {product.completed_at && (
+        <Row label="Completed"      value={fmtDateTime(product.completed_at)} />
+      )}
+      <Row label="Factory / Branch" value="Main Manufacturing Facility — Plant A" />
+      <Row label="Production Line"  value={deriveLine(product.sku)} />
     </Section>
   )
 }
@@ -400,40 +266,28 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 // Resolve a URL param to a production-order UUID.
 // If the param is already a UUID, return it as-is.
-// If it looks like a SKU (e.g. "VBC-2IN-316"), find the most recent
-// completed batch for that product so the URL works without knowing
-// the seed-generated UUID.
-// Both products and production_orders have public_trace_* anon policies.
+// If it looks like a SKU, find the most recent completed batch for that product.
 async function resolveToUUID(param: string): Promise<string | null> {
-  console.log('[trace] param received:', param)
-  console.log('[trace] is UUID:', UUID_RE.test(param))
-
   if (UUID_RE.test(param)) return param
 
-  const { data: product, error: productErr } = await supabase
+  const { data: product } = await supabase
     .from('products')
     .select('id, sku, company_id')
     .ilike('sku', param)
     .maybeSingle()
 
-  console.log('[trace] products query →', { product, error: productErr })
-
   if (!product?.id) return null
 
-  const { data: order, error: orderErr } = await supabase
+  const { data: order } = await supabase
     .from('production_orders')
-    .select('id, status, company_id, quantity')
+    .select('id')
     .eq('product_id', product.id)
     .eq('status', 'completed')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
-  console.log('[trace] production_orders query →', { order, error: orderErr })
-
-  const resolved = order?.id ?? null
-  console.log('[trace] resolved batch UUID:', resolved)
-  return resolved
+  return order?.id ?? null
 }
 
 // ── Page ───────────────────────────────────────────────────────────────────
@@ -441,18 +295,15 @@ async function resolveToUUID(param: string): Promise<string | null> {
 export default function PublicTracePage() {
   const { id } = useParams<{ id: string }>()
 
-  const [data,           setData]           = useState<TraceData | null>(null)
-  const [loading,        setLoading]        = useState(true)
-  const [notFound,       setNotFound]       = useState(false)
-  const [journey,        setJourney]        = useState<JourneyEvent[]>([])
-  const [journeyLoading, setJourneyLoading] = useState(false)
-  const [rcaData,        setRcaData]        = useState<RcaAlert | null>(null)
-  const [activeSection,  setActiveSection]  = useState<string>('sec-overview')
-  const [visible,        setVisible]        = useState(false)
+  const [traceData,     setTraceData]     = useState<PublicTraceData | null>(null)
+  const [resolvedId,    setResolvedId]    = useState<string>('')
+  const [loading,       setLoading]       = useState(true)
+  const [notFound,      setNotFound]      = useState(false)
+  const [activeSection, setActiveSection] = useState<string>('sec-overview')
+  const [visible,       setVisible]       = useState(false)
 
   useEffect(() => {
     if (!id) return
-    setJourneyLoading(true)
 
     async function load() {
       const batchId = await resolveToUUID(id)
@@ -460,41 +311,23 @@ export default function PublicTracePage() {
       if (!batchId) {
         setNotFound(true)
         setLoading(false)
-        setJourneyLoading(false)
         return
       }
 
       logScanEvent(batchId)
 
       const { data: rpcData, error } = await supabase
-        .rpc('get_batch_trace', { p_batch_id: batchId })
-        .single()
+        .rpc('get_public_batch_trace', { p_batch_id: batchId })
 
-      if (error || !rpcData) {
+      if (error || rpcData === null || rpcData === undefined) {
         setNotFound(true)
         setLoading(false)
-        setJourneyLoading(false)
         return
       }
 
-      setData(rpcData as TraceData)
+      setResolvedId(batchId)
+      setTraceData(rpcData as PublicTraceData)
       setLoading(false)
-
-      supabase
-        .rpc('get_batch_journey', { p_batch_id: batchId })
-        .then(({ data: jd, error: je }) => {
-          if (!je && jd) {
-            const timeline = (jd as JourneyData).timeline
-            if (Array.isArray(timeline)) setJourney(timeline)
-          }
-          setJourneyLoading(false)
-        }, () => setJourneyLoading(false))
-
-      supabase
-        .rpc('get_root_cause_analysis', { p_batch_id: batchId })
-        .then(({ data: rca, error: rcaErr }) => {
-          if (!rcaErr && rca) setRcaData(rca as RcaAlert)
-        })
     }
 
     load()
@@ -502,7 +335,7 @@ export default function PublicTracePage() {
 
   // Track active section based on scroll position
   useEffect(() => {
-    if (!data) return
+    if (!traceData) return
     let raf = 0
     const getActive = () => {
       const threshold = window.scrollY + window.innerHeight * 0.3
@@ -517,12 +350,12 @@ export default function PublicTracePage() {
     window.addEventListener('scroll', onScroll, { passive: true })
     raf = requestAnimationFrame(getActive)
     return () => { window.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf) }
-  }, [data])
+  }, [traceData])
 
   // Fade the page in after data arrives
   useEffect(() => {
-    if (data) requestAnimationFrame(() => setVisible(true))
-  }, [data])
+    if (traceData) requestAnimationFrame(() => setVisible(true))
+  }, [traceData])
 
   // ── Loading ──────────────────────────────────────────────────────────────
 
@@ -534,9 +367,9 @@ export default function PublicTracePage() {
     )
   }
 
-  // ── Not found ────────────────────────────────────────────────────────────
+  // ── Not found / error ────────────────────────────────────────────────────
 
-  if (notFound || !data) {
+  if (notFound || !traceData) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 dark:bg-gray-900 px-6 text-center">
         <AlertCircle size={44} className="mb-3 text-gray-300 dark:text-gray-600" />
@@ -550,21 +383,15 @@ export default function PublicTracePage() {
     )
   }
 
-  const { order, qc_results, materials, sales } = data
-  const latestQc = qc_results[0]
+  // ── Derived values ────────────────────────────────────────────────────────
 
-  const manufacturingEvents = journey.filter(e => !isScanEvent(e.source_table))
+  const { product, qc, materials, timeline, recall_alert, risk_level } = traceData
 
-  // Operator: prefer journey event actor → QC inspector → deterministic fallback
-  const displayOperator =
-    extractActorFromEvents(manufacturingEvents) ??
-    (qc_results[0]?.inspector_name ?? null) ??
-    deriveDemoOperator(order.id)
+  const activeRecalls   = recall_alert?.recalls.filter(r => r.status !== 'closed') ?? []
+  const showRecallAlert = (recall_alert?.has_active_recall ?? false) && activeRecalls.length > 0
+  const showRiskAlert   = !showRecallAlert && (risk_level === 'high' || risk_level === 'critical')
 
-  const activeRecalls   = rcaData?.recalls.filter(r => r.status !== 'closed') ?? []
-  const showRecallAlert = activeRecalls.length > 0
-  const showRiskAlert   = !showRecallAlert &&
-    (rcaData?.risk_level === 'high' || rcaData?.risk_level === 'critical')
+  const distributionCount = timeline.filter(e => e.event_type.startsWith('distribution.')).length
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -578,21 +405,22 @@ export default function PublicTracePage() {
           <div className="flex items-center gap-2">
             <LogoIcon size="sm" />
             <div>
-              <p className="text-xs font-bold text-gray-900 dark:text-white leading-tight">{order.product_name}</p>
-              <p className="font-mono text-[11px] text-gray-400 leading-tight">{order.sku}</p>
+              <p className="text-xs font-bold text-gray-900 dark:text-white leading-tight">{product.name}</p>
+              <p className="font-mono text-[11px] text-gray-400 leading-tight">{product.sku}</p>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
             <Badge
-              label={order.status.replace('_', ' ')}
-              className={orderStatusClass[order.status] ?? 'bg-gray-100 text-gray-600'}
+              label={product.status.replace('_', ' ')}
+              className={orderStatusClass[product.status] ?? 'bg-gray-100 text-gray-600'}
             />
-            {latestQc && (
-              <Badge label={latestQc.status} className={qcBadgeClass[latestQc.status]} />
-            )}
+            <Badge
+              label={qc.overall_result}
+              className={qcBadgeClass[qc.overall_result] ?? 'bg-gray-100 text-gray-600'}
+            />
           </div>
         </div>
-        {/* Section mini nav — horizontally scrollable on small screens */}
+        {/* Section mini nav */}
         <div className="border-t border-gray-100 dark:border-gray-700/50 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           <div className="flex items-center gap-0.5 px-3 py-1.5 mx-auto max-w-md min-w-max">
             {NAV_ITEMS.map(({ label, id: navId }) => (
@@ -616,20 +444,19 @@ export default function PublicTracePage() {
       {/* Body */}
       <div className="mx-auto max-w-md px-4 py-5 space-y-5">
 
-        {/* Hero + alerts + Batch Summary — 12px inner gap (tighter than the 20px body default) */}
         <div className="flex flex-col gap-3">
 
           {/* Hero card — product identity */}
           <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-gradient-to-br from-white via-blue-50/40 to-blue-100/60 dark:from-gray-800 dark:via-blue-950/20 dark:to-blue-900/30 shadow-sm overflow-hidden">
             <div className="px-5 pt-5 pb-4">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-blue-500 dark:text-blue-400 mb-2">Digital Product Passport</p>
-              <h1 className="text-xl font-bold text-gray-900 dark:text-white leading-tight mb-0.5">{order.product_name}</h1>
-              <p className="font-mono text-[11px] text-gray-400 dark:text-gray-500">{order.sku}</p>
+              <h1 className="text-xl font-bold text-gray-900 dark:text-white leading-tight mb-0.5">{product.name}</h1>
+              <p className="font-mono text-[11px] text-gray-400 dark:text-gray-500">{product.sku}</p>
             </div>
             <div className="border-t border-gray-100 dark:border-gray-700/60 grid grid-cols-2">
               <div className="px-4 py-3 border-r border-gray-100 dark:border-gray-700/60">
                 <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-0.5">Manufactured by</p>
-                <p className="text-xs font-semibold text-gray-700 dark:text-gray-200 truncate">{deriveDemoManufacturer(order.id)}</p>
+                <p className="text-xs font-semibold text-gray-700 dark:text-gray-200 truncate">Verified Manufacturer</p>
               </div>
               <div className="px-4 py-3">
                 <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-0.5">Factory / Plant</p>
@@ -637,7 +464,7 @@ export default function PublicTracePage() {
               </div>
               <div className="px-4 py-3 border-t border-r border-gray-100 dark:border-gray-700/60">
                 <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-0.5">Batch Reference</p>
-                <p className="font-mono text-xs font-bold text-gray-700 dark:text-gray-200">{deriveBatchRef(order.id, order.created_at)}</p>
+                <p className="font-mono text-xs font-bold text-gray-700 dark:text-gray-200">{deriveBatchRef(resolvedId, product.completed_at ?? '')}</p>
               </div>
               <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700/60 bg-emerald-50/50 dark:bg-emerald-900/10">
                 <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-1">Verified by</p>
@@ -675,7 +502,7 @@ export default function PublicTracePage() {
               <div>
                 <p className="text-sm font-bold text-amber-700 dark:text-amber-400">Quality Alert</p>
                 <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
-                  This batch has been flagged with a {rcaData?.risk_level} risk level. Contact the manufacturer for details.
+                  This batch has been flagged with a {risk_level} risk level. Contact the manufacturer for details.
                 </p>
               </div>
             </div>
@@ -683,123 +510,108 @@ export default function PublicTracePage() {
 
           {/* Batch Summary */}
           <Section icon={<Package size={15} />} title="Batch Summary" id="sec-overview">
-            <Row label="Product"   value={order.product_name} />
-            <Row label="SKU"       value={<span className="font-mono text-xs">{order.sku}</span>} />
-            <Row label="Quantity"  value={`${order.quantity.toLocaleString()} units`} />
+            <Row label="Product"   value={product.name} />
+            <Row label="SKU"       value={<span className="font-mono text-xs">{product.sku}</span>} />
             <Row label="Status"    value={
               <Badge
-                label={order.status.replace('_', ' ')}
-                className={orderStatusClass[order.status] ?? 'bg-gray-100 text-gray-600'}
+                label={product.status.replace('_', ' ')}
+                className={orderStatusClass[product.status] ?? 'bg-gray-100 text-gray-600'}
               />
             } />
-            <Row label="Created"   value={fmt(order.created_at)} />
-            {order.started_at   && <Row label="Started"   value={fmt(order.started_at)} />}
-            {order.completed_at && <Row label="Completed" value={fmt(order.completed_at)} />}
+            {product.completed_at && <Row label="Completed" value={fmt(product.completed_at)} />}
           </Section>
 
         </div>
 
-        {/* Product Journey — primary consumer experience */}
+        {/* Product Journey */}
         <Section
           icon={<Activity size={15} />}
           title="Product Journey"
-          count={journeyLoading ? undefined : manufacturingEvents.length}
+          count={timeline.length}
           id="sec-journey"
         >
-          <EnhancedTimeline
-            events={manufacturingEvents}
-            isLoading={journeyLoading}
-            distributionFallback={sales}
-          />
+          <EnhancedTimeline events={timeline} isLoading={false} productStatus={product.status} />
         </Section>
 
         {/* Quality & Compliance */}
-        <QualityComplianceSection qcResults={qc_results} />
+        <QualitySection qc={qc} />
 
         {/* Journey Metrics */}
-        {!journeyLoading && (
-          <JourneyMetrics
-            order={order}
-            qcResults={qc_results}
-            materials={materials}
-            sales={sales}
-            manufacturingEvents={manufacturingEvents}
-          />
+        <JourneyMetrics
+          completedAt={product.completed_at}
+          qc={qc}
+          materials={materials}
+          distributionCount={distributionCount}
+          timeline={timeline}
+        />
+
+        {/* Recall details — shown only when recalls exist */}
+        {(recall_alert?.recalls.length ?? 0) > 0 && (
+          <Section
+            icon={<AlertTriangle size={15} />}
+            title="Recall Information"
+            count={recall_alert!.recalls.length}
+          >
+            <div className="space-y-3">
+              {recall_alert!.recalls.map((r, i) => (
+                <div key={i} className="rounded-xl border border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-700/20 px-3 py-2.5">
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <span className="font-mono text-xs font-bold text-gray-700 dark:text-gray-200">{r.recall_number}</span>
+                    <StatusBadge status={r.status} />
+                  </div>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">{r.title}</p>
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-400 dark:text-gray-500">
+                    <span>Severity: <span className="font-medium text-gray-600 dark:text-gray-300">{r.severity}</span></span>
+                    {r.affected_units > 0 && (
+                      <span>{r.affected_units.toLocaleString()} units affected</span>
+                    )}
+                    <span>Initiated: {fmt(r.initiated_at)}</span>
+                    {r.closed_at && <span>Closed: {fmt(r.closed_at)}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Section>
         )}
 
         {/* Distribution */}
-        <Section icon={<ShoppingCart size={15} />} title="Distribution" count={sales.length} id="sec-distribution">
-          {sales.length === 0 && <Empty text="No distribution records for this batch." />}
-          {sales.length > 0 && (
-            <div className="space-y-2">
-              {sales.map((s, i) => {
-                const status = deriveShipmentStatus(i, s.sold_at)
-                return (
-                  <div key={i} className="rounded-xl border border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-700/20 px-3 py-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{s.customer_name || 'Customer'}</p>
-                      <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wide rounded-md px-2 py-0.5 ${shipmentStatusClass[status] ?? 'bg-gray-100 text-gray-600'}`}>
-                        {status}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-400 mt-0.5">{fmt(s.sold_at)}</p>
-                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 tabular-nums mt-1">
-                      {s.quantity.toLocaleString()} units
-                    </p>
-                  </div>
-                )
-              })}
+        <Section icon={<ShoppingCart size={15} />} title="Distribution" id="sec-distribution">
+          {distributionCount === 0 ? (
+            <Empty text="No distribution records for this batch." />
+          ) : (
+            <div className="py-1">
+              <p className="text-sm text-gray-700 dark:text-gray-300">
+                Distributed through authorized partners
+                {distributionCount > 0 && (
+                  <span className="text-gray-400 dark:text-gray-500">
+                    {' '}({distributionCount} shipment{distributionCount !== 1 ? 's' : ''} recorded)
+                  </span>
+                )}.
+              </p>
+              <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                Distribution details are visible in the product journey timeline above.
+              </p>
             </div>
           )}
         </Section>
 
-        {/* QC Inspections */}
-        <Section icon={<FlaskConical size={15} />} title="QC Inspections" count={qc_results.length}>
-          {qc_results.length === 0 && <Empty text="No QC inspections recorded for this batch." />}
-          {qc_results.length > 0 && (
-            <div className="space-y-2">
-              {qc_results.map((r, i) => <QcInspectionCard key={i} r={r} />)}
-            </div>
-          )}
-        </Section>
-
-        {/* Raw Materials */}
+        {/* Raw Materials — material names only */}
         <Section icon={<Layers size={15} />} title="Raw Materials Used" count={materials.length} id="sec-materials">
           {materials.length === 0 && <Empty text="No materials linked to this batch." />}
           {materials.length > 0 && (
-            <div className="overflow-x-auto -mx-1">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-100 dark:border-gray-700 text-[10px] text-gray-400 uppercase tracking-wider">
-                    <th className="pb-2.5 text-left font-semibold pr-3">Material</th>
-                    <th className="pb-2.5 text-left font-semibold pr-3">Supplier</th>
-                    <th className="pb-2.5 text-left font-semibold pr-3">Lot #</th>
-                    <th className="pb-2.5 text-right font-semibold">Qty Used</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
-                  {materials.map((m, i) => (
-                    <tr key={i} className="transition-all duration-150 hover:bg-white dark:hover:bg-gray-700/30 hover:-translate-y-px hover:shadow-[0_1px_4px_0_rgba(0,0,0,0.06)] dark:hover:shadow-[0_1px_4px_0_rgba(0,0,0,0.2)] hover:relative hover:z-10 cursor-default">
-                      <td className="py-2.5 pr-3 font-medium text-gray-900 dark:text-white">{m.material_name}</td>
-                      <td className="py-2.5 pr-3 text-xs text-gray-500 dark:text-gray-400">
-                        {m.supplier_name ?? <span className="text-gray-300 dark:text-gray-600">—</span>}
-                      </td>
-                      <td className="py-2.5 pr-3 font-mono text-xs text-gray-500 dark:text-gray-400">
-                        {m.lot_number ?? <span className="text-gray-300 dark:text-gray-600">—</span>}
-                      </td>
-                      <td className="py-2.5 text-right font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap tabular-nums">
-                        {formatQty(m.quantity)}&nbsp;{m.unit}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="divide-y divide-gray-50 dark:divide-gray-700/50">
+              {materials.map((m, i) => (
+                <div key={i} className="flex items-center gap-2.5 py-2">
+                  <span className="h-1.5 w-1.5 rounded-full bg-gray-300 dark:bg-gray-600 shrink-0" />
+                  <span className="text-sm font-medium text-gray-900 dark:text-white">{m.material_name}</span>
+                </div>
+              ))}
             </div>
           )}
         </Section>
 
         {/* Production Information */}
-        <ProductionInfoSection order={order} operator={displayOperator} sectionId="sec-production" />
+        <ProductionInfoSection product={product} sectionId="sec-production" />
 
         {/* Footer */}
         <div className="pb-8 pt-2 flex flex-col items-center">
