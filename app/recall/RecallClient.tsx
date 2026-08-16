@@ -10,6 +10,7 @@ import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
 import { logActivity, actorName } from '../lib/activity'
 import { useRecalls, type RecallFormData, type RecallSeverity, type RecallStatus, type LinkedCapaSummary } from '../hooks/useRecalls'
+import StatusBadge from '../components/StatusBadge'
 import { deriveBatchRef } from '../lib/batch'
 import {
   AlertTriangle, Search, Download, ChevronDown, ChevronRight,
@@ -359,12 +360,6 @@ const SEVERITY_BADGE: Record<RecallSeverity, string> = {
   critical: 'bg-red-100    text-red-700    dark:bg-red-900/20    dark:text-red-400',
 }
 
-const STATUS_BADGE: Record<RecallStatus, string> = {
-  open:        'bg-blue-100    text-blue-700    dark:bg-blue-900/20    dark:text-blue-400',
-  in_progress: 'bg-amber-100   text-amber-700   dark:bg-amber-900/20   dark:text-amber-400',
-  closed:      'bg-emerald-100 text-emerald-700  dark:bg-emerald-900/20 dark:text-emerald-400',
-}
-
 const EMPTY_RECALL: RecallFormData = {
   title: '', reason: '', severity: 'medium', root_cause: '',
   corrective_action: '', affected_units: '', initiated_by_name: '',
@@ -710,7 +705,7 @@ function RecallRegistry({
       )}
 
       {/* Table */}
-      <div className="rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 shadow-sm overflow-hidden">
+      <div className="rounded-xl border border-gray-200/60 dark:border-gray-700/40 overflow-hidden">
         {loading ? (
           <div className="space-y-3 p-5">
             {Array.from({ length: 4 }).map((_, i) => (
@@ -726,29 +721,29 @@ function RecallRegistry({
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] bg-[#D1CFC9]/50 dark:bg-[#262E36]/38 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                  <th className="px-5 py-3 text-start">Recall #</th>
-                  <th className="px-5 py-3 text-start">Title</th>
-                  <th className="px-5 py-3 text-start">Severity</th>
-                  <th className="px-5 py-3 text-start">Status</th>
-                  <th className="px-5 py-3 text-start">Open CAPAs</th>
-                  <th className="px-5 py-3 text-start">Initiated</th>
-                  <th className="px-5 py-3 text-start">Affected</th>
-                  <th className="px-5 py-3" />
+                <tr className="border-b-2 border-gray-300 dark:border-gray-500 bg-gray-100 dark:bg-[#2e3c52] text-xs tracking-wide">
+                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">Recall #</th>
+                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">Title</th>
+                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">Severity</th>
+                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">Status</th>
+                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">Open CAPAs</th>
+                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">Initiated</th>
+                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">Affected</th>
+                  <th className="px-3 py-2" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50 dark:divide-[#B3B7BA]/[0.07]">
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700/40 bg-white dark:bg-gray-800">
                 {recalls.map(recall => (
                   <tr
                     key={recall.id}
                     id={`recall-${recall.id}`}
-                    className={`transition-colors ${
+                    className={`transition-colors duration-150 ${
                       highlightId === recall.id
                         ? 'bg-red-50/60 dark:bg-red-900/15 ring-1 ring-inset ring-red-200 dark:ring-red-800'
-                        : 'hover:bg-blue-50/40 dark:hover:bg-blue-900/10'
+                        : 'hover:bg-[rgba(58,111,143,0.07)] dark:hover:bg-[rgba(58,111,143,0.13)]'
                     }`}
                   >
-                    <td className="px-5 py-3.5 whitespace-nowrap">
+                    <td className="px-3 py-1.5 whitespace-nowrap">
                       <a
                         href={`/recall/${recall.id}`}
                         className="font-mono text-xs font-semibold text-[#3a6f8f] dark:text-[#7ab3d0] hover:underline hover:text-[#2d5a74] dark:hover:text-[#9fcce8] transition-colors"
@@ -756,21 +751,19 @@ function RecallRegistry({
                         {recall.recall_number ?? `#${recall.id.slice(0, 8)}`}
                       </a>
                     </td>
-                    <td className="px-5 py-3.5 max-w-xs">
+                    <td className="px-3 py-1.5 max-w-xs">
                       <p className="font-medium text-gray-900 dark:text-white leading-snug">{recall.title}</p>
                       <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 truncate">{recall.reason}</p>
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-3 py-1.5">
                       <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${SEVERITY_BADGE[recall.severity]}`}>
                         {recall.severity}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5">
-                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_BADGE[recall.status]}`}>
-                        {recall.status.replace('_', ' ')}
-                      </span>
+                    <td className="px-3 py-1.5">
+                      <StatusBadge status={recall.status} />
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-3 py-1.5">
                       {(() => {
                         const openCount = (recall.linked_capas ?? []).filter(c => c.status !== 'closed').length
                         return openCount > 0 ? (
@@ -787,13 +780,13 @@ function RecallRegistry({
                         )
                       })()}
                     </td>
-                    <td className="px-5 py-3.5 text-gray-600 dark:text-gray-400 whitespace-nowrap text-xs">
+                    <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400 whitespace-nowrap text-xs">
                       {new Date(recall.initiated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                     </td>
-                    <td className="px-5 py-3.5 text-gray-700 dark:text-gray-300">
+                    <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">
                       {recall.affected_units != null ? recall.affected_units.toLocaleString() : '—'}
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-3 py-1.5">
                       <div className="flex items-center justify-end gap-2">
                         {recall.batch_id && (
                           <a

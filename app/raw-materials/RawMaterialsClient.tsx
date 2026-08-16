@@ -465,7 +465,7 @@ export default function RawMaterialsClient() {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder={t('materials.search_placeholder')}
-              className="w-full rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/55 pe-3 ps-8 py-1.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]"
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 py-1.5 ps-8 pe-3 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 outline-none focus:border-[#3a6f8f] focus:ring-2 focus:ring-[#3a6f8f]/40 transition-all"
             />
           </div>
         </div>
@@ -505,7 +505,7 @@ export default function RawMaterialsClient() {
       </div>
 
       {/* Table */}
-      <div ref={tableRef} className="overflow-hidden rounded-2xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 shadow-sm">
+      <div ref={tableRef} className="rounded-xl border border-gray-200/60 dark:border-gray-700/40 overflow-hidden">
         {loading ? (
           <div className="p-4 space-y-2">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -520,42 +520,42 @@ export default function RawMaterialsClient() {
           </div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-[#D1CFC9]/50 dark:bg-[#262E36]/55/50 text-xs text-gray-500 dark:text-gray-400">
-              <tr>
-                <th className="py-2 pl-6 pr-4 text-start font-medium">
-                  <button onClick={() => toggleSort('name')} className="inline-flex items-center hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+            <thead>
+              <tr className="border-b-2 border-gray-300 dark:border-gray-500 bg-gray-100 dark:bg-[#2e3c52] text-xs tracking-wide">
+                <th className="px-3 py-2 group cursor-pointer select-none text-left text-gray-700 dark:text-gray-100 font-bold hover:text-gray-900 dark:hover:text-white transition-colors duration-150">
+                  <button onClick={() => toggleSort('name')} className="inline-flex items-center">
                     {t('common.name')}
                     <SortIcon col="name" sortCol={sortCol} sortAsc={sortAsc} />
                   </button>
                 </th>
-                <th className="px-4 py-2 text-start font-medium">
-                  <button onClick={() => toggleSort('quantity_in_stock')} className="inline-flex items-center hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+                <th className="px-3 py-2 group cursor-pointer select-none text-left text-gray-700 dark:text-gray-100 font-bold hover:text-gray-900 dark:hover:text-white transition-colors duration-150">
+                  <button onClick={() => toggleSort('quantity_in_stock')} className="inline-flex items-center">
                     {t('common.in_stock')}
                     <SortIcon col="quantity_in_stock" sortCol={sortCol} sortAsc={sortAsc} />
                   </button>
                 </th>
-                <th className="px-4 py-2 text-start font-medium">{t('common.reorder_at')}</th>
-                <th className="px-4 py-2 text-start font-medium">{t('common.supplier')}</th>
-                <th className="px-4 py-2 text-start font-medium">
-                  <button onClick={() => toggleSort('status')} className="inline-flex items-center hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+                <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">{t('common.reorder_at')}</th>
+                <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">{t('common.supplier')}</th>
+                <th className="px-3 py-2 group cursor-pointer select-none text-left text-gray-700 dark:text-gray-100 font-bold hover:text-gray-900 dark:hover:text-white transition-colors duration-150">
+                  <button onClick={() => toggleSort('status')} className="inline-flex items-center">
                     {t('common.status')}
                     <SortIcon col="status" sortCol={sortCol} sortAsc={sortAsc} />
                   </button>
                 </th>
-                <th className="py-2 pl-4 pr-8 text-end font-medium">{t('common.actions')}</th>
+                <th className="px-3 py-2 text-end text-gray-700 dark:text-gray-100 font-bold">{t('common.actions')}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50 dark:divide-[#B3B7BA]/[0.07]">
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700/40 bg-white dark:bg-gray-800">
               {materials.map((m) => (
-                <tr key={m.id} className="hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/22 transition-colors">
-                  <td className="py-1.5 pl-6 pr-4 font-medium text-gray-900 dark:text-white">{m.name}</td>
-                  <td className="px-4 py-1.5 font-semibold text-gray-800 dark:text-gray-200">
+                <tr key={m.id} className="hover:bg-[rgba(58,111,143,0.07)] dark:hover:bg-[rgba(58,111,143,0.13)] transition-colors duration-150">
+                  <td className="py-1.5 pl-3 pr-3 font-medium text-gray-900 dark:text-white">{m.name}</td>
+                  <td className="px-3 py-1.5 font-semibold text-gray-800 dark:text-gray-200">
                     {fmtQty(m.quantity_in_stock, m.unit, locale)}
                   </td>
-                  <td className="px-4 py-1.5 text-gray-500 dark:text-gray-400">
+                  <td className="px-3 py-1.5 text-gray-500 dark:text-gray-400">
                     {fmtQty(m.reorder_level, m.unit, locale)}
                   </td>
-                  <td className="px-4 py-1.5 text-gray-500 dark:text-gray-400">
+                  <td className="px-3 py-1.5 text-gray-500 dark:text-gray-400">
                     {m.suppliers ? (
                       <span className="block max-w-[160px] truncate" title={m.suppliers.name}>
                         {m.suppliers.name}
@@ -564,10 +564,10 @@ export default function RawMaterialsClient() {
                       <span className="text-xs text-gray-400 dark:text-gray-500">{t('materials.no_supplier')}</span>
                     )}
                   </td>
-                  <td className="px-4 py-1.5">
+                  <td className="px-3 py-1.5">
                     <StockStatusCell m={m} />
                   </td>
-                  <td className="py-1.5 pl-4 pr-8 text-end">
+                  <td className="px-3 py-1.5 text-end">
                     {canWrite && (
                       <RowMenu
                         onEdit={() => openEdit(m)}

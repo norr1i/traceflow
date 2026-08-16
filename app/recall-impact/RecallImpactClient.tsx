@@ -256,7 +256,7 @@ function TableSection({ title, icon: Icon, count, children, defaultOpen = true }
 }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 shadow-sm overflow-hidden">
+    <div className="rounded-xl border border-gray-200/60 dark:border-gray-700/40 overflow-hidden">
       <button
         onClick={() => setOpen(o => !o)}
         className="flex w-full items-center gap-2.5 border-b border-[#B3B7BA]/30 dark:border-[#B3B7BA]/[0.10] px-5 py-3.5 text-left hover:bg-[#D1CFC9]/20 dark:hover:bg-[#262E36]/25 transition-colors"
@@ -653,22 +653,22 @@ export default function RecallImpactClient() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-[#B3B7BA]/30 dark:border-[#B3B7BA]/[0.10] text-xs text-gray-400">
-                        <th className="pb-2 text-left font-medium">Product Name</th>
-                        <th className="pb-2 text-left font-medium">SKU</th>
-                        <th className="pb-2 text-right font-medium">Batch Count</th>
-                        <th className="pb-2 text-right font-medium">Produced</th>
-                        <th className="pb-2 text-right font-medium">In Field</th>
+                      <tr className="border-b-2 border-gray-300 dark:border-gray-500 bg-gray-100 dark:bg-[#2e3c52] text-xs tracking-wide">
+                        <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">Product Name</th>
+                        <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">SKU</th>
+                        <th className="px-3 py-2 text-right text-gray-700 dark:text-gray-100 font-bold">Batch Count</th>
+                        <th className="px-3 py-2 text-right text-gray-700 dark:text-gray-100 font-bold">Produced</th>
+                        <th className="px-3 py-2 text-right text-gray-700 dark:text-gray-100 font-bold">In Field</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
+                    <tbody className="divide-y divide-gray-100 dark:divide-gray-700/40 bg-white dark:bg-gray-800">
                       {result.affected_products.map((p, i) => (
-                        <tr key={i}>
-                          <td className="py-2.5 font-medium text-gray-900 dark:text-white">{p.product_name}</td>
-                          <td className="py-2.5 font-mono text-xs text-gray-500 dark:text-gray-400">{p.sku}</td>
-                          <td className="py-2.5 text-right text-gray-700 dark:text-gray-300">{p.batch_count}</td>
-                          <td className="py-2.5 text-right text-gray-500 dark:text-gray-400">{p.produced_units.toLocaleString()}</td>
-                          <td className="py-2.5 text-right font-semibold text-gray-900 dark:text-white">{p.distributed_units.toLocaleString()}</td>
+                        <tr key={i} className="hover:bg-[rgba(58,111,143,0.07)] dark:hover:bg-[rgba(58,111,143,0.13)] transition-colors duration-150">
+                          <td className="px-3 py-1.5 font-medium text-gray-900 dark:text-white">{p.product_name}</td>
+                          <td className="px-3 py-1.5 font-mono text-xs text-gray-500 dark:text-gray-400">{p.sku}</td>
+                          <td className="px-3 py-1.5 text-right text-gray-700 dark:text-gray-300">{p.batch_count}</td>
+                          <td className="px-3 py-1.5 text-right text-gray-500 dark:text-gray-400">{p.produced_units.toLocaleString()}</td>
+                          <td className="px-3 py-1.5 text-right font-semibold text-gray-900 dark:text-white">{p.distributed_units.toLocaleString()}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -720,17 +720,17 @@ export default function RecallImpactClient() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-[#B3B7BA]/30 dark:border-[#B3B7BA]/[0.10] text-xs text-gray-400">
-                        <th className="pb-2 text-left font-medium">Recipient Name</th>
-                        <th className="pb-2 text-left font-medium">Recipient Type</th>
-                        <th className="pb-2 text-right font-medium">Quantity</th>
-                        <th className="pb-2 text-right font-medium">Shipped At</th>
+                      <tr className="border-b-2 border-gray-300 dark:border-gray-500 bg-gray-100 dark:bg-[#2e3c52] text-xs tracking-wide">
+                        <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">Recipient Name</th>
+                        <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">Recipient Type</th>
+                        <th className="px-3 py-2 text-right text-gray-700 dark:text-gray-100 font-bold">Quantity</th>
+                        <th className="px-3 py-2 text-right text-gray-700 dark:text-gray-100 font-bold">Shipped At</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
+                    <tbody className="divide-y divide-gray-100 dark:divide-gray-700/40 bg-white dark:bg-gray-800">
                       {result.affected_distributors.map((d, i) => (
-                        <tr key={i}>
-                          <td className="py-2.5">
+                        <tr key={i} className="hover:bg-[rgba(58,111,143,0.07)] dark:hover:bg-[rgba(58,111,143,0.13)] transition-colors duration-150">
+                          <td className="px-3 py-1.5">
                             <p className="font-medium text-gray-900 dark:text-white">{d.recipient_name}</p>
                             {d.notes && (
                               <p className="mt-0.5 max-w-sm truncate text-[11px] text-gray-400 dark:text-gray-500">
@@ -738,15 +738,15 @@ export default function RecallImpactClient() {
                               </p>
                             )}
                           </td>
-                          <td className="py-2.5">
+                          <td className="px-3 py-1.5">
                             <span className="rounded-md bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">
                               {d.recipient_type ?? 'distributor'}
                             </span>
                           </td>
-                          <td className="py-2.5 text-right font-semibold text-gray-900 dark:text-white">
+                          <td className="px-3 py-1.5 text-right font-semibold text-gray-900 dark:text-white">
                             {d.quantity.toLocaleString()}
                           </td>
-                          <td className="py-2.5 text-right text-xs text-gray-500 dark:text-gray-400">
+                          <td className="px-3 py-1.5 text-right text-xs text-gray-500 dark:text-gray-400">
                             {fmt(d.shipped_at)}
                           </td>
                         </tr>

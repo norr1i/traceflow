@@ -522,7 +522,7 @@ export default function ProductionClient() {
               value={searchInput}
               onChange={(e) => { setSearchInput(e.target.value); setPage(1) }}
               placeholder={t('production.search_placeholder')}
-              className="w-full rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC] dark:bg-[#262E36]/55 ps-8 pe-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]/30 transition-colors"
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 py-1.5 ps-8 pe-3 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 outline-none focus:border-[#3a6f8f] focus:ring-2 focus:ring-[#3a6f8f]/40 transition-all"
             />
           </div>
         </div>
@@ -892,7 +892,7 @@ export default function ProductionClient() {
       )}
 
       {/* ── Orders table ──────────────────────────────────────────────────── */}
-      <div className="overflow-hidden rounded-2xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 shadow-sm">
+      <div className="rounded-xl border border-gray-200/60 dark:border-gray-700/40 overflow-hidden">
         {loading ? (
           <div className="p-4 space-y-3">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -907,43 +907,43 @@ export default function ProductionClient() {
           </div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-[#D1CFC9]/50 dark:bg-[#262E36]/38 text-xs text-gray-500 dark:text-gray-400">
+            <thead className="border-b-2 border-gray-300 dark:border-gray-500 bg-gray-100 dark:bg-[#2e3c52] text-xs tracking-wide">
               <tr>
-                <th className="px-4 py-3 text-start font-medium">
-                  <button onClick={() => toggleSort('order_number')} className="inline-flex items-center hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+                <th className="px-3 py-2 group cursor-pointer select-none text-left text-gray-700 dark:text-gray-100 font-bold hover:text-gray-900 dark:hover:text-white transition-colors duration-150">
+                  <button onClick={() => toggleSort('order_number')} className="inline-flex items-center">
                     {t('production.order_number_col')}
                     <SortIcon col="order_number" sortCol={sortCol} sortAsc={sortAsc} />
                   </button>
                 </th>
-                <th className="px-4 py-3 text-start font-medium">{t('production.product_col')}</th>
-                <th className="px-4 py-3 text-start font-medium">
-                  <button onClick={() => toggleSort('quantity')} className="inline-flex items-center hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+                <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">{t('production.product_col')}</th>
+                <th className="px-3 py-2 group cursor-pointer select-none text-left text-gray-700 dark:text-gray-100 font-bold hover:text-gray-900 dark:hover:text-white transition-colors duration-150">
+                  <button onClick={() => toggleSort('quantity')} className="inline-flex items-center">
                     {t('production.quantity_col')}
                     <SortIcon col="quantity" sortCol={sortCol} sortAsc={sortAsc} />
                   </button>
                 </th>
-                <th className="px-4 py-3 text-start font-medium">{t('production.status_col')}</th>
-                <th className="px-4 py-3 text-start font-medium hidden sm:table-cell">
-                  <button onClick={() => toggleSort('due_date')} className="inline-flex items-center hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+                <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">{t('production.status_col')}</th>
+                <th className="px-3 py-2 group cursor-pointer select-none text-left text-gray-700 dark:text-gray-100 font-bold hover:text-gray-900 dark:hover:text-white transition-colors duration-150 hidden sm:table-cell">
+                  <button onClick={() => toggleSort('due_date')} className="inline-flex items-center">
                     {t('production.due_date_col')}
                     <SortIcon col="due_date" sortCol={sortCol} sortAsc={sortAsc} />
                   </button>
                 </th>
-                <th className="px-4 py-3 text-start font-medium">{t('production.actions_col')}</th>
+                <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">{t('production.actions_col')}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50 dark:divide-[#B3B7BA]/[0.07]">
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700/40 bg-white dark:bg-gray-800">
               {displayOrders.map((o) => {
                 const late = isOverdue(o, today)
                 return (
-                  <tr key={o.id} className="hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/22 transition-colors">
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                  <tr key={o.id} className="hover:bg-[rgba(58,111,143,0.07)] dark:hover:bg-[rgba(58,111,143,0.13)] transition-colors duration-150">
+                    <td className="px-3 py-1.5 font-mono text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
                       {formatOrderNumber(o.id, o.created_at)}
                     </td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{o.products?.name ?? '—'}</td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{fmtNum(o.quantity, lang)}</td>
-                    <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
-                    <td className="px-4 py-3 hidden sm:table-cell">
+                    <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">{o.products?.name ?? '—'}</td>
+                    <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">{fmtNum(o.quantity, lang)}</td>
+                    <td className="px-3 py-1.5"><StatusBadge status={o.status} /></td>
+                    <td className="px-3 py-1.5 hidden sm:table-cell">
                       {o.due_date ? (
                         <span className={late ? 'text-red-600 dark:text-red-400 font-medium' : 'text-gray-600 dark:text-gray-400'}>
                           {fmtDueDate(o.due_date)}
@@ -957,7 +957,7 @@ export default function ProductionClient() {
                         <span className="text-gray-300 dark:text-gray-600">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-1.5">
                       <div className="flex items-center gap-1">
                         {(() => {
                           const qrEnabled = o.status === 'in_progress' || o.status === 'completed'

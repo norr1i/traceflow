@@ -333,40 +333,66 @@ function synthesizeDistributorEvents(
 //   market.listed (+1 day)  → product goes live
 //   market.registered (+2d) → registered with market authorities
 //   market.surveillance_started (+5d) → post-market surveillance activated
-function synthesizeMarketEvents(sales: TraceSale[]): JourneyEvent[] {
-  if (sales.length === 0) return []
-  const firstSale = [...sales].sort(
-    (a, b) => new Date(a.sold_at).getTime() - new Date(b.sold_at).getTime()
-  )[0]
-  const saleMs  = new Date(firstSale.sold_at).getTime()
-  const customer = firstSale.customer_name
+// Primary source: earliest shipped_at from distribution_records, which are batch-scoped
+// via production_orders.id → batches.production_order_id → distribution_records.batch_id.
+// Fallback: earliest sales.sold_at — product-scoped; used only when no distribution
+// records exist for the current batch (e.g. batches never linked to a batches row).
+function synthesizeMarketEvents(
+  distributionRecords: DistributionRecord[],
+  sales: TraceSale[],
+): JourneyEvent[] {
+  let anchorMs: number
+  let recipient: string | null = null
+  let sourceTable: string
+
+  if (distributionRecords.length > 0) {
+    // Anchor to the LATEST shipment so all market events appear after every
+    // distribution event.  Using the earliest shipment caused market events to
+    // interleave between subsequent shipments when a batch had multiple destinations.
+    const last  = [...distributionRecords].sort(
+      (a, b) => new Date(b.shipped_at).getTime() - new Date(a.shipped_at).getTime()
+    )[0]
+    anchorMs    = new Date(last.shipped_at).getTime()
+    recipient   = last.recipient_name
+    sourceTable = 'distribution_records'
+  } else if (sales.length > 0) {
+    const first = [...sales].sort(
+      (a, b) => new Date(a.sold_at).getTime() - new Date(b.sold_at).getTime()
+    )[0]
+    anchorMs    = new Date(first.sold_at).getTime()
+    recipient   = first.customer_name
+    sourceTable = 'sales'
+  } else {
+    return []
+  }
+
   return [
     {
       event_type:      'market.listed',
-      event_timestamp: new Date(saleMs + 24 * 3600 * 1000).toISOString(),
+      event_timestamp: new Date(anchorMs + 24 * 3600 * 1000).toISOString(),
       title:           'Active on Market',
-      description:     customer
-        ? `Products sold to ${customer} and available through retail distribution channels.`
+      description:     recipient
+        ? `Products sold to ${recipient} and available through retail distribution channels.`
         : 'Products live in retail and distribution channels.',
-      source_table:    'sales',
-      metadata:        customer ? { customer_name: customer } : null,
+      source_table:    sourceTable,
+      metadata:        recipient ? { customer_name: recipient } : null,
       synthesized:     true,
     },
     {
       event_type:      'market.registered',
-      event_timestamp: new Date(saleMs + 2 * 24 * 3600 * 1000).toISOString(),
+      event_timestamp: new Date(anchorMs + 2 * 24 * 3600 * 1000).toISOString(),
       title:           'Product Registered in Market',
       description:     'Product batch registered with market authorities and assigned a market registration number.',
-      source_table:    'sales',
+      source_table:    sourceTable,
       metadata:        null,
       synthesized:     true,
     },
     {
       event_type:      'market.surveillance_started',
-      event_timestamp: new Date(saleMs + 5 * 24 * 3600 * 1000).toISOString(),
+      event_timestamp: new Date(anchorMs + 5 * 24 * 3600 * 1000).toISOString(),
       title:           'Market Surveillance Started',
       description:     'Post-market surveillance programme activated. Product performance being monitored in distribution channels.',
-      source_table:    'sales',
+      source_table:    sourceTable,
       metadata:        null,
       synthesized:     true,
     },
@@ -533,12 +559,18 @@ function synthesizeEvents(
 // queries by both production_order_id and any linked batches.id values to
 // maximise hit rate regardless of which identifier was stored during the backfill.
 //
-// These events are treated as supplementary: mergeJourneyEvents will prefer an
-// identically-typed RPC event if one exists at the same minute.
-function synthesizeBatchEvents(rows: BatchEventRow[]): JourneyEvent[] {
+// Production events (produced → production.completed) are suppressed when the
+// authoritative production order already provides that timestamp via started_at /
+// completed_at.  batch_events.created_at reflects the DB-row insertion date (e.g.
+// the seed-run date), not the actual manufacturing event date, so it must not
+// override or duplicate the production_orders timestamps.
+function synthesizeBatchEvents(rows: BatchEventRow[], order: TraceOrder): JourneyEvent[] {
   return rows.flatMap(row => {
     switch (row.event_type) {
       case 'produced':
+        // Suppress when production_orders.completed_at already exists — synthesizeEvents
+        // creates the authoritative production.completed event from that field.
+        if (order.completed_at) return []
         return [{
           event_type:      'production.completed',
           event_timestamp: row.created_at,
@@ -1608,21 +1640,34 @@ function AccordionSection({
 
 // ── Phase classification ───────────────────────────────────────────────────────
 
-type PhaseKey = 'supplier' | 'production' | 'quality' | 'packaging' | 'distribution' | 'issues'
+type PhaseKey = 'supplier' | 'production' | 'quality' | 'packaging' | 'distribution' | 'market' | 'issues'
 
 const PHASE_MAP: Record<string, PhaseKey> = {
+  // ── Supplier & incoming material ─────────────────────────────────────────
   'batch.created':              'supplier',
   'production.order_created':   'supplier',
   'supplier.qualified':         'supplier',
   'supplier.material_received': 'supplier',
+  'raw_material.received':      'supplier',
+  'raw_material.qc_passed':     'supplier',
+  'raw_material.qc_failed':     'supplier',
+  // ── Production ───────────────────────────────────────────────────────────
   'material.received':          'production',
   'material.allocated':         'production',
+  'material.consumed':          'production',
+  'material.added_to_batch':    'production',
+  'incoming_qc.approved':       'production',
   'incoming_qc.passed':         'production',
   'incoming_qc.failed':         'production',
   'incoming_qc.hold':           'production',
   'incoming_qc.completed':      'production',
+  'storage.entry':              'production',
   'production.started':         'production',
   'production.completed':       'production',
+  // ── Quality ──────────────────────────────────────────────────────────────
+  'qc.pass':                    'quality',
+  'qc.fail':                    'quality',
+  'qc.hold':                    'quality',
   'qc.inspection.passed':       'quality',
   'qc.inspection.failed':       'quality',
   'qc.inspection.hold':         'quality',
@@ -1630,16 +1675,33 @@ const PHASE_MAP: Record<string, PhaseKey> = {
   'final_qc.passed':            'quality',
   'final_qc.failed':            'quality',
   'final_qc.completed':         'quality',
+  // ── Packaging ────────────────────────────────────────────────────────────
   'packaging.started':          'packaging',
   'packaging.completed':        'packaging',
+  // ── Warehouse & Distribution ─────────────────────────────────────────────
   'storage.allocated':          'distribution',
   'warehouse.received':         'distribution',
+  'finished_goods.stored':      'distribution',
+  'finished_goods.released':    'distribution',
+  'warehouse.dispatch_ready':   'distribution',
   'distribution.created':       'distribution',
+  'distribution.shipped':       'distribution',
   'distribution.dispatched':    'distribution',
   'distribution.delivered':     'distribution',
   'distributor.assigned':       'distribution',
+  'distributor.received':       'distribution',
   'shipping.dispatched':        'distribution',
   'shipping.delivered':         'distribution',
+  // ── Market & Compliance ───────────────────────────────────────────────────
+  'market.listed':              'market',
+  'market.registered':          'market',
+  'market.surveillance_started':'market',
+  'market.active':              'market',
+  'market.tracked':             'market',
+  'market.complaint_received':  'market',
+  'market.sold':                'market',
+  'market.delivered':           'market',
+  // ── Recall & CAPA ────────────────────────────────────────────────────────
   'recall.created':             'issues',
   'recall.initiated':           'issues',
   'recall.updated':             'issues',
@@ -1656,6 +1718,7 @@ const PHASE_LABELS: Record<PhaseKey, string> = {
   quality:      'Quality',
   packaging:    'Packaging',
   distribution: 'Warehouse & Distribution',
+  market:       'Market & Compliance',
   issues:       'Recall & CAPA',
 }
 
@@ -1804,6 +1867,8 @@ function timelineEventStyle(eventType: string): TimelineStyle {
     return { bgCls: 'bg-violet-500/10 dark:bg-violet-500/15', iconCls: 'text-violet-500',   labelCls: 'text-[var(--text)]',                    Icon: Archive }
   if (eventType.startsWith('material.') || eventType.startsWith('supplier.') || eventType.startsWith('storage.'))
     return { bgCls: 'bg-orange-500/10 dark:bg-orange-500/15', iconCls: 'text-orange-500',   labelCls: 'text-[var(--text)]',                    Icon: Layers }
+  if (eventType.startsWith('market.'))
+    return { bgCls: 'bg-blue-500/10 dark:bg-blue-500/15',     iconCls: 'text-blue-500',     labelCls: 'text-[var(--text)]',                    Icon: ShieldCheck }
   return   { bgCls: 'bg-blue-500/10 dark:bg-blue-500/15',     iconCls: 'text-blue-500',     labelCls: 'text-[var(--text)]',                    Icon: Wrench }
 }
 
@@ -1817,6 +1882,7 @@ const PHASE_ICONS: Record<PhaseKey, React.ElementType> = {
   quality:      ShieldCheck,
   packaging:    Archive,
   distribution: Truck,
+  market:       Building2,
   issues:       AlertTriangle,
 }
 
@@ -1828,6 +1894,7 @@ const PHASE_PILL_CLS: Record<PhaseKey, string> = {
   quality:      'border-[var(--border)] text-[var(--muted)] bg-[var(--bg)]/40',
   packaging:    'border-[var(--border)] text-[var(--muted)] bg-[var(--bg)]/40',
   distribution: 'border-[var(--border)] text-[var(--muted)] bg-[var(--bg)]/40',
+  market:       'border-[var(--border)] text-[var(--muted)] bg-[var(--bg)]/40',
   issues:       'border-[var(--border)] text-[var(--muted)] bg-[var(--bg)]/40',
 }
 
@@ -2536,7 +2603,7 @@ function SidebarTimeline({
     const RECALL_LIFECYCLE = ['Recall Opened', 'Scope Expanded', 'Customer Notification Sent', 'Investigation Updated']
 
     return events.map(event => {
-      const phase     = (PHASE_MAP[event.event_type] ?? 'production') as PhaseKey
+      const phase     = (PHASE_MAP[event.event_type] ?? 'distribution') as PhaseKey
       const showPhase = phase !== currentPhase
       currentPhase    = phase
       const isMilestone = MILESTONE_EVENTS.has(event.event_type)
@@ -2567,8 +2634,13 @@ function SidebarTimeline({
         || event.event_type.startsWith('shipping.')
         || event.event_type === 'distributor.assigned'
       const d0 = distRecords[0]
-      const recipient = isShipment && d0
-        ? { name: d0.recipient_name, type: d0.recipient_type ?? '' }
+      // distribution.shipped events carry per-shipment recipient in their own metadata
+      // (set by synthesizeEvents). Other shipment event types come from the RPC and
+      // have no per-event metadata, so fall back to the first distribution record.
+      const recipient = isShipment
+        ? event.event_type === 'distribution.shipped' && event.metadata?.recipient_name
+          ? { name: event.metadata.recipient_name as string, type: (event.metadata.recipient_type as string) ?? '' }
+          : d0 ? { name: d0.recipient_name, type: d0.recipient_type ?? '' } : null
         : null
 
       return { event, label, isMilestone, evStyle, phase, showPhase, recipient }
@@ -2676,8 +2748,7 @@ function SidebarTimeline({
                   ? 'border border-[var(--border)]/35 bg-[var(--surface)] rounded-xl px-3 -mx-3 hover:border-[var(--border)]/55 hover:shadow-[0_1px_8px_-2px_rgba(0,0,0,0.08)]'
                   : 'border border-[var(--border)]/18 bg-[var(--surface)] rounded-lg px-3 -mx-3 hover:border-[var(--border)]/38 hover:shadow-[0_1px_6px_-2px_rgba(0,0,0,0.06)]'
 
-              // Top padding for the content row; bottom is minimal since the chevron strip follows.
-              const contentPad = isRecallOpened ? 'pt-[9px] pb-[1px]' : 'pt-[6px] pb-[1px]'
+              const contentPad = isRecallOpened ? 'pt-[9px] pb-[9px]' : 'pt-[6px] pb-[6px]'
 
               return (
                 <Fragment key={`${event.event_type}-${event.event_timestamp}-${i}`}>
@@ -2752,7 +2823,7 @@ function SidebarTimeline({
                           >
                             {label}
                           </p>
-                          {description && (
+                          {isExpanded && description && (
                             <p className="mt-[3px] text-[11px] leading-relaxed text-[var(--muted)] line-clamp-2">
                               {description}
                             </p>
@@ -2766,28 +2837,26 @@ function SidebarTimeline({
                               )}
                             </div>
                           )}
-                          {!description && !recipient && actor && (
+                          {isExpanded && !description && !recipient && actor && (
                             <p className="mt-[3px] text-[10.5px] leading-snug text-[var(--muted)]">{actor}</p>
                           )}
                         </div>
 
-                        {/* Date + badge — right column */}
-                        <div className="shrink-0 flex flex-col items-end gap-[6px] pt-[1px]" style={{ minWidth: 60 }}>
-                          <p className="text-[10px] font-medium tabular-nums text-[var(--muted)] leading-none">{datePart}</p>
+                        {/* Date + badge + chevron — right column */}
+                        <div className="shrink-0 flex flex-col items-end gap-[5px] pt-[1px]" style={{ minWidth: 64 }}>
+                          <div className="flex items-center gap-[4px]">
+                            <p className="text-[10px] font-medium tabular-nums text-[var(--muted)] leading-none">{datePart}</p>
+                            <ChevronDown
+                              size={12}
+                              className={`shrink-0 text-[var(--subtle)] opacity-40 group-hover:opacity-65 transition-all duration-300 ease-out ${isExpanded ? 'rotate-180 opacity-65' : ''}`}
+                            />
+                          </div>
                           {badge && (
                             <span className={`inline-flex items-center rounded px-[5px] py-[1px] text-[8px] font-bold uppercase tracking-[0.08em] border ${badge.cls}`}>
                               {badge.label}
                             </span>
                           )}
                         </div>
-                      </div>
-
-                      {/* ── Expand indicator — bottom center, clearly visible ── */}
-                      <div className="flex items-center justify-center w-full pb-[8px] pt-[2px]">
-                        <ChevronDown
-                          size={26}
-                          className={`text-[var(--subtle)] opacity-35 group-hover:opacity-60 transition-all duration-300 ease-out ${isExpanded ? 'rotate-180 opacity-60' : ''}`}
-                        />
                       </div>
                     </button>
 
@@ -3193,7 +3262,7 @@ export default function ProductJourneyDetailClient() {
 
       const synth  = [
         ...synthesizeEvents(trace.order, trace.sales, capas, recalls, distributionRecords),
-        ...synthesizeBatchEvents(batchEventRows),
+        ...synthesizeBatchEvents(batchEventRows, trace.order),
         ...(hasSupplierInRpc    ? [] : synthesizeSupplierEvents(materials)),
         ...(hasIncomingQcInRpc  ? [] : synthesizeIncomingQcEvents(materials)),
         ...(hasFinalQcInRpc     ? [] : synthesizeFinalQcEvents(trace.order)),
@@ -3201,7 +3270,7 @@ export default function ProductJourneyDetailClient() {
         ...(hasStorageInRpc     ? [] : synthesizeStorageEvents(materials)),
         ...(hasWarehouseInRpc   ? [] : synthesizeWarehouseEvents(trace.order)),
         ...(hasDistributorInRpc ? [] : synthesizeDistributorEvents(distributionRecords, trace.sales)),
-        ...(hasMarketInRpc      ? [] : synthesizeMarketEvents(trace.sales)),
+        ...(hasMarketInRpc      ? [] : synthesizeMarketEvents(distributionRecords, trace.sales)),
       ]
       const merged = enforceLifecycleOrder(
         normalizeEvents(deduplicateSameDayQc(mergeJourneyEvents(rpcEvents, synth)))

@@ -824,15 +824,15 @@ export default function CapaClient() {
       </div>
 
       {/* Table card */}
-      <div className="rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 shadow-sm">
+      <div className="rounded-xl border border-gray-200/60 dark:border-gray-700/40 overflow-hidden">
 
         {/* Toolbar */}
-        <div className="flex flex-wrap items-center gap-3 border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] px-5 py-4">
+        <div className="flex flex-wrap items-center gap-3 border-b border-gray-100 dark:border-gray-700/40 px-5 py-4">
           <div className="relative w-full sm:w-72">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input type="text" placeholder="Search by title, CAPA #, owner, batch…"
               value={searchInput} onChange={e => setSearchInput(e.target.value)}
-              className="w-full rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#D1CFC9]/50 dark:bg-[#262E36]/55 py-2 pl-9 pr-3 text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:border-[#4a7fa5] focus:outline-none focus:ring-1 focus:ring-[#4a7fa5]/30" />
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 py-1.5 pl-9 pr-3 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 outline-none focus:border-[#3a6f8f] focus:ring-2 focus:ring-[#3a6f8f]/40 transition-all" />
           </div>
           <div className="ml-auto flex gap-2">
             <button
@@ -864,28 +864,28 @@ export default function CapaClient() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] bg-[#D1CFC9]/50 dark:bg-[#262E36]/38 text-[11px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">
-                  <th className="px-4 py-3.5 text-start whitespace-nowrap">CAPA #</th>
-                  <th className="px-4 py-3.5 text-start">Title</th>
-                  <th className="px-4 py-3.5 text-start whitespace-nowrap">Source</th>
-                  <th className="px-4 py-3.5 text-start whitespace-nowrap">Priority</th>
-                  <th className="px-4 py-3.5 text-start whitespace-nowrap">Owner</th>
-                  <th className="px-4 py-3.5 text-start whitespace-nowrap">Due Date</th>
-                  <th className="px-4 py-3.5 text-start whitespace-nowrap">Status</th>
-                  <th className="px-4 py-3.5 text-start whitespace-nowrap">Created</th>
-                  <th className="px-4 py-3.5" />
+                <tr className="border-b-2 border-gray-300 dark:border-gray-500 bg-gray-100 dark:bg-[#2e3c52] text-xs tracking-wide">
+                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold whitespace-nowrap">CAPA #</th>
+                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">Title</th>
+                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold whitespace-nowrap">Source</th>
+                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold whitespace-nowrap">Priority</th>
+                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold whitespace-nowrap">Owner</th>
+                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold whitespace-nowrap">Due Date</th>
+                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold whitespace-nowrap">Status</th>
+                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold whitespace-nowrap">Created</th>
+                  <th className="px-3 py-2" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-[#B3B7BA]/[0.08]">
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700/40 bg-white dark:bg-gray-800">
                 {capas.map(capa => {
                   const nextStatus   = NEXT_STATUS[capa.status]
                   const advanceLabel = ADVANCE_LABEL[capa.status]
                   const overdue      = capa.status !== 'closed' && !!capa.due_date && capa.due_date < today
                   return (
                     <tr key={capa.id}
-                      className="hover:bg-[#3a6f8f]/[0.07] dark:hover:bg-[#3a6f8f]/[0.13] transition-colors">
+                      className="hover:bg-[rgba(58,111,143,0.07)] dark:hover:bg-[rgba(58,111,143,0.13)] transition-colors duration-150">
 
-                      <td className="px-4 py-4 whitespace-nowrap">
+                      <td className="px-3 py-1.5 whitespace-nowrap">
                         <button
                           onClick={() => router.push(`/capa/${capa.id}`)}
                           className="font-mono text-xs font-semibold text-[#3a6f8f] dark:text-[#7ab3d0] hover:underline underline-offset-2"
@@ -894,25 +894,25 @@ export default function CapaClient() {
                         </button>
                       </td>
 
-                      <td className="px-4 py-4 max-w-[220px]">
+                      <td className="px-3 py-1.5 max-w-[220px]">
                         <p className="text-sm font-medium text-gray-900 dark:text-gray-100 leading-tight truncate">
                           {capa.title}
                         </p>
                       </td>
 
-                      <td className="px-4 py-4 whitespace-nowrap">
+                      <td className="px-3 py-1.5 whitespace-nowrap">
                         <SourceBadge sourceType={capa.source_type} />
                       </td>
 
-                      <td className="px-4 py-4 whitespace-nowrap">
+                      <td className="px-3 py-1.5 whitespace-nowrap">
                         <PriorityBadge severity={capa.severity} />
                       </td>
 
-                      <td className="px-4 py-4 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                      <td className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">
                         {capa.owner_name ?? '—'}
                       </td>
 
-                      <td className="px-4 py-4 whitespace-nowrap">
+                      <td className="px-3 py-1.5 whitespace-nowrap">
                         <span className={`text-xs ${overdue ? 'font-semibold text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}`}>
                           {capa.due_date
                             ? new Date(capa.due_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -920,15 +920,15 @@ export default function CapaClient() {
                         </span>
                       </td>
 
-                      <td className="px-4 py-4 whitespace-nowrap">
+                      <td className="px-3 py-1.5 whitespace-nowrap">
                         <StatusBadge status={capa.status} />
                       </td>
 
-                      <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-500 dark:text-gray-400">
+                      <td className="px-3 py-1.5 whitespace-nowrap text-xs text-gray-500 dark:text-gray-400">
                         {new Date(capa.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                       </td>
 
-                      <td className="px-4 py-4">
+                      <td className="px-3 py-1.5">
                         <div className="flex items-center justify-end gap-2">
                           {canEditCapa && nextStatus && advanceLabel && (
                             <button

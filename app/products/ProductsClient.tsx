@@ -492,7 +492,7 @@ export default function ProductsClient() {
             {t(totalCount !== 1 ? 'products.count_plural' : 'products.count', { n: fmtNum(totalCount, lang) })}
           </p>
 
-          <div className="relative min-w-[180px] flex-1 max-w-xs">
+          <div className="relative min-w-[180px] flex-1 max-w-[480px]">
             <Search
               size={13}
               className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
@@ -502,7 +502,7 @@ export default function ProductsClient() {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder={t('products.search_placeholder')}
-              className="w-full rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-white dark:bg-[#262E36]/55 py-2 pl-8 pr-7 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]/30 focus:border-[#4a7fa5]/50 transition-colors"
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 py-1.5 pl-8 pr-7 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 outline-none focus:border-[#3a6f8f] focus:ring-2 focus:ring-[#3a6f8f]/40 transition-all"
             />
             {searchInput && (
               <button
@@ -538,7 +538,7 @@ export default function ProductsClient() {
       </div>
 
       {/* ── Table card ─────────────────────────────────────────────────────── */}
-      <div className="overflow-hidden rounded-2xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 shadow-sm">
+      <div className="rounded-xl border border-gray-200/60 dark:border-gray-700/40 overflow-hidden">
 
         {/* Initial skeleton — only when loading with no existing data */}
         {loading && products.length === 0 ? (
@@ -578,13 +578,13 @@ export default function ProductsClient() {
         ) : (
           /* Table — dim during background reloads */
           <div className={`overflow-x-auto transition-opacity duration-150 ${loading ? 'opacity-60' : 'opacity-100'}`}>
-            <table className="w-full min-w-[720px] text-sm">
+            <table className="w-full min-w-[720px] table-fixed text-sm">
 
-              <thead className="border-b border-[#B3B7BA]/30 dark:border-[#B3B7BA]/[0.08] bg-[#D1CFC9]/50 dark:bg-[#1e2730]/60 text-xs text-gray-500 dark:text-gray-400">
+              <thead className="border-b-2 border-gray-300 dark:border-gray-500 bg-gray-100 dark:bg-[#2e3c52] text-xs tracking-wide">
                 <tr>
                   {/* Name — sortable */}
                   <th
-                    className="cursor-pointer select-none pl-6 pr-4 py-2 text-start font-medium hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+                    className="w-[26%] px-3 py-2 group cursor-pointer select-none text-left text-gray-700 dark:text-gray-100 font-bold hover:text-gray-900 dark:hover:text-white transition-colors duration-150"
                     onClick={() => handleSortClick('name')}
                   >
                     <span className="inline-flex items-center">
@@ -595,7 +595,7 @@ export default function ProductsClient() {
 
                   {/* SKU — sortable */}
                   <th
-                    className="w-36 cursor-pointer select-none px-4 py-2 text-start font-medium hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+                    className="w-[17%] px-3 py-2 group cursor-pointer select-none text-left text-gray-700 dark:text-gray-100 font-bold hover:text-gray-900 dark:hover:text-white transition-colors duration-150"
                     onClick={() => handleSortClick('sku')}
                   >
                     <span className="inline-flex items-center">
@@ -605,18 +605,18 @@ export default function ProductsClient() {
                   </th>
 
                   {/* Batches */}
-                  <th className="w-20 px-4 py-2 text-center font-medium">
+                  <th className="w-[8%] px-3 py-2 text-center text-gray-700 dark:text-gray-100 font-bold">
                     {t('products.batches')}
                   </th>
 
                   {/* Status */}
-                  <th className="w-24 px-4 py-2 text-start font-medium">
+                  <th className="w-[13%] px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">
                     {t('common.status')}
                   </th>
 
                   {/* Created — sortable */}
                   <th
-                    className="hidden w-32 cursor-pointer select-none px-4 py-2 text-start font-medium hover:text-gray-700 dark:hover:text-gray-200 transition-colors sm:table-cell"
+                    className="hidden w-[18%] px-3 py-2 group cursor-pointer select-none text-left text-gray-700 dark:text-gray-100 font-bold hover:text-gray-900 dark:hover:text-white transition-colors duration-150 sm:table-cell"
                     onClick={() => handleSortClick('created_at')}
                   >
                     <span className="inline-flex items-center">
@@ -626,35 +626,35 @@ export default function ProductsClient() {
                   </th>
 
                   {/* Actions */}
-                  <th className="w-px whitespace-nowrap px-4 py-2 text-start font-medium">{t('common.actions')}</th>
+                  <th className="w-[18%] px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">{t('common.actions')}</th>
                 </tr>
               </thead>
 
-              <tbody className="divide-y divide-gray-100 dark:divide-[#B3B7BA]/[0.07]">
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700/40 bg-white dark:bg-gray-800">
                 {products.map((p) => {
                   const dest    = journeyHref(p)
                   const batches = batchCountMap[p.id] ?? 0
                   return (
                     <tr
                       key={p.id}
-                      className="align-middle transition-colors hover:bg-[#D1CFC9]/40 dark:hover:bg-white/[0.04]"
+                      className="align-middle hover:bg-[rgba(58,111,143,0.07)] dark:hover:bg-[rgba(58,111,143,0.13)] transition-colors duration-150"
                     >
                       {/* Name — plain text; Journey button is the single navigation action */}
-                      <td className="max-w-[200px] pl-6 pr-4 py-1.5 font-medium text-gray-900 dark:text-white">
+                      <td className="pl-3 pr-3 py-1.5 font-medium text-gray-900 dark:text-white">
                         <span title={p.name} className="block truncate">
                           {p.name}
                         </span>
                       </td>
 
                       {/* SKU — monospace, no-wrap */}
-                      <td className="w-36 px-4 py-1.5">
+                      <td className="px-3 py-1.5">
                         <span className="inline-block whitespace-nowrap rounded-md bg-gray-100 dark:bg-[#262E36]/55 px-2 py-0.5 font-mono text-xs text-gray-600 dark:text-gray-400">
                           {p.sku}
                         </span>
                       </td>
 
                       {/* Batch count */}
-                      <td className="w-20 px-4 py-1.5 text-center">
+                      <td className="px-3 py-1.5 text-center">
                         <span className={`text-sm font-medium tabular-nums ${
                           batches > 0
                             ? 'text-gray-700 dark:text-gray-300'
@@ -665,17 +665,17 @@ export default function ProductsClient() {
                       </td>
 
                       {/* Status — health indicator from recall + QC data */}
-                      <td className="w-24 px-4 py-1.5">
+                      <td className="px-3 py-1.5">
                         <StatusDot status={productStatusMap[p.id]} />
                       </td>
 
                       {/* Created — unambiguous format */}
-                      <td className="hidden w-32 whitespace-nowrap px-4 py-1.5 text-xs text-gray-400 dark:text-gray-500 sm:table-cell">
+                      <td className="hidden whitespace-nowrap px-3 py-1.5 text-xs text-gray-400 dark:text-gray-500 sm:table-cell">
                         {fmtCreated(p.created_at, lang)}
                       </td>
 
                       {/* Actions */}
-                      <td className="w-px whitespace-nowrap px-4 py-1.5">
+                      <td className="whitespace-nowrap px-3 py-1.5">
                         <div className="flex items-center gap-1">
                           <a
                             href={dest}

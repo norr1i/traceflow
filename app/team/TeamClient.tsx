@@ -60,14 +60,14 @@ function RoleBadge({ role }: { role: string }) {
 
 function StatusBadge({ status, tFn }: { status: 'active' | 'pending'; tFn: (k: string) => string }) {
   if (status === 'active') return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 dark:border-emerald-500/20 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
-      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+    <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-500">
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500 dark:bg-emerald-400" />
       {tFn('team.active')}
     </span>
   )
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 dark:border-amber-500/20 bg-amber-50 dark:bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
-      <Clock size={9} />
+    <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
       {tFn('team.pending')}
     </span>
   )
@@ -526,9 +526,9 @@ export default function TeamClient() {
       )}
 
       {/* ── Members table ────────────────────────────────────────────────── */}
-      <div className="glass-card overflow-hidden rounded-xl">
+      <div className="rounded-xl border border-gray-200/60 dark:border-gray-700/40 overflow-hidden">
         {/* Table header */}
-        <div className="flex items-center justify-between gap-3 border-b border-gray-100 dark:border-white/[0.06] px-5 py-3.5">
+        <div className="flex items-center justify-between gap-3 border-b border-gray-100 dark:border-gray-700/40 px-5 py-3.5">
           <div>
             <h2 className="text-[13px] font-semibold text-gray-900 dark:text-[#E2E8F0]">{t('team.team_members_title')}</h2>
             {!loading && (
@@ -575,15 +575,15 @@ export default function TeamClient() {
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-gray-50 dark:border-white/[0.05] bg-gray-50/50 dark:bg-white/[0.01]">
-                  <th className="px-5 py-2.5 text-start text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#525563]">{t('team.member_col')}</th>
-                  <th className="px-5 py-2.5 text-start text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#525563] hidden sm:table-cell">{t('team.role_label')}</th>
-                  <th className="px-5 py-2.5 text-start text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#525563] hidden md:table-cell">{t('common.status')}</th>
-                  <th className="px-5 py-2.5 text-start text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#525563] hidden lg:table-cell">{t('team.joined_col')}</th>
-                  <th className="px-5 py-2.5 text-end text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#525563]">{t('team.actions_col')}</th>
+                <tr className="border-b-2 border-gray-300 dark:border-gray-500 bg-gray-100 dark:bg-[#2e3c52] text-xs tracking-wide">
+                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">{t('team.member_col')}</th>
+                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold hidden sm:table-cell">{t('team.role_label')}</th>
+                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold hidden md:table-cell">{t('common.status')}</th>
+                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold hidden lg:table-cell">{t('team.joined_col')}</th>
+                  <th className="px-3 py-2 text-right text-gray-700 dark:text-gray-100 font-bold">{t('team.actions_col')}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50 dark:divide-white/[0.04]">
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700/40 bg-white dark:bg-gray-800">
                 {members.map((m) => {
                   const isMe      = m.user_id === user?.id
                   const isPending = m.status === 'pending'
@@ -593,10 +593,10 @@ export default function TeamClient() {
                   return (
                     <tr
                       key={rowKey}
-                      className={`transition-colors hover:bg-gray-50/80 dark:hover:bg-white/[0.02] ${isPending ? 'opacity-70' : ''}`}
+                      className={`hover:bg-[rgba(58,111,143,0.07)] dark:hover:bg-[rgba(58,111,143,0.13)] transition-colors duration-150 ${isPending ? 'opacity-70' : ''}`}
                     >
                       {/* Member */}
-                      <td className="px-5 py-3.5">
+                      <td className="px-3 py-1.5">
                         <div className="flex items-center gap-3">
                           <MemberAvatar email={m.email} />
                           <div className="min-w-0">
@@ -614,7 +614,7 @@ export default function TeamClient() {
                       </td>
 
                       {/* Role */}
-                      <td className="px-5 py-3.5 hidden sm:table-cell">
+                      <td className="px-3 py-1.5 hidden sm:table-cell">
                         {isEditing ? (
                           <select
                             value={editRole}
@@ -632,19 +632,19 @@ export default function TeamClient() {
                       </td>
 
                       {/* Status */}
-                      <td className="px-5 py-3.5 hidden md:table-cell">
+                      <td className="px-3 py-1.5 hidden md:table-cell">
                         <StatusBadge status={m.status} tFn={t} />
                       </td>
 
                       {/* Joined */}
-                      <td className="px-5 py-3.5 hidden lg:table-cell text-[12px] text-gray-400 dark:text-[#525563]">
+                      <td className="px-3 py-1.5 hidden lg:table-cell text-[12px] text-gray-400 dark:text-[#525563]">
                         {new Date(m.joined_at).toLocaleDateString(locale, {
                           month: 'short', day: 'numeric', year: 'numeric',
                         })}
                       </td>
 
                       {/* Actions */}
-                      <td className="px-5 py-3.5 text-end">
+                      <td className="px-3 py-1.5 text-end">
                         <div className="flex items-center justify-end gap-1">
                           {isPending ? (
                             <>
@@ -719,7 +719,7 @@ export default function TeamClient() {
 
         {/* Table footer */}
         {!loading && members.length > 0 && (
-          <div className="flex items-center justify-between border-t border-gray-100 dark:border-white/[0.05] bg-gray-50/50 dark:bg-white/[0.01] px-5 py-3">
+          <div className="flex items-center justify-between border-t border-gray-100 dark:border-gray-700/40 bg-gray-50/50 dark:bg-white/[0.01] px-5 py-3">
             <p className="text-[11px] text-gray-400 dark:text-[#525563]">
               {t(pendingCount !== 1 ? 'team.active_pending_plural' : 'team.active_pending', { active: fmtNum(activeCount, lang), pending: fmtNum(pendingCount, lang) })}
             </p>

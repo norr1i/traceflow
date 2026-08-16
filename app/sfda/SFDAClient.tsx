@@ -384,19 +384,19 @@ function TabOverview({ liveRequirements, recallStats, complianceScore, qcFailed,
 function TabRequirements({ liveRequirements, expandedReq, setExpandedReq }: TabRequirementsProps) {
   const { t, lang } = useT()
   return (
-    <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl overflow-hidden">
+    <div className="rounded-xl border border-gray-200/60 dark:border-gray-700/40 overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[var(--border)] bg-[var(--bg)]">
+            <tr className="border-b-2 border-gray-300 dark:border-gray-500 bg-gray-100 dark:bg-[#2e3c52] text-xs tracking-wide">
               {['sfda.req_col_req','sfda.req_col_evidence','sfda.req_col_records','sfda.req_col_status','sfda.req_col_updated'].map(k => (
-                <th key={k} className="text-start px-4 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">{t(k)}</th>
+                <th key={k} className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">{t(k)}</th>
               ))}
-              <th className="w-8 px-4 py-3" />
+              <th className="w-8 px-3 py-2" />
             </tr>
           </thead>
-          <tbody>
-            {liveRequirements.map((req, i) => {
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700/40 bg-white dark:bg-gray-800">
+            {liveRequirements.map((req) => {
               const description = REQ_DESCRIPTIONS[req.id]
               const isExpanded  = expandedReq === req.id
               return (
@@ -404,16 +404,14 @@ function TabRequirements({ liveRequirements, expandedReq, setExpandedReq }: TabR
                   <tr
                     key={req.id}
                     onClick={() => setExpandedReq(isExpanded ? null : req.id)}
-                    className={`border-b border-[var(--border)] cursor-pointer transition-colors
-                      ${i % 2 === 0 ? 'bg-[var(--surface)]' : 'bg-[var(--bg)]'}
-                      hover:bg-[var(--s3)]`}
+                    className="group cursor-pointer hover:bg-[rgba(58,111,143,0.07)] dark:hover:bg-[rgba(58,111,143,0.13)] hover:shadow-[inset_3px_0_0_rgba(58,111,143,0.4)] transition-colors duration-150"
                   >
-                    <td className="px-4 py-3 font-medium text-[var(--text)]">{t(`sfda.${req.key}`)}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-[var(--muted)]">{req.evidence}</td>
-                    <td className="px-4 py-3 text-[var(--text)]">{req.records.toLocaleString()}</td>
-                    <td className="px-4 py-3"><StatusBadge status={req.status} /></td>
-                    <td className="px-4 py-3 text-[var(--muted)]">{req.updated ? fmtDate(req.updated, lang) : '—'}</td>
-                    <td className="px-4 py-3 text-[var(--subtle)]">
+                    <td className="px-3 py-1.5 font-medium text-[var(--text)]">{t(`sfda.${req.key}`)}</td>
+                    <td className="px-3 py-1.5 font-mono text-xs text-[var(--muted)]">{req.evidence}</td>
+                    <td className="px-3 py-1.5 text-[var(--text)]">{req.records.toLocaleString()}</td>
+                    <td className="px-3 py-1.5"><StatusBadge status={req.status} /></td>
+                    <td className="px-3 py-1.5 text-[var(--muted)]">{req.updated ? fmtDate(req.updated, lang) : '—'}</td>
+                    <td className="px-3 py-1.5 text-[var(--subtle)]">
                       {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                     </td>
                   </tr>
@@ -547,7 +545,7 @@ function TabAudit({ auditLog, auditFilter, setAuditFilter, auditLoading, auditEr
   const filtered = auditFilter === 'all' ? auditLog : auditLog.filter(e => e.type === auditFilter)
 
   return (
-    <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl overflow-hidden">
+    <div className="rounded-xl border border-gray-200/60 dark:border-gray-700/40 overflow-hidden">
       {/* Toolbar */}
       <div className="px-5 py-3.5 border-b border-[var(--border)] flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2 overflow-x-auto">
@@ -572,7 +570,7 @@ function TabAudit({ auditLog, auditFilter, setAuditFilter, auditLoading, auditEr
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[var(--border)] bg-[var(--bg)]">
+            <tr className="border-b-2 border-gray-300 dark:border-gray-500 bg-gray-100 dark:bg-[#2e3c52] text-xs tracking-wide">
               {[
                 { label: 'Personnel',        w: 'w-48' },
                 { label: 'Action',           w: 'w-44' },
@@ -580,43 +578,41 @@ function TabAudit({ auditLog, auditFilter, setAuditFilter, auditLoading, auditEr
                 { label: 'Timestamp',        w: 'w-52' },
                 { label: '',                 w: 'w-8'  },
               ].map(({ label, w }) => (
-                <th key={label} className={`text-start px-4 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--muted)] ${w}`}>
+                <th key={label} className={`px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold ${w}`}>
                   {label}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-[var(--border)]">
-            {filtered.map((entry, i) => (
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700/40 bg-white dark:bg-gray-800">
+            {filtered.map((entry) => (
               <tr
                 key={entry.id}
-                className={`group transition-colors
-                  ${i % 2 === 0 ? 'bg-[var(--surface)]' : 'bg-[var(--bg)]'}
-                  hover:bg-[var(--s3)]`}
+                className="hover:bg-[rgba(58,111,143,0.07)] dark:hover:bg-[rgba(58,111,143,0.13)] transition-colors duration-150"
               >
-                <td className="px-4 py-4">
+                <td className="px-3 py-1.5">
                   <p className="text-sm font-medium text-[var(--text)] leading-snug">{entry.actor}</p>
                   <p className="text-xs text-[var(--muted)] mt-0.5">{entry.role}</p>
                 </td>
-                <td className="px-4 py-4">
+                <td className="px-3 py-1.5">
                   <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold ${entry.badgeCls}`}>
                     {entry.action}
                   </span>
                 </td>
-                <td className="px-4 py-4 text-sm text-[var(--muted)] max-w-[200px]">
+                <td className="px-3 py-1.5 text-sm text-[var(--muted)] max-w-[200px]">
                   <span className="truncate block">{entry.entity}</span>
                 </td>
-                <td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap tabular-nums">
+                <td className="px-3 py-1.5 text-xs text-[var(--muted)] whitespace-nowrap tabular-nums">
                   {fmtAuditTime(entry.time)}
                 </td>
-                <td className="px-4 py-4">
+                <td className="px-3 py-1.5">
                   <span title="Immutable record"><Lock size={11} className="text-[var(--subtle)]" /></span>
                 </td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-sm text-[var(--muted)]">
+                <td colSpan={5} className="px-3 py-10 text-center text-sm text-gray-400 dark:text-gray-500">
                   {auditLoading
                     ? 'Loading audit entries…'
                     : auditError
@@ -675,32 +671,32 @@ function TabCAPA({ capaList, canEditSFDA, setShowCAPAModal }: TabCAPAProps) {
         )}
       </div>
 
-      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl overflow-hidden">
+      <div className="rounded-xl border border-gray-200/60 dark:border-gray-700/40 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[var(--border)] bg-[var(--bg)]">
+              <tr className="border-b-2 border-gray-300 dark:border-gray-500 bg-gray-100 dark:bg-[#2e3c52] text-xs tracking-wide">
                 {['sfda.capa_col_id','sfda.capa_col_title','sfda.capa_col_severity','sfda.capa_col_due','sfda.capa_col_assigned','sfda.capa_col_status'].map(k => (
-                  <th key={k} className="text-start px-4 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">{t(k)}</th>
+                  <th key={k} className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">{t(k)}</th>
                 ))}
-                <th className="w-20 px-4 py-3" />
+                <th className="w-20 px-3 py-2" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-[var(--border)]">
-              {capaList.map((capa, i) => (
-                <tr key={capa.id} className={`hover:bg-[var(--s3)] transition-colors ${i % 2 === 0 ? 'bg-[var(--surface)]' : 'bg-[var(--bg)]'}`}>
-                  <td className="px-4 py-3 font-mono text-xs text-[var(--muted)] whitespace-nowrap">{capa.id}</td>
-                  <td className="px-4 py-3 max-w-xs">
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700/40 bg-white dark:bg-gray-800">
+              {capaList.map((capa) => (
+                <tr key={capa.id} className="hover:bg-[rgba(58,111,143,0.07)] dark:hover:bg-[rgba(58,111,143,0.13)] transition-colors duration-150">
+                  <td className="px-3 py-1.5 font-mono text-xs text-[var(--muted)] whitespace-nowrap">{capa.id}</td>
+                  <td className="px-3 py-1.5 max-w-xs">
                     <p className="font-medium text-[var(--text)] leading-snug">{capa.title}</p>
                     {capa.root && <p className="text-xs text-[var(--muted)] mt-0.5 truncate">{capa.root}</p>}
                   </td>
-                  <td className="px-4 py-3"><SeverityBadge severity={capa.severity} /></td>
-                  <td className={`px-4 py-3 whitespace-nowrap text-sm font-medium ${capa.status === 'overdue' ? 'text-red-600 dark:text-red-400' : 'text-[var(--text)]'}`}>
+                  <td className="px-3 py-1.5"><SeverityBadge severity={capa.severity} /></td>
+                  <td className={`px-3 py-1.5 whitespace-nowrap text-sm font-medium ${capa.status === 'overdue' ? 'text-red-600 dark:text-red-400' : 'text-[var(--text)]'}`}>
                     {fmtDate(capa.due, lang)}
                   </td>
-                  <td className="px-4 py-3 text-[var(--text)] whitespace-nowrap">{capa.assigned}</td>
-                  <td className="px-4 py-3"><CAPAStatusBadge status={capa.status} /></td>
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-1.5 text-[var(--text)] whitespace-nowrap">{capa.assigned}</td>
+                  <td className="px-3 py-1.5"><CAPAStatusBadge status={capa.status} /></td>
+                  <td className="px-3 py-1.5">
                     {capa.status === 'closed' && (
                       <span className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
                         <CheckCircle2 size={12} />Verified
@@ -710,7 +706,7 @@ function TabCAPA({ capaList, canEditSFDA, setShowCAPAModal }: TabCAPAProps) {
                 </tr>
               ))}
               {capaList.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-[var(--muted)]">No CAPA actions on record.</td></tr>
+                <tr><td colSpan={7} className="px-3 py-10 text-center text-sm text-gray-400 dark:text-gray-500">No CAPA actions on record.</td></tr>
               )}
             </tbody>
           </table>

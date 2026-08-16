@@ -317,9 +317,9 @@ export default function QualityControlClient() {
       </div>
 
       {/* ── Toolbar ─────────────────────────────────────────────────────────── */}
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-4 flex flex-nowrap items-center gap-3">
         {/* Left zone: count + search — identical structure to Products */}
-        <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-3">
           <p className="shrink-0 text-sm text-gray-500 dark:text-gray-400">
             {loading ? '—' : activeTab === 'inspections'
               ? t(totalCount !== 1 ? 'quality.count_plural' : 'quality.count', { n: fmtNum(totalCount, lang) })
@@ -332,7 +332,7 @@ export default function QualityControlClient() {
               placeholder={activeTab === 'inspections' ? t('quality.search_inspections') : t('quality.search_defects')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-white dark:bg-[#262E36]/55 py-2 pl-8 pr-7 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]/30 focus:border-[#4a7fa5]/50 transition-colors"
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 py-1.5 pl-8 pr-7 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 outline-none focus:border-[#3a6f8f] focus:ring-2 focus:ring-[#3a6f8f]/40 transition-all"
             />
             {search && (
               <button
@@ -351,13 +351,13 @@ export default function QualityControlClient() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-              className="appearance-none rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC] dark:bg-[#262E36]/55 py-2 ps-3 pe-8 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]/30 transition-colors"
+              className="appearance-none rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-white dark:bg-[#262E36]/55 py-2 pl-3 pr-8 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]/30 transition-colors"
             >
               <option value="all">{t('quality.all_status')}</option>
               <option value="passed">{t('quality.passed')}</option>
               <option value="failed">{t('quality.failed')}</option>
             </select>
-            <ChevronDown size={13} className="pointer-events-none absolute end-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+            <ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
           </div>
         )}
 
@@ -407,7 +407,7 @@ export default function QualityControlClient() {
       </div>
 
       {/* ── Table card ──────────────────────────────────────────────────────── */}
-      <div className="overflow-hidden rounded-2xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 shadow-sm">
+      <div className="rounded-xl border border-gray-200/60 dark:border-gray-700/40 overflow-hidden">
 
         {/* Inspections table */}
         {activeTab === 'inspections' && (
@@ -424,21 +424,21 @@ export default function QualityControlClient() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] bg-[#D1CFC9]/50 dark:bg-[#262E36]/38 text-xs text-gray-500 dark:text-gray-400">
-                      <th className="px-5 py-3 text-start font-medium">{t('quality.batch_col')}</th>
-                      <th className="px-5 py-3 text-start font-medium">{t('quality.date_col')}</th>
-                      <th className="px-5 py-3 text-start font-medium">{t('quality.result_col')}</th>
-                      <th className="px-5 py-3 text-start font-medium">{t('quality.score_col')}</th>
-                      <th className="px-5 py-3 text-start font-medium">{t('quality.notes_col')}</th>
-                      <th className="px-5 py-3"></th>
+                    <tr className="border-b-2 border-gray-300 dark:border-gray-500 bg-gray-100 dark:bg-[#2e3c52] text-xs tracking-wide">
+                      <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">{t('quality.batch_col')}</th>
+                      <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">{t('quality.date_col')}</th>
+                      <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">{t('quality.result_col')}</th>
+                      <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">{t('quality.score_col')}</th>
+                      <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">{t('quality.notes_col')}</th>
+                      <th className="px-3 py-2"></th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-50 dark:divide-[#B3B7BA]/[0.07]">
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700/40 bg-white dark:bg-gray-800">
                     {filtered.map((item) => (
-                      <tr key={item.id} className="hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/22 transition-colors">
+                      <tr key={item.id} className="hover:bg-[rgba(58,111,143,0.07)] dark:hover:bg-[rgba(58,111,143,0.13)] transition-colors duration-150">
 
                         {/* Batch — two-line: product name (primary) + lot/ref (secondary) */}
-                        <td className="px-5 py-3.5">
+                        <td className="px-3 py-1.5">
                           {item.batch_id ? (() => {
                             const raw = batchLabelMap[item.batch_id] || item.batch_id
                             const dot = raw.indexOf(' · ')
@@ -466,14 +466,14 @@ export default function QualityControlClient() {
                         </td>
 
                         {/* Date */}
-                        <td className="whitespace-nowrap px-5 py-3.5 text-gray-700 dark:text-gray-300">
+                        <td className="whitespace-nowrap px-3 py-1.5 text-gray-700 dark:text-gray-300">
                           {item.inspection_date
                             ? new Date(item.inspection_date).toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' })
                             : '—'}
                         </td>
 
                         {/* Result badge */}
-                        <td className="px-5 py-3.5">
+                        <td className="px-3 py-1.5">
                           {item.status === 'passed' ? (
                             <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-900/20 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 ring-1 ring-emerald-200 dark:ring-emerald-800">
                               <CheckCircle2 size={12} />{t('quality.passed_label')}
@@ -494,12 +494,12 @@ export default function QualityControlClient() {
                         </td>
 
                         {/* Score */}
-                        <td className="whitespace-nowrap px-5 py-3.5 tabular-nums text-gray-700 dark:text-gray-300">
+                        <td className="whitespace-nowrap px-3 py-1.5 tabular-nums text-gray-700 dark:text-gray-300">
                           {renderScore(item.overall_score, item.status)}
                         </td>
 
                         {/* Notes — full text in tooltip */}
-                        <td className="px-5 py-3.5 text-gray-600 dark:text-gray-400">
+                        <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400">
                           {item.notes ? (
                             <span className="block max-w-[380px] truncate text-xs" title={item.notes}>
                               {item.notes}
@@ -510,7 +510,7 @@ export default function QualityControlClient() {
                         </td>
 
                         {/* Delete */}
-                        <td className="w-px px-5 py-3.5 text-end">
+                        <td className="w-px px-3 py-1.5 text-end">
                           {effectiveCanEdit && (
                             <button onClick={() => handleDelete(item.id)}
                               className="rounded p-1 text-gray-300 dark:text-gray-600 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-500 dark:hover:text-red-400 transition-colors">
@@ -542,14 +542,14 @@ export default function QualityControlClient() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] bg-[#D1CFC9]/50 dark:bg-[#262E36]/38 text-xs text-gray-500 dark:text-gray-400">
-                      <th className="px-5 py-3 text-start font-medium">{t('quality.defect_type')}</th>
-                      <th className="px-5 py-3 text-start font-medium">{t('quality.severity_col')}</th>
-                      <th className="px-5 py-3 text-start font-medium">{t('quality.description_col')}</th>
-                      <th className="px-5 py-3 text-start font-medium">{t('quality.reported_col')}</th>
+                    <tr className="border-b-2 border-gray-300 dark:border-gray-500 bg-gray-100 dark:bg-[#2e3c52] text-xs tracking-wide">
+                      <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">{t('quality.defect_type')}</th>
+                      <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">{t('quality.severity_col')}</th>
+                      <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">{t('quality.description_col')}</th>
+                      <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">{t('quality.reported_col')}</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-50 dark:divide-[#B3B7BA]/[0.07]">
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700/40 bg-white dark:bg-gray-800">
                     {defects
                       .filter((d) =>
                         search === '' ||
@@ -557,14 +557,14 @@ export default function QualityControlClient() {
                         d.description?.toLowerCase().includes(search.toLowerCase()),
                       )
                       .map((defect) => (
-                        <tr key={defect.id} className="hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/22 transition-colors">
-                          <td className="px-5 py-3.5 font-medium text-gray-800 dark:text-gray-200">
+                        <tr key={defect.id} className="hover:bg-[rgba(58,111,143,0.07)] dark:hover:bg-[rgba(58,111,143,0.13)] transition-colors duration-150">
+                          <td className="px-3 py-1.5 font-medium text-gray-800 dark:text-gray-200">
                             {defect.defect_type || '—'}
                           </td>
-                          <td className="px-5 py-3.5">
+                          <td className="px-3 py-1.5">
                             <SeverityBadge severity={defect.severity} />
                           </td>
-                          <td className="px-5 py-3.5 text-gray-600 dark:text-gray-400">
+                          <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400">
                             {defect.description ? (
                               <span className="block max-w-[260px] truncate" title={defect.description}>
                                 {defect.description}
@@ -573,7 +573,7 @@ export default function QualityControlClient() {
                               <span className="text-gray-300 dark:text-gray-600">—</span>
                             )}
                           </td>
-                          <td className="whitespace-nowrap px-5 py-3.5 text-gray-500 dark:text-gray-400">
+                          <td className="whitespace-nowrap px-3 py-1.5 text-gray-500 dark:text-gray-400">
                             {defect.created_at
                               ? new Date(defect.created_at).toLocaleDateString(locale, { month: 'short', day: 'numeric' })
                               : '—'}

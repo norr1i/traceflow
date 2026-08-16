@@ -323,10 +323,17 @@ BEGIN
        'Ball Valve 2in 316 Stainless Steel — Batch 2025-Q1-001',
        'LOT-2025-BV316-0001', 250, 80, p_valve, production_order_01);
   END IF;
+  -- Always re-link: the client resolves distribution_records via
+  -- batches WHERE production_order_id = <page-id>, so this batch
+  -- must point to the production order created in THIS seed run.
+  UPDATE batches SET production_order_id = production_order_01 WHERE id = physical_batch_01;
 
   -- distribution_records: 3 shipments for ball valve batch
   -- NOT NULL required: company_id, batch_id(→physical_batch_01), recipient_type, recipient_name, quantity_shipped
   -- Columns with server defaults omitted: recipient_country('SA'), unit('kg'), recall_acknowledged(false), timestamps
+  -- Idempotent: delete any records from a prior seed run before re-inserting.
+  DELETE FROM distribution_records WHERE batch_id = physical_batch_01 AND company_id = cid;
+
   INSERT INTO distribution_records
     (company_id, batch_id, recipient_type, recipient_name, quantity_shipped, shipped_at, notes)
   VALUES
@@ -348,12 +355,17 @@ BEGIN
      'Maaden Mining — Wa''ad Al Shamal', 50, t1+interval '16 days',
      'DN-MAD-2025-0089 | 50 units | Potash plant valve replacement program.');
 
+  -- Idempotent: delete prior-run sales for these demo customers before re-inserting.
+  DELETE FROM sales
+  WHERE product_id   = p_valve
+    AND company_id   = cid
+    AND customer_name IN ('Saudi Aramco', 'Sipchem Jubail', 'Maaden Mining Co.');
+
   INSERT INTO sales (product_id, product_name, quantity, unit_price, total_price, customer_name, status, sold_at, company_id, created_at)
   VALUES
     (p_valve,'Ball Valve 2in 316 Stainless Steel',120,2850.00, 342000.00,'Saudi Aramco',      'completed',t1+interval '12 days',cid,t1+interval '12 days'),
     (p_valve,'Ball Valve 2in 316 Stainless Steel', 80,2780.00, 222400.00,'Sipchem Jubail',    'completed',t1+interval '14 days',cid,t1+interval '14 days'),
-    (p_valve,'Ball Valve 2in 316 Stainless Steel', 50,2900.00, 145000.00,'Maaden Mining Co.', 'completed',t1+interval '16 days',cid,t1+interval '16 days')
-  ON CONFLICT DO NOTHING;
+    (p_valve,'Ball Valve 2in 316 Stainless Steel', 50,2900.00, 145000.00,'Maaden Mining Co.', 'completed',t1+interval '16 days',cid,t1+interval '16 days');
 
   -- scan_events: batch_id UUID (FK production_orders.id) — no cast
   -- 35 historical scans (3 UA fingerprints for Repeat Consumer Rate metric)
@@ -574,8 +586,15 @@ BEGIN
        'Safety Relief Valve 0.5in 10 bar — Batch 2025-Q1-003',
        'LOT-2025-SRV-0003', 150, 0, p_relief, production_order_03);
   END IF;
+  -- Always re-link: the client resolves distribution_records via
+  -- batches WHERE production_order_id = <page-id>, so this batch
+  -- must point to the production order created in THIS seed run.
+  UPDATE batches SET production_order_id = production_order_03 WHERE id = physical_batch_03;
 
   -- distribution_records: 3 shipments for relief valve batch (all later recalled)
+  -- Idempotent: delete any records from a prior seed run before re-inserting.
+  DELETE FROM distribution_records WHERE batch_id = physical_batch_03 AND company_id = cid;
+
   INSERT INTO distribution_records
     (company_id, batch_id, recipient_type, recipient_name, quantity_shipped, shipped_at, notes)
   VALUES
@@ -597,12 +616,17 @@ BEGIN
      'Advanced Polypropylene Co. — Jubail', 35, t3+interval '14 days',
      'DN-APC-2025-0071 | 35 units | Polypropylene reactor safety system.');
 
+  -- Idempotent: delete prior-run sales for these demo customers before re-inserting.
+  DELETE FROM sales
+  WHERE product_id   = p_relief
+    AND company_id   = cid
+    AND customer_name IN ('Tasnee Petrochemicals', 'National Gas Co. NGIC', 'Advanced Polypropylene Co.');
+
   INSERT INTO sales (product_id, product_name, quantity, unit_price, total_price, customer_name, status, sold_at, company_id, created_at)
   VALUES
     (p_relief,'Safety Relief Valve 0.5in 10 bar',60,1650.00, 99000.00,'Tasnee Petrochemicals',    'completed',t3+interval '10 days',cid,t3+interval '10 days'),
     (p_relief,'Safety Relief Valve 0.5in 10 bar',55,1620.00, 89100.00,'National Gas Co. NGIC',    'completed',t3+interval '12 days',cid,t3+interval '12 days'),
-    (p_relief,'Safety Relief Valve 0.5in 10 bar',35,1680.00, 58800.00,'Advanced Polypropylene Co.','completed',t3+interval '14 days',cid,t3+interval '14 days')
-  ON CONFLICT DO NOTHING;
+    (p_relief,'Safety Relief Valve 0.5in 10 bar',35,1680.00, 58800.00,'Advanced Polypropylene Co.','completed',t3+interval '14 days',cid,t3+interval '14 days');
 
   -- Pre-insert validation: supporting product variables must be real rows in products
   IF p_bolt IS NULL THEN
