@@ -12,7 +12,7 @@ export interface SaleRecord {
   unit_price?: number
   total_price: number
   customer_name?: string
-  status?: string
+  status: string
   sold_at: string
 }
 
