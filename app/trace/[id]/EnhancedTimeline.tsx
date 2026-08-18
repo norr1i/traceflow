@@ -13,26 +13,23 @@ import {
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
-export type JourneyEvent = {
+// Strict public contract: matches get_public_batch_trace timeline output exactly.
+// Only these three fields are present on timeline events from the public RPC.
+export type PublicJourneyEvent = {
   event_type:      string
   event_timestamp: string
   title:           string
-  description?:    string | null
-  source_table?:   string
-  metadata?:       Record<string, unknown> | null
+}
+
+// Richer type used by authenticated internal routes (ProductJourneyDetailClient
+// imports this; ConsumerActivity reads metadata from it).
+export type JourneyEvent = PublicJourneyEvent & {
+  description?:  string | null
+  source_table?: string
+  metadata?:     Record<string, unknown> | null
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const SOURCE_LABELS: Record<string, string> = {
-  production_orders:    'Production',
-  bill_of_materials:    'Materials',
-  batch_qc_results:     'QC Results',
-  quality_inspections:  'QC Inspection',
-  distribution_records: 'Distribution',
-  batch_journey_events: 'Journey Log',
-  raw_materials:        'Raw Materials',
-}
 
 const STAGE_ICONS: Record<StageGroup, LucideIcon> = {
   supplier:     Award,
@@ -210,25 +207,11 @@ const ALWAYS_SHOW: Set<StageGroup> = new Set(['distribution'])
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function getSourceLabel(s: string | undefined): string {
-  if (!s) return 'System'
-  return SOURCE_LABELS[s] ?? s.replace(/_/g, ' ')
-}
-
 function fmtDateTime(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
     year: 'numeric', month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit',
   })
-}
-
-function extractActor(event: JourneyEvent): string | null {
-  const m = event.metadata
-  if (!m) return null
-  if (typeof m.performed_by === 'string' && m.performed_by) return m.performed_by
-  if (typeof m.created_by   === 'string' && m.created_by)   return m.created_by
-  if (typeof m.user_name    === 'string' && m.user_name)    return m.user_name
-  return null
 }
 
 // ── Lifecycle phase groupings ─────────────────────────────────────────────────
@@ -572,14 +555,16 @@ function EventCard({
   isLastInTimeline,
   stageConnectorBg,
 }: {
-  event:            JourneyEvent
+  event:            PublicJourneyEvent
   category:         EventCategory
   isLastInTimeline: boolean
   stageConnectorBg: string
 }) {
   const [showDetails, setShowDetails] = useState(false)
-  const actor  = extractActor(event)
-  const source = getSourceLabel(event.source_table ?? undefined)
+  // actor and source are not available on the public contract — metadata and
+  // source_table are absent from PublicJourneyEvent by design.
+  const actor: string | null = null
+  const source = 'System'
   const { Icon, iconBg, iconColor, badgeClass, borderAccent, label: categoryLabel } = category
 
   return (
@@ -614,13 +599,6 @@ function EventCard({
             {categoryLabel}
           </span>
         </div>
-
-        {/* Description */}
-        {event.description && (
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-            {event.description}
-          </p>
-        )}
 
         {/* Timestamp */}
         <p className="mt-2 text-[10px] font-medium text-gray-400 dark:text-gray-500 tabular-nums">
@@ -722,7 +700,7 @@ export function EnhancedTimeline({
   isLoading,
   productStatus,
 }: {
-  events:         JourneyEvent[]
+  events:         PublicJourneyEvent[]
   isLoading:      boolean
   productStatus?: string
 }) {

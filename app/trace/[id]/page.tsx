@@ -272,7 +272,7 @@ async function resolveToUUID(param: string): Promise<string | null> {
 
   const { data: product } = await supabase
     .from('products')
-    .select('id, sku, company_id')
+    .select('id, sku')
     .ilike('sku', param)
     .maybeSingle()
 
