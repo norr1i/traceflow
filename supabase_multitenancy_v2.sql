@@ -1,3 +1,29 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- SUPERSEDED — DO NOT EXECUTE THIS FILE STANDALONE
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- This file was the v2 multi-tenancy migration and is retained in full
+-- for historical reference. It contains a scan_events policy definition
+-- that is now stale relative to the live hardened state.
+--
+-- The authoritative current state for scan_events/log_scan_event is:
+--
+--   supabase_log_scan_event_hardening_20260819.sql
+--
+-- Running THIS file standalone would:
+--   • Recreate "public_scan_insert" ON scan_events
+--     FOR INSERT TO anon, authenticated WITH CHECK (true) —
+--     a fully permissive INSERT policy with no batch validation.
+--     The live database intentionally has NO such policy.
+--     This is the most dangerous item in this file if executed against
+--     the current hardened schema.
+--
+-- If you must re-run this file for schema recovery purposes, run
+-- supabase_log_scan_event_hardening_20260819.sql immediately afterwards
+-- to restore the hardened state.
+--
+-- This file is retained for historical reference only.
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 -- ══════════════════════════════════════════════════════════════════════════════
 -- TraceFlow — Multi-Tenancy Migration v2 (DEFINITIVE)
 --

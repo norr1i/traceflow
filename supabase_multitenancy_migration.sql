@@ -1,3 +1,30 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- PARTIALLY SUPERSEDED — DO NOT EXECUTE STANDALONE WITHOUT REVIEW
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- This file was the original multi-tenancy migration and is retained in full
+-- for historical reference. It contains scan_events policy definitions that
+-- are now stale relative to the live hardened state.
+--
+-- The authoritative current state for scan_events/log_scan_event is:
+--
+--   supabase_log_scan_event_hardening_20260819.sql
+--
+-- Running THIS file standalone would:
+--   • Recreate "public_scan_insert" ON scan_events WITH CHECK (true) —
+--     a fully permissive INSERT policy for anon with no batch validation.
+--     The live database intentionally has NO such policy. This is the most
+--     dangerous item in this file if executed against the current schema.
+--   • Recreate "co_scan_read" ON scan_events — this is still correct and
+--     matches live state; it is safe but redundant to re-run.
+--   • Re-run the original tf_scan_company trigger (EXCEPTION WHEN OTHERS
+--     THEN NULL version) — this swallows errors and is less safe than the
+--     hardened version in supabase_scan_events_security.sql.
+--
+-- If you must re-run this file for schema recovery purposes, run
+-- supabase_log_scan_event_hardening_20260819.sql immediately afterwards
+-- to restore the hardened state.
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 -- ==============================================================================
 -- TraceFlow — Multi-Tenant Company Architecture Migration
 -- ==============================================================================

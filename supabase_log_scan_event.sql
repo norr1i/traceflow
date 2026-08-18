@@ -1,3 +1,24 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- SUPERSEDED — DO NOT EXECUTE THIS FILE STANDALONE
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- This file was the original log_scan_event migration.
+-- The live Supabase database was hardened on 2026-08-19.
+-- The authoritative current state is recorded in:
+--
+--   supabase_log_scan_event_hardening_20260819.sql
+--
+-- Running THIS file standalone would:
+--   • Restore the pre-hardening function body (no rate guard,
+--     no server-side LEFT cap on p_browser or p_device_type)
+--   • Leave GRANT EXECUTE with no REVOKE FROM PUBLIC preceding it,
+--     which does not re-add PUBLIC execute (CREATE OR REPLACE preserves
+--     the existing ACL) but the body regression alone is a safety risk
+--   • Drop public_scan_insert (that part is still correct, but the
+--     function body regression outweighs it)
+--
+-- This file is retained for historical reference only.
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 -- ============================================================
 -- TraceFlow — log_scan_event SECURITY DEFINER RPC
 -- ============================================================

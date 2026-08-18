@@ -1,3 +1,27 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- SUPERSEDED — DO NOT EXECUTE THIS FILE STANDALONE
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- This file was an intermediate security hardening step.
+-- The live Supabase database was hardened to its final state on 2026-08-19.
+-- The authoritative current state is recorded in:
+--
+--   supabase_log_scan_event_hardening_20260819.sql
+--
+-- Running THIS file standalone would:
+--   • Recreate the "public_scan_insert" INSERT policy for anon and
+--     authenticated on scan_events — the live database intentionally
+--     has NO such policy; the SECURITY DEFINER function is the only
+--     sanctioned insert path
+--   • The recreated policy would be dormant (anon has no table grant),
+--     but its presence is misleading and should not exist
+--
+-- The tf_scan_company trigger hardening and NOT NULL constraint in this
+-- file are still consistent with live state and are not harmful to re-run.
+-- The INSERT policy creation is the unsafe part.
+--
+-- This file is retained for historical reference only.
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 -- ============================================================
 -- TraceFlow — scan_events security hardening
 -- ============================================================
