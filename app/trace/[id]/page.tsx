@@ -264,30 +264,10 @@ function logScanEvent(batchId: string) {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-// Resolve a URL param to a production-order UUID.
-// If the param is already a UUID, return it as-is.
-// If it looks like a SKU, find the most recent completed batch for that product.
-async function resolveToUUID(param: string): Promise<string | null> {
-  if (UUID_RE.test(param)) return param
-
-  const { data: product } = await supabase
-    .from('products')
-    .select('id, sku')
-    .ilike('sku', param)
-    .maybeSingle()
-
-  if (!product?.id) return null
-
-  const { data: order } = await supabase
-    .from('production_orders')
-    .select('id')
-    .eq('product_id', product.id)
-    .eq('status', 'completed')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  return order?.id ?? null
+// Public trace accepts production-order UUIDs only.
+// Non-UUID params (e.g. SKU strings) resolve to null immediately — no DB query.
+function resolveToUUID(param: string): string | null {
+  return UUID_RE.test(param) ? param : null
 }
 
 // ── Page ───────────────────────────────────────────────────────────────────
@@ -306,7 +286,7 @@ export default function PublicTracePage() {
     if (!id) return
 
     async function load() {
-      const batchId = await resolveToUUID(id)
+      const batchId = resolveToUUID(id)
 
       if (!batchId) {
         setNotFound(true)
