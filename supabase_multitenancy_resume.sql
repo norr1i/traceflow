@@ -16,10 +16,17 @@
 --     The live database intentionally has NO such policy.
 --     This is the most dangerous item in this file if executed against
 --     the current hardened schema.
+--   • Recreate "public_trace_orders" ON production_orders
+--     FOR SELECT TO anon USING (true) — the live database intentionally
+--     has NO anon access to public.production_orders.
+--   • Recreate "public_trace_products" ON products
+--     FOR SELECT TO anon USING (true) — the live database intentionally
+--     has NO anon access to public.products.
 --
--- If you must re-run this file for schema recovery purposes, run
--- supabase_log_scan_event_hardening_20260819.sql immediately afterwards
--- to restore the hardened state.
+-- If you must re-run this file for schema recovery purposes, run both:
+--   supabase_log_scan_event_hardening_20260819.sql
+--   supabase_public_trace_table_hardening_20260820.sql
+-- immediately afterwards to restore the hardened state.
 --
 -- This file is retained for historical reference only.
 -- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

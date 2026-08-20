@@ -14,15 +14,22 @@
 --     a fully permissive INSERT policy for anon with no batch validation.
 --     The live database intentionally has NO such policy. This is the most
 --     dangerous item in this file if executed against the current schema.
+--   • Recreate "public_trace_orders" ON production_orders
+--     FOR SELECT TO anon USING (true) — the live database intentionally
+--     has NO anon access to public.production_orders.
+--   • Recreate "public_trace_products" ON products
+--     FOR SELECT TO anon USING (true) — the live database intentionally
+--     has NO anon access to public.products.
 --   • Recreate "co_scan_read" ON scan_events — this is still correct and
 --     matches live state; it is safe but redundant to re-run.
 --   • Re-run the original tf_scan_company trigger (EXCEPTION WHEN OTHERS
 --     THEN NULL version) — this swallows errors and is less safe than the
 --     hardened version in supabase_scan_events_security.sql.
 --
--- If you must re-run this file for schema recovery purposes, run
--- supabase_log_scan_event_hardening_20260819.sql immediately afterwards
--- to restore the hardened state.
+-- If you must re-run this file for schema recovery purposes, run both:
+--   supabase_log_scan_event_hardening_20260819.sql
+--   supabase_public_trace_table_hardening_20260820.sql
+-- immediately afterwards to restore the hardened state.
 -- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 -- ==============================================================================

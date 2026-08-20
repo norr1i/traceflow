@@ -1,3 +1,36 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- SUPERSEDED — DO NOT EXECUTE THIS FILE STANDALONE
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- This is the original schema definition file, retained for historical
+-- reference only. It contains permissive anon RLS policies that are now
+-- intentionally absent from the live hardened database.
+--
+-- Running THIS file standalone would (among many other effects):
+--   • Recreate "anon_all_products" ON public.products
+--     FOR ALL TO anon USING (true) WITH CHECK (true) —
+--     grants anon full read/write/delete access to ALL product rows across
+--     all companies. The live database intentionally has NO anon access
+--     to public.products.
+--   • Recreate "anon_all_production_orders" ON public.production_orders
+--     FOR ALL TO anon USING (true) WITH CHECK (true) —
+--     grants anon full read/write/delete access to ALL production order
+--     rows across all companies. The live database intentionally has NO
+--     anon access to public.production_orders.
+--   • Recreate similar anon_all_* policies on suppliers, raw_materials,
+--     sales, quality_inspections, quality_defects — all absent in live DB.
+--
+-- The live anon grant revocations are recorded in:
+--   supabase_log_scan_event_hardening_20260819.sql
+--     (scan_events: anon grants revoked, SECURITY DEFINER path only)
+--   supabase_public_trace_table_hardening_20260820.sql
+--     (products, production_orders: anon grants revoked)
+--
+-- If you must re-run this file for schema recovery, run BOTH hardening
+-- files immediately afterwards to restore the hardened state.
+--
+-- This file is retained for historical reference only.
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 -- =============================================================
 -- TraceFlow – Complete Supabase Schema
 -- Run this entire file in the Supabase SQL Editor:
