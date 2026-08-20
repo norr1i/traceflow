@@ -22,10 +22,17 @@
 --   • Recreate "public_trace_products" ON products
 --     FOR SELECT TO anon USING (true) — the live database intentionally
 --     has NO anon access to public.products.
+--   • Recreate "public_trace_bom" ON bill_of_materials
+--     FOR SELECT TO anon USING (true) — the live database intentionally
+--     has NO anon access to public.bill_of_materials.
+--   • Recreate "public_trace_qc" ON batch_qc_results
+--     FOR SELECT TO anon USING (true) — the live database intentionally
+--     has NO anon access to public.batch_qc_results.
 --
--- If you must re-run this file for schema recovery purposes, run both:
+-- If you must re-run this file for schema recovery purposes, run all:
 --   supabase_log_scan_event_hardening_20260819.sql
 --   supabase_public_trace_table_hardening_20260820.sql
+--   supabase_public_trace_batch1_hardening_20260820.sql
 -- immediately afterwards to restore the hardened state.
 --
 -- This file is retained for historical reference only.

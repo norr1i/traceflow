@@ -1,0 +1,96 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- TraceFlow — Revoke residual anon table grants: Batch 1
+-- File:       supabase_public_trace_batch1_hardening_20260820.sql
+-- Live-applied and smoke-tested: 2026-08-20
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+--
+-- WHAT THIS FILE RECORDS
+--   Revocation of all Supabase-default anon table grants from
+--   public.batch_qc_results and public.bill_of_materials.
+--   These grants were Supabase-platform defaults (GRANT ALL ON ALL TABLES
+--   IN SCHEMA public TO anon applied at table-creation time). No production
+--   code path has ever relied on direct anon table access to either table.
+--
+-- LIVE VERIFICATION (2026-08-20)
+--   batch_qc_results:
+--     • RLS enabled: relrowsecurity = true, relforcerowsecurity = false
+--     • Policies (authenticated-only): co_qc_results_select, co_qc_results_write
+--     • No anon policies present (pg_policies: 0 anon rows)
+--     • has_table_privilege('anon', 'public.batch_qc_results', 'SELECT') = false
+--     • has_table_privilege('anon', 'public.batch_qc_results', 'INSERT') = false
+--     • has_table_privilege('anon', 'public.batch_qc_results', 'UPDATE') = false
+--     • has_table_privilege('anon', 'public.batch_qc_results', 'DELETE') = false
+--
+--   bill_of_materials:
+--     • RLS enabled: relrowsecurity = true, relforcerowsecurity = false
+--     • Policies (authenticated-only): co_bom_select, co_bom_write
+--     • No anon policies present (pg_policies: 0 anon rows)
+--     • has_table_privilege('anon', 'public.bill_of_materials', 'SELECT') = false
+--     • has_table_privilege('anon', 'public.bill_of_materials', 'INSERT') = false
+--     • has_table_privilege('anon', 'public.bill_of_materials', 'UPDATE') = false
+--     • has_table_privilege('anon', 'public.bill_of_materials', 'DELETE') = false
+--
+--   public_trace_bom: does NOT exist in the live database
+--   public_trace_qc:  does NOT exist in the live database
+--
+--   get_public_batch_trace smoke test: PASS (all sections verified)
+--     • /trace/<valid UUID> loads without authentication
+--     • Digital Product Passport renders normally
+--     • Overview, Product Journey, Distribution (6 shipments),
+--       Raw Materials Used (3 materials), Production information
+--       all render correctly
+--     • COMPLETED / PASS status renders normally
+--
+-- WHY THE REVOKES ARE SAFE
+--
+--   1. get_public_batch_trace is SECURITY DEFINER SET search_path = public.
+--      It runs as the function owner (postgres superuser), which is
+--      unconditionally exempt from table-level privilege checks (and from
+--      RLS when FORCE ROW LEVEL SECURITY is not set). The function reads
+--      both tables internally via direct SQL — it never goes through
+--      PostgREST and is not subject to anon table grants.
+--      Revoking anon table grants has zero effect on this function.
+--
+--   2. app/trace/[id]/page.tsx performs NO direct .from('batch_qc_results')
+--      or .from('bill_of_materials') calls. It calls only the two hardened
+--      SECURITY DEFINER RPCs: get_public_batch_trace and log_scan_event.
+--
+--   3. All remaining consumers of both tables are authenticated routes:
+--        batch_qc_results: ProductionClient.tsx, RecallClient.tsx,
+--                          ProductPassportClient.tsx
+--        bill_of_materials: ProductionClient.tsx, RecallClient.tsx,
+--                           ProductPassportClient.tsx,
+--                           ProductJourneyDetailClient.tsx
+--      All run under the authenticated role with company-scoped RLS
+--      (co_bom_select / co_bom_write / co_qc_results_select /
+--      co_qc_results_write). authenticated grants are intentionally
+--      untouched by this migration.
+--
+--   4. The "public_trace_bom" and "public_trace_qc" anon SELECT policies
+--      are absent from the live database. They existed only in historical
+--      migration files (supabase_multitenancy_migration.sql,
+--      supabase_multitenancy_v2.sql, supabase_multitenancy_resume.sql)
+--      which are now fully superseded and warned.
+--
+-- SCOPE
+--   • Revokes: anon on public.batch_qc_results
+--              anon on public.bill_of_materials
+--   • Does NOT touch: authenticated grants, RLS policies, function grants,
+--     scan_events, products, production_orders, or any other table
+--
+-- HARDENING SERIES (chronological)
+--   supabase_log_scan_event_hardening_20260819.sql
+--     scan_events: anon grants revoked, log_scan_event body hardened,
+--     rate guard, input caps, SECURITY DEFINER
+--   supabase_public_trace_table_hardening_20260820.sql
+--     products, production_orders: anon grants revoked
+--   supabase_public_trace_batch1_hardening_20260820.sql  ← THIS FILE
+--     batch_qc_results, bill_of_materials: anon grants revoked
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+BEGIN;
+
+REVOKE ALL ON TABLE public.batch_qc_results FROM anon;
+REVOKE ALL ON TABLE public.bill_of_materials FROM anon;
+
+COMMIT;
