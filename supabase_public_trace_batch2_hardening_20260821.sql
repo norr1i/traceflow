@@ -1,0 +1,145 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- TraceFlow — Revoke residual anon table grants: Batch 2
+-- File:       supabase_public_trace_batch2_hardening_20260821.sql
+-- Live-applied and smoke-tested: 2026-08-21
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+--
+-- WHAT THIS FILE RECORDS
+--   Revocation of all Supabase-default anon table grants from
+--   public.recalls and public.capas.
+--
+--   These grants existed because Supabase applies
+--   GRANT ALL ON ALL TABLES IN SCHEMA public TO anon
+--   at table-creation time. They were never captured in any repository
+--   migration file and were never relied upon by any production code path.
+--   They represented a residual direct-REST attack surface against two
+--   tables that contain sensitive regulatory and corrective-action data.
+--
+-- PRE-REVOKE LIVE STATE (confirmed before applying change)
+--
+--   public.recalls:
+--     • RLS enabled:      relrowsecurity = true
+--     • RLS forced:       relforcerowsecurity = false
+--     • Anon RLS policies: NONE (pg_policies: 0 anon rows for this table)
+--     • Authenticated policies: co_recalls_select, co_recalls_insert,
+--                                co_recalls_update, co_recalls_delete
+--     • has_table_privilege('anon','public.recalls','SELECT') = true  ← residual default
+--     • has_table_privilege('anon','public.recalls','INSERT') = true  ← residual default
+--     • has_table_privilege('anon','public.recalls','UPDATE') = true  ← residual default
+--     • has_table_privilege('anon','public.recalls','DELETE') = true  ← residual default
+--
+--   public.capas:
+--     • RLS enabled:      relrowsecurity = true
+--     • RLS forced:       relforcerowsecurity = false
+--     • Anon RLS policies: NONE (pg_policies: 0 anon rows for this table)
+--     • Authenticated policies: co_capas_select, co_capas_insert,
+--                                co_capas_update, co_capas_delete
+--     • has_table_privilege('anon','public.capas','SELECT') = true  ← residual default
+--     • has_table_privilege('anon','public.capas','INSERT') = true  ← residual default
+--     • has_table_privilege('anon','public.capas','UPDATE') = true  ← residual default
+--     • has_table_privilege('anon','public.capas','DELETE') = true  ← residual default
+--
+--   Note: although anon had direct table-level privileges on both tables,
+--   RLS was already enabled and no anon RLS policy existed to pass the
+--   policy check. In practice anon direct REST queries to these tables
+--   would have been rejected at the RLS layer. The revoke closes the
+--   privilege surface entirely so RLS policy absence is no longer load-bearing.
+--
+-- POST-REVOKE LIVE VERIFICATION (2026-08-21)
+--
+--   public.recalls:
+--     • has_table_privilege('anon','public.recalls','SELECT') = false ✓
+--     • has_table_privilege('anon','public.recalls','INSERT') = false ✓
+--     • has_table_privilege('anon','public.recalls','UPDATE') = false ✓
+--     • has_table_privilege('anon','public.recalls','DELETE') = false ✓
+--
+--   public.capas:
+--     • has_table_privilege('anon','public.capas','SELECT') = false ✓
+--     • has_table_privilege('anon','public.capas','INSERT') = false ✓
+--     • has_table_privilege('anon','public.capas','UPDATE') = false ✓
+--     • has_table_privilege('anon','public.capas','DELETE') = false ✓
+--
+--   RLS policies: unchanged — co_recalls_* and co_capas_* authenticated
+--                 policies remain in place
+--
+-- SMOKE TEST (2026-08-21): PASS
+--   • /trace/<valid batch UUID> loaded without authentication
+--   • Overview section: rendered correctly
+--   • Product Journey section: rendered correctly
+--   • Quality & Compliance section: rendered correctly
+--   • Recall Information section: rendered correctly — confirms get_public_batch_trace
+--     SECURITY DEFINER path continues to read recalls data without anon table grants
+--   • Distribution section: rendered correctly
+--   • Raw Materials Used section: rendered correctly
+--   • Production Information section: rendered correctly
+--   • No 500 errors, no PostgREST errors in browser console or Supabase logs
+--
+-- WHY THE REVOKES ARE SAFE
+--
+--   1. get_public_batch_trace is SECURITY DEFINER SET search_path = public.
+--      It executes as the function owner (postgres superuser), which is
+--      unconditionally exempt from table-level privilege checks and from
+--      RLS when FORCE ROW LEVEL SECURITY is not set. The function reads
+--      recalls (Steps 6a, 6b) and capas (Step 7) via direct SQL — it never
+--      goes through PostgREST and is not subject to anon table grants.
+--      Revoking anon table grants has zero effect on this function.
+--      EXECUTE on public.get_public_batch_trace(uuid) TO anon: remains explicitly GRANTED.
+--      EXECUTE on public.get_public_batch_trace(uuid) TO PUBLIC: remains explicitly REVOKED.
+--
+--   2. recalls data returned publicly is explicitly allowlisted to:
+--        recall_number, title, severity, status, affected_units,
+--        initiated_at, closed_at
+--      The following fields are permanently excluded from the public response:
+--        reason, root_cause, corrective_action, preventive_action,
+--        initiated_by_name, company_id, product_id, batch_id
+--
+--   3. capas data is NEVER returned to the trace page caller.
+--      The function reads capas only to compute COUNT aggregates for the
+--      internal risk score (v_critical_capas, v_open_capas). These integers
+--      feed the risk score formula and are not individually surfaced.
+--
+--   4. app/trace/[id]/page.tsx performs NO direct .from('recalls') or
+--      .from('capas') calls. It calls only the two hardened SECURITY DEFINER
+--      RPCs: get_public_batch_trace and log_scan_event.
+--
+--   5. All remaining consumers of both tables are authenticated routes:
+--        recalls:  useRecalls.ts, useCapas.ts, ProductJourneyDetailClient.tsx,
+--                  ProductPassportClient.tsx, ProductsClient.tsx,
+--                  RecallDetailClient.tsx, RecallImpactClient.tsx, SFDAClient.tsx
+--        capas:    useCapas.ts, useRecalls.ts, ProductJourneyDetailClient.tsx,
+--                  ProductPassportClient.tsx, RecallDetailClient.tsx, SFDAClient.tsx
+--      All run under the authenticated role with company-scoped RLS
+--      (co_recalls_* / co_capas_*). authenticated grants are intentionally
+--      untouched by this migration.
+--
+--   6. No anon RLS policy has ever existed for recalls or capas in any SQL
+--      file in this repository. Unlike Batch 0 (scan_events), Batch 1
+--      (batch_qc_results, bill_of_materials), and the prior table hardening
+--      (products, production_orders), no stale SQL files required superseded
+--      warning headers for this batch. The tables were created after the
+--      permissive-era migration files were authored.
+--
+-- SCOPE
+--   • Revokes: anon on public.recalls
+--              anon on public.capas
+--   • Does NOT touch: authenticated grants, RLS policies, function grants,
+--     or any other table
+--
+-- HARDENING SERIES (chronological)
+--   supabase_log_scan_event_hardening_20260819.sql
+--     scan_events: anon grants revoked, log_scan_event body hardened,
+--     rate guard, input caps, SECURITY DEFINER
+--   supabase_public_trace_table_hardening_20260820.sql
+--     products, production_orders: anon grants revoked
+--   supabase_public_trace_batch1_hardening_20260820.sql
+--     batch_qc_results, bill_of_materials: anon grants revoked
+--   supabase_public_trace_batch2_hardening_20260821.sql  ← THIS FILE
+--     recalls, capas: anon grants revoked
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+BEGIN;
+
+REVOKE ALL ON TABLE public.recalls FROM anon;
+REVOKE ALL ON TABLE public.capas   FROM anon;
+
+COMMIT;
