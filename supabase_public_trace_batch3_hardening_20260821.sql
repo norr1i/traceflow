@@ -1,0 +1,180 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- TraceFlow — Revoke residual anon table grants: Batch 3
+-- File:       supabase_public_trace_batch3_hardening_20260821.sql
+-- Live-applied and smoke-tested: 2026-08-21
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+--
+-- WHAT THIS FILE RECORDS
+--   Revocation of all Supabase-default anon table grants from
+--   public.raw_material_lots and public.raw_materials.
+--
+--   These grants existed because Supabase applies
+--   GRANT ALL ON ALL TABLES IN SCHEMA public TO anon
+--   at table-creation time. They were never captured in any repository
+--   migration file and were never relied upon by any production code path.
+--   They represented a residual direct-REST attack surface against two
+--   supply-chain tables that contain internal lot, quantity, supplier,
+--   and status data.
+--
+-- HISTORICAL CONTEXT: raw_material_lots
+--   A prior incident (2026-07-13) confirmed that an anon SELECT policy
+--   "public_trace_rml" (created in supabase_fix_rml_supplier.sql) exposed
+--   15 raw_material_lots rows across all companies to unauthenticated REST
+--   requests. That policy was removed by supabase_fix_rml_anon_policy_drop.sql.
+--   The live revoke in this file closes the separate residual table-privilege
+--   surface (GRANT ALL ... TO anon) that existed independently of the RLS policy.
+--
+-- PRE-REVOKE LIVE STATE (confirmed before applying change)
+--
+--   public.raw_material_lots:
+--     • RLS enabled:      relrowsecurity = true
+--     • RLS forced:       relforcerowsecurity = false
+--     • Anon RLS policies: NONE (pg_policies: 0 anon rows for this table)
+--       "public_trace_rml" does NOT exist — confirmed absent.
+--     • Authenticated policies: "rml: all own company"
+--       FOR ALL TO authenticated USING/WITH CHECK (company_id = get_my_company_id())
+--     • has_table_privilege('anon','public.raw_material_lots','SELECT') = true  ← residual default
+--     • has_table_privilege('anon','public.raw_material_lots','INSERT') = true  ← residual default
+--     • has_table_privilege('anon','public.raw_material_lots','UPDATE') = true  ← residual default
+--     • has_table_privilege('anon','public.raw_material_lots','DELETE') = true  ← residual default
+--
+--   public.raw_materials:
+--     • RLS enabled:      relrowsecurity = true
+--     • RLS forced:       relforcerowsecurity = false
+--     • Anon RLS policies: NONE (pg_policies: 0 anon rows for this table)
+--       "anon_all_raw_materials" (from supabase_schema.sql era) does NOT exist
+--       in the live database — confirmed absent.
+--     • Authenticated policies: co_raw_materials
+--       FOR ALL TO authenticated USING/WITH CHECK (company_id = get_my_company_id())
+--     • has_table_privilege('anon','public.raw_materials','SELECT') = true  ← residual default
+--     • has_table_privilege('anon','public.raw_materials','INSERT') = true  ← residual default
+--     • has_table_privilege('anon','public.raw_materials','UPDATE') = true  ← residual default
+--     • has_table_privilege('anon','public.raw_materials','DELETE') = true  ← residual default
+--
+--   Note: although anon held direct table-level privileges on both tables,
+--   RLS was already enabled and no anon RLS policy existed to pass the
+--   policy check. In practice anon direct REST queries would have been
+--   rejected at the RLS layer. The revoke closes the privilege surface
+--   entirely so RLS policy absence is no longer load-bearing.
+--
+-- POST-REVOKE LIVE VERIFICATION (2026-08-21)
+--
+--   public.raw_material_lots:
+--     • has_table_privilege('anon','public.raw_material_lots','SELECT') = false ✓
+--     • has_table_privilege('anon','public.raw_material_lots','INSERT') = false ✓
+--     • has_table_privilege('anon','public.raw_material_lots','UPDATE') = false ✓
+--     • has_table_privilege('anon','public.raw_material_lots','DELETE') = false ✓
+--
+--   public.raw_materials:
+--     • has_table_privilege('anon','public.raw_materials','SELECT') = false ✓
+--     • has_table_privilege('anon','public.raw_materials','INSERT') = false ✓
+--     • has_table_privilege('anon','public.raw_materials','UPDATE') = false ✓
+--     • has_table_privilege('anon','public.raw_materials','DELETE') = false ✓
+--
+--   RLS policies: unchanged — authenticated-only policies remain in place
+--     raw_material_lots: "rml: all own company" still present
+--     raw_materials:     co_raw_materials still present
+--
+-- SMOKE TEST (2026-08-21): PASS
+--   • /trace/<valid batch UUID> loaded without authentication
+--   • Quality & Compliance section: rendered correctly
+--     (QC PASSED / LAB PASSED / COMPLIANT rendered)
+--   • 1 inspection rendered correctly
+--   • Lifecycle events section: rendered correctly
+--   • Recall Information section: rendered correctly
+--   • Raw Materials Used section: rendered correctly — 3 material names rendered.
+--     Confirms get_public_batch_trace SECURITY DEFINER path continues to read
+--     raw_material_lots and raw_materials without anon table grants.
+--     Confirms the material_name ALLOWLIST is enforced: no lot numbers,
+--     supplier details, lot IDs, or internal IDs were exposed publicly.
+--   • Distribution section: 6 shipments rendered correctly
+--   • Production Information section: rendered correctly
+--   • No 500 errors, no PostgREST errors in browser console or Supabase logs
+--
+-- WHY THE REVOKES ARE SAFE
+--
+--   1. get_public_batch_trace is SECURITY DEFINER SET search_path = public.
+--      It executes as the function owner (postgres superuser), which is
+--      unconditionally exempt from table-level privilege checks and from
+--      RLS when FORCE ROW LEVEL SECURITY is not set. The function reads:
+--        raw_material_lots: STEP 7 only — COUNT of rejected/quarantine lots
+--                           and supplier-substitution detection. All are
+--                           internal integers that feed the risk score;
+--                           none are returned to the caller.
+--        raw_materials:     STEP 7 only — JOIN to detect supplier_id
+--                           mismatch (v_supplier_subs). Internal COUNT only.
+--      STEP 4 (the only step that returns material data publicly) reads
+--      ONLY bill_of_materials.material_name DISTINCT — it does NOT join
+--      to raw_material_lots or raw_materials at all.
+--      Revoking anon table grants has zero effect on this function.
+--      EXECUTE on public.get_public_batch_trace(uuid) TO anon:    remains explicitly GRANTED.
+--      EXECUTE on public.get_public_batch_trace(uuid) TO PUBLIC:  remains explicitly REVOKED.
+--
+--   2. get_lot_traceability(text, uuid) is SECURITY INVOKER and reads
+--      both raw_material_lots and raw_materials. However:
+--        • It has NO GRANT TO anon in the repository or in the live database.
+--          get_lot_traceability anon EXECUTE: confirmed NOT granted (verified live).
+--        • It requires a p_company_id parameter — it is an authenticated
+--          internal traceability feature, not a public-facing function.
+--      Revoking anon table grants has no practical effect: anon cannot
+--      call this function regardless of table privilege state.
+--
+--   3. get_batch_trace is SECURITY DEFINER and has GRANT EXECUTE TO anon
+--      (retained for backward compatibility with existing QR code deployments).
+--      It reads raw_material_lots via LEFT JOIN. As a SECURITY DEFINER
+--      function running as postgres superuser, it is exempt from table-level
+--      privilege checks. Revoking anon table grants has zero effect on it.
+--
+--   4. app/trace/[id]/page.tsx performs NO direct .from('raw_material_lots')
+--      or .from('raw_materials') calls. It calls only the two hardened
+--      SECURITY DEFINER RPCs: get_public_batch_trace and log_scan_event.
+--
+--   5. All remaining direct consumers of both tables are authenticated routes:
+--        raw_material_lots: ProductJourneyDetailClient.tsx (embedded join via
+--                           bill_of_materials on the /product-journey/[id] route)
+--        raw_materials:     RawMaterialsClient.tsx (full CRUD),
+--                           GlobalSearch.tsx (SELECT),
+--                           dashboard.ts (SELECT, low-stock widget)
+--      All run under the authenticated role with company-scoped RLS
+--      ("rml: all own company" / co_raw_materials).
+--      authenticated grants are intentionally untouched by this migration.
+--
+--   6. The only anon RLS policies ever created for these tables in this
+--      repository were:
+--        raw_material_lots: "public_trace_rml" — created in error by
+--          supabase_fix_rml_supplier.sql, removed by
+--          supabase_fix_rml_anon_policy_drop.sql. Absent from live DB.
+--        raw_materials: "anon_all_raw_materials" — schema-era permissive
+--          policy in supabase_schema.sql (now fully superseded and warned).
+--          Absent from live DB.
+--      supabase_fix_rml_supplier.sql has been updated with a top-level
+--      SUPERSEDED header so the dangerous executable CREATE POLICY cannot
+--      be accidentally re-applied.
+--      No app code changes were required for this revocation.
+--
+-- SCOPE
+--   • Revokes: anon on public.raw_material_lots
+--              anon on public.raw_materials
+--   • Does NOT touch: authenticated grants, RLS policies, function grants,
+--     or any other table
+--
+-- HARDENING SERIES (chronological)
+--   supabase_log_scan_event_hardening_20260819.sql
+--     scan_events: anon grants revoked, log_scan_event body hardened,
+--     rate guard, input caps, SECURITY DEFINER
+--   supabase_public_trace_table_hardening_20260820.sql
+--     products, production_orders: anon grants revoked
+--   supabase_public_trace_batch1_hardening_20260820.sql
+--     batch_qc_results, bill_of_materials: anon grants revoked
+--   supabase_public_trace_batch2_hardening_20260821.sql
+--     recalls, capas: anon grants revoked
+--   supabase_public_trace_batch3_hardening_20260821.sql  ← THIS FILE
+--     raw_material_lots, raw_materials: anon grants revoked
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+BEGIN;
+
+REVOKE ALL ON TABLE public.raw_material_lots FROM anon;
+REVOKE ALL ON TABLE public.raw_materials     FROM anon;
+
+COMMIT;

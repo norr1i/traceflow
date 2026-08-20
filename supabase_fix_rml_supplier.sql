@@ -1,3 +1,27 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- SUPERSEDED — DO NOT EXECUTE THIS FILE STANDALONE
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- This file is retained for historical reference only.
+--
+-- Running THIS file standalone would:
+--   • Recreate "public_trace_rml" ON public.raw_material_lots
+--     FOR SELECT TO anon USING (true) — this policy was confirmed to expose
+--     ALL raw_material_lots rows across ALL companies to unauthenticated REST
+--     requests (15 rows leaked 2026-07-13). The live database intentionally
+--     has NO anon access to public.raw_material_lots. DO NOT RE-APPLY.
+--
+-- The authoritative records for the current hardened state are:
+--   supabase_fix_rml_anon_policy_drop.sql
+--     (removal of "public_trace_rml" — idempotent DROP POLICY IF EXISTS)
+--   supabase_public_trace_batch3_hardening_20260821.sql
+--     (revocation of Supabase-default anon table-level grants from
+--      public.raw_material_lots and public.raw_materials — live-applied
+--      and smoke-tested 2026-08-21)
+--
+-- If you must re-run this file for schema recovery purposes, run BOTH
+-- authoritative files immediately afterwards to restore the hardened state.
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 -- ============================================================
 -- TraceFlow — Fix: supplier_name shows "—" on public trace page
 -- File: supabase_fix_rml_supplier.sql

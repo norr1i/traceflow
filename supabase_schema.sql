@@ -24,8 +24,10 @@
 --     (scan_events: anon grants revoked, SECURITY DEFINER path only)
 --   supabase_public_trace_table_hardening_20260820.sql
 --     (products, production_orders: anon grants revoked)
+--   supabase_public_trace_batch3_hardening_20260821.sql
+--     (raw_materials: anon grants revoked)
 --
--- If you must re-run this file for schema recovery, run BOTH hardening
+-- If you must re-run this file for schema recovery, run ALL THREE hardening
 -- files immediately afterwards to restore the hardened state.
 --
 -- This file is retained for historical reference only.
