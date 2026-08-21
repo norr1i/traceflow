@@ -26,8 +26,10 @@
 --     (products, production_orders: anon grants revoked)
 --   supabase_public_trace_batch3_hardening_20260821.sql
 --     (raw_materials: anon grants revoked)
+--   supabase_public_trace_batch4_hardening_20260821.sql
+--     (quality_inspections: anon grants revoked)
 --
--- If you must re-run this file for schema recovery, run ALL THREE hardening
+-- If you must re-run this file for schema recovery, run ALL FOUR hardening
 -- files immediately afterwards to restore the hardened state.
 --
 -- This file is retained for historical reference only.

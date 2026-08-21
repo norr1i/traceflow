@@ -1,0 +1,203 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- TraceFlow — Revoke residual anon table grants: Batch 4
+-- File:       supabase_public_trace_batch4_hardening_20260821.sql
+-- Live-applied and smoke-tested: 2026-08-21
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+--
+-- WHAT THIS FILE RECORDS
+--   Revocation of all Supabase-default anon table grants from
+--   public.quality_inspections and public.distribution_records.
+--
+--   These grants existed because Supabase applies
+--   GRANT ALL ON ALL TABLES IN SCHEMA public TO anon
+--   at table-creation time. They were never captured in any repository
+--   migration file and were never relied upon by any production code path.
+--
+-- PRE-REVOKE LIVE STATE (confirmed before applying change)
+--
+--   public.quality_inspections:
+--     • RLS enabled:      relrowsecurity = true
+--     • RLS forced:       relforcerowsecurity = false
+--     • Anon RLS policies: NONE
+--       (pg_policies filtered for role anon: 0 rows)
+--     • Authenticated policies: co_qi_select, co_qi_insert,
+--                                co_qi_update, co_qi_delete
+--       All TO authenticated with company + role scoping.
+--     • has_table_privilege('anon','public.quality_inspections','SELECT') = true  ← residual default
+--     • has_table_privilege('anon','public.quality_inspections','INSERT') = true  ← residual default
+--     • has_table_privilege('anon','public.quality_inspections','UPDATE') = true  ← residual default
+--     • has_table_privilege('anon','public.quality_inspections','DELETE') = true  ← residual default
+--
+--   public.distribution_records:
+--     • RLS enabled:      relrowsecurity = true
+--     • RLS forced:       relforcerowsecurity = false
+--     • Anon RLS policies: NONE
+--       (pg_policies filtered for role anon: 0 rows)
+--     • Live RLS policies — see DISTRIBUTION_RECORDS ANOMALY section below:
+--         dist_select  roles = {public}  FOR SELECT  USING (company_id = current_org_id())
+--         dist_insert  roles = {public}  FOR INSERT  WITH CHECK (current_org_id(), current_user_role())
+--         dist_update  roles = {public}  FOR UPDATE  USING/WITH CHECK (current_org_id(), current_user_role())
+--     • has_table_privilege('anon','public.distribution_records','SELECT') = true  ← residual default
+--     • has_table_privilege('anon','public.distribution_records','INSERT') = true  ← residual default
+--     • has_table_privilege('anon','public.distribution_records','UPDATE') = true  ← residual default
+--     • has_table_privilege('anon','public.distribution_records','DELETE') = true  ← residual default
+--
+--   Note on both tables: although anon held direct table-level privileges,
+--   RLS was already enabled and no anon-specific RLS policy existed. In
+--   practice anon direct REST queries were blocked at the RLS layer (either
+--   by no matching policy, or by current_org_id() returning NULL for anon).
+--   The revoke closes the privilege surface entirely so the RLS layer is no
+--   longer the sole line of defence.
+--
+-- POST-REVOKE LIVE VERIFICATION (2026-08-21)
+--
+--   public.quality_inspections:
+--     • has_table_privilege('anon','public.quality_inspections','SELECT') = false ✓
+--     • has_table_privilege('anon','public.quality_inspections','INSERT') = false ✓
+--     • has_table_privilege('anon','public.quality_inspections','UPDATE') = false ✓
+--     • has_table_privilege('anon','public.quality_inspections','DELETE') = false ✓
+--
+--   public.distribution_records:
+--     • has_table_privilege('anon','public.distribution_records','SELECT') = false ✓
+--     • has_table_privilege('anon','public.distribution_records','INSERT') = false ✓
+--     • has_table_privilege('anon','public.distribution_records','UPDATE') = false ✓
+--     • has_table_privilege('anon','public.distribution_records','DELETE') = false ✓
+--
+--   RLS policies: unchanged — all existing policies (co_qi_*, dist_*)
+--                 remain in place.
+--
+-- SMOKE TEST (2026-08-21): PASS
+--   • /trace/<valid batch UUID> loaded without authentication
+--   • Overview section: rendered correctly
+--   • Product Journey section: rendered correctly — 14 lifecycle events
+--   • Final QC events: rendered correctly
+--   • Distribution events: rendered correctly
+--   • Quality & Compliance section: rendered correctly
+--     (QC PASSED / LAB PASSED / COMPLIANT rendered)
+--   • 1 inspection rendered; last-inspected date rendered
+--   • 6 shipments rendered
+--   • Recall Information section: rendered correctly
+--   • Raw Materials Used section: rendered correctly (3 materials)
+--   • Production Information section: rendered correctly
+--   • No 500 errors, no PostgREST errors, no visible regressions
+--   Confirms get_public_batch_trace SECURITY DEFINER path continues
+--   to read both tables without anon table grants.
+--
+-- WHY THE REVOKES ARE SAFE
+--
+--   1. get_public_batch_trace is SECURITY DEFINER SET search_path = public.
+--      It executes as the function owner (postgres superuser), which is
+--      unconditionally exempt from table-level privilege checks and from
+--      RLS when FORCE ROW LEVEL SECURITY is not set. The function reads:
+--        quality_inspections: STEP 5 (timeline Source C) — event_type and
+--          inspection_date only; inspector_name/id/notes explicitly excluded.
+--          STEP 7 — COUNT of failed/conditional for risk score only.
+--        distribution_records: STEP 5 (timeline Source D) — shipped_at
+--          timestamp and fixed string title only; recipient_name, notes,
+--          quantity_shipped, and all counterparty identifiers excluded.
+--      Revoking anon table grants has zero effect on this function.
+--      EXECUTE on public.get_public_batch_trace(uuid) TO anon:    remains explicitly GRANTED.
+--      EXECUTE on public.get_public_batch_trace(uuid) TO PUBLIC:  remains explicitly REVOKED.
+--
+--   2. app/trace/[id]/page.tsx performs NO direct .from('quality_inspections')
+--      or .from('distribution_records') calls. It calls only the two
+--      hardened SECURITY DEFINER RPCs: get_public_batch_trace and
+--      log_scan_event.
+--
+--   3. All remaining direct consumers of both tables are authenticated routes:
+--        quality_inspections: useQualityInspections.ts (full CRUD),
+--                             SFDAClient.tsx (SELECT)
+--        distribution_records: ProductPassportClient.tsx (SELECT),
+--                              RecallClient.tsx (SELECT),
+--                              ProductJourneyDetailClient.tsx (SELECT)
+--      All run under the authenticated role with company-scoped RLS
+--      (co_qi_* / dist_*). authenticated grants are intentionally
+--      untouched by this migration.
+--
+--   4. No anon RLS policy has ever existed for quality_inspections in any
+--      SQL file in this repository. "anon_all_quality_inspections" (from
+--      supabase_schema.sql) was a schema-era permissive policy; it is absent
+--      from the live database and already warned in supabase_schema.sql's
+--      top-level SUPERSEDED header.
+--      No app code changes were required for this revocation.
+--
+-- ── DISTRIBUTION_RECORDS ANOMALY (documented, not remediated in Batch 4) ──
+--
+--   During pre-revoke verification a discrepancy was discovered:
+--
+--   Repository defines (supabase_sfda_tables.sql):
+--     "distribution_records: select own company"  FOR SELECT USING (get_my_company_id())
+--     "distribution_records: insert own company"  FOR INSERT WITH CHECK (get_my_company_id())
+--   Both are implicitly TO PUBLIC (PostgreSQL default when no role specified)
+--   with data protection via get_my_company_id() → auth.uid() → NULL for anon.
+--
+--   Live database has instead:
+--     dist_select  TO PUBLIC  USING (company_id = current_org_id())
+--     dist_insert  TO PUBLIC  WITH CHECK (current_org_id() / current_user_role())
+--     dist_update  TO PUBLIC  USING / WITH CHECK (current_org_id() / current_user_role())
+--
+--   These three policies are OUT-OF-BAND — they do not exist in any SQL
+--   file in this repository. They were created directly in the Supabase
+--   SQL Editor or dashboard at an unknown prior date and replaced the
+--   repository-defined policies.
+--
+--   current_org_id() and current_user_role() are also OUT-OF-BAND:
+--     • Not defined in any repository SQL file.
+--     • Both are SECURITY DEFINER (no SET search_path — future hardening item).
+--     • current_org_id()  : derives company_id from user_profiles via auth.uid(),
+--                           with fallback to auth.jwt()->app_metadata->company_id.
+--     • current_user_role(): derives role from user_profiles via auth.uid(),
+--                           with fallback to auth.jwt()->app_metadata->role.
+--     • Under unauthenticated context: both return NULL (confirmed live).
+--
+--   Security assessment before Batch 4 revoke:
+--     Anon REST SELECT on distribution_records:
+--       table grant = true (pre-revoke)
+--       dist_select USING: company_id = current_org_id() = NULL → never satisfied
+--       Effective result: 0 rows returned (protected by NULL guard)
+--     Anon REST INSERT:
+--       dist_insert WITH CHECK: current_org_id() = NULL → check fails → blocked
+--     Anon REST UPDATE:
+--       dist_update USING: company_id = NULL → no visible rows → blocked
+--
+--   After Batch 4 REVOKE ALL FROM anon:
+--     Anon has no table-level grant → cannot reach RLS evaluation at all.
+--     The TO PUBLIC / NULL-guard pattern is now irrelevant for anon access.
+--     Data is protected at the privilege layer, not the RLS layer.
+--
+--   FUTURE HARDENING RECOMMENDED (separate task, not part of Batch 4):
+--     1. Replace dist_select/dist_insert/dist_update with explicit
+--        TO authenticated policies to eliminate the TO PUBLIC surface.
+--     2. Add SET search_path to current_org_id() and current_user_role()
+--        to prevent search_path injection.
+--     3. Capture these functions and policies in the repository so future
+--        schema recovery does not require out-of-band knowledge.
+--
+-- SCOPE
+--   • Revokes: anon on public.quality_inspections
+--              anon on public.distribution_records
+--   • Does NOT touch: authenticated grants, RLS policies, function grants,
+--     dist_* policies, current_org_id(), current_user_role(), or any other table
+--
+-- HARDENING SERIES (chronological)
+--   supabase_log_scan_event_hardening_20260819.sql
+--     scan_events: anon grants revoked, log_scan_event body hardened,
+--     rate guard, input caps, SECURITY DEFINER
+--   supabase_public_trace_table_hardening_20260820.sql
+--     products, production_orders: anon grants revoked
+--   supabase_public_trace_batch1_hardening_20260820.sql
+--     batch_qc_results, bill_of_materials: anon grants revoked
+--   supabase_public_trace_batch2_hardening_20260821.sql
+--     recalls, capas: anon grants revoked
+--   supabase_public_trace_batch3_hardening_20260821.sql
+--     raw_material_lots, raw_materials: anon grants revoked
+--   supabase_public_trace_batch4_hardening_20260821.sql  ← THIS FILE
+--     quality_inspections, distribution_records: anon grants revoked
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+BEGIN;
+
+REVOKE ALL ON TABLE public.quality_inspections  FROM anon;
+REVOKE ALL ON TABLE public.distribution_records FROM anon;
+
+COMMIT;
