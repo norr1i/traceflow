@@ -1,0 +1,280 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- TraceFlow — Revoke residual anon table grants: Batch 6
+-- File:       supabase_public_trace_batch6_hardening_20260821.sql
+-- Live-applied and smoke-tested: 2026-08-21
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+--
+-- WHAT THIS FILE RECORDS
+--   Revocation of all Supabase-default anon table grants from
+--   public.batch_events.
+--
+--   These grants existed because Supabase applies
+--   GRANT ALL ON ALL TABLES IN SCHEMA public TO anon
+--   at table-creation time. They were never captured in any repository
+--   migration file and were never relied upon by any production code path.
+--
+-- PRE-REVOKE LIVE STATE (confirmed before applying change)
+--
+--   public.batch_events:
+--     • RLS enabled:      relrowsecurity = true
+--     • RLS forced:       relforcerowsecurity = false
+--     • Anon RLS policies: NONE
+--       (pg_policies filtered for roles containing 'anon' directly: 0 rows)
+--     • Live RLS policies — see BATCH_EVENTS OUT-OF-BAND ANOMALY section below:
+--         events_select  roles = {public}  FOR SELECT
+--           qual       = (company_id = current_org_id())
+--           with_check = NULL
+--         events_insert  roles = {public}  FOR INSERT
+--           qual       = NULL
+--           with_check = (company_id = current_org_id())
+--     • has_table_privilege('anon','public.batch_events','SELECT') = true  ← residual default
+--     • has_table_privilege('anon','public.batch_events','INSERT') = true  ← residual default
+--     • has_table_privilege('anon','public.batch_events','UPDATE') = true  ← residual default
+--     • has_table_privilege('anon','public.batch_events','DELETE') = true  ← residual default
+--
+--   Note: although anon held direct table-level privileges, RLS was already
+--   enabled and no anon-specific RLS policy existed. In practice anon direct
+--   REST queries were blocked at the RLS layer by the NULL guard in
+--   current_org_id() (returns NULL for unauthenticated sessions → USING clause
+--   never satisfied → 0 rows / INSERT blocked). The revoke closes the
+--   privilege surface entirely so the RLS layer is no longer the sole line
+--   of defence.
+--
+-- POST-REVOKE LIVE VERIFICATION (2026-08-21)
+--
+--   public.batch_events:
+--     • has_table_privilege('anon','public.batch_events','SELECT') = false ✓
+--     • has_table_privilege('anon','public.batch_events','INSERT') = false ✓
+--     • has_table_privilege('anon','public.batch_events','UPDATE') = false ✓
+--     • has_table_privilege('anon','public.batch_events','DELETE') = false ✓
+--
+--   RLS policies: unchanged — events_select and events_insert remain in
+--                 place. Only the table-level anon privilege is removed.
+--
+-- SMOKE TEST (2026-08-21): PASS
+--   • /trace/<valid batch UUID> loaded without authentication
+--   • Product Journey section: rendered correctly
+--   • Raw Materials: 2 events rendered
+--   • Production: 4 events rendered
+--   • Final QC: 2 events rendered
+--   • Distribution: 6 events rendered
+--   • Quality & Compliance section: rendered correctly
+--     (QC PASSED / LAB PASSED / COMPLIANT rendered)
+--   • 1 inspection rendered
+--   • No internal batch_events fields leaked publicly:
+--     actor_name, ip_address, metadata, signature fields, related_*_id,
+--     quantity_before/after, device_id, scan_location, was_offline, signed_by,
+--     signature_hash, and all other internal-only columns confirmed absent
+--     from the public page output
+--   • No visible regression or error
+--   Confirms get_public_batch_trace SECURITY DEFINER path continues
+--   to read batch_events without anon table grants.
+--
+-- WHY THE REVOKES ARE SAFE
+--
+--   1. get_public_batch_trace is SECURITY DEFINER SET search_path = public.
+--      It executes as the function owner (postgres superuser), which is
+--      unconditionally exempt from table-level privilege checks and from
+--      RLS when FORCE ROW LEVEL SECURITY is not set. The function reads
+--      batch_events at Source F:
+--        JOIN path: batch_events JOIN batches ON b.id = be.batch_id
+--                   WHERE b.production_order_id = p_batch_id
+--                   AND   be.company_id = v_company_id
+--                   AND   be.event_type IN ('produced', 'shipped')
+--        'consumed' is explicitly excluded by the IN clause.
+--        Fields returned to the caller (strict allowlist):
+--          event_type  — mapped via CASE to a fixed vocabulary string;
+--                        the raw column value is never returned
+--          occurred_at — timestamp only
+--          title       — fixed RPC-generated string, never copied from
+--                        any table column
+--        Permanently excluded:
+--          description, actor_name, actor_id, actor_role, device_id,
+--          scan_location, ip_address, metadata, related_nc_id,
+--          related_capa_id, related_recall_id, related_operation_id,
+--          quantity_before, quantity_after, quantity_unit, synced_at,
+--          was_offline, signed_by, signed_at, signature_hash,
+--          id, company_id, batch_id, source_table, created_at
+--      Revoking anon table grants has zero effect on this function.
+--      EXECUTE on public.get_public_batch_trace(uuid) TO anon:    remains explicitly GRANTED.
+--      EXECUTE on public.get_public_batch_trace(uuid) TO PUBLIC:  remains explicitly REVOKED.
+--      (Confirmed live: grantees are anon, authenticated, postgres, service_role only.)
+--
+--   2. get_batch_journey(uuid) is SECURITY DEFINER SET search_path = public.
+--      It also reads batch_events at Source 10 (produced/consumed/shipped),
+--      and returns description, source_table, and metadata in its response.
+--      Live EXECUTE grants confirmed:
+--        anon EXECUTE:          false  ← anon cannot call this function
+--        authenticated EXECUTE: true
+--      Because get_batch_journey is SECURITY DEFINER, revoking anon table
+--      grants on batch_events would have zero effect on its execution regardless.
+--      The confirmed anon EXECUTE = false also means anon has no path to the
+--      richer description/metadata fields that get_batch_journey surfaces.
+--
+--   3. app/trace/[id]/page.tsx performs NO direct .from('batch_events') call.
+--      It calls only .rpc('get_public_batch_trace', ...) and log_scan_event.
+--      No other anonymous route in the application accesses batch_events.
+--
+--   4. All remaining direct consumers of batch_events are authenticated routes:
+--        ProductJourneyDetailClient.tsx (/product-journey/[id])
+--          SELECT event_type, description, created_at
+--        SFDAClient.tsx (/sfda)
+--          INSERT simulation events (company_id, batch_id, event_type, description)
+--      Both run under the authenticated role with company-scoped RLS
+--      (events_select / events_insert TO PUBLIC with current_org_id() guard,
+--       which resolves correctly for authenticated sessions).
+--      authenticated grants are intentionally untouched by this migration.
+--
+--   5. No anon-specific RLS policy has ever existed for batch_events in any
+--      SQL file in this repository. The repository-defined policies use
+--      get_my_company_id() with no TO clause (implicit TO PUBLIC). The live
+--      database has instead events_select/events_insert using current_org_id().
+--      See BATCH_EVENTS OUT-OF-BAND ANOMALY section below.
+--      No app code changes were required for this revocation.
+--
+-- ── BATCH_EVENTS OUT-OF-BAND ANOMALY (documented, not remediated in Batch 6) ─
+--
+--   During pre-revoke verification a discrepancy was discovered analogous
+--   to the distribution_records (Batch 4), batches (Batch 5) anomalies:
+--
+--   Repository defines (supabase_sfda_tables.sql lines 67–75):
+--     "batch_events: select own company"  FOR SELECT
+--       USING (company_id = get_my_company_id())     -- no TO clause → TO PUBLIC
+--     "batch_events: insert own company"  FOR INSERT
+--       WITH CHECK (company_id = get_my_company_id()) -- no TO clause → TO PUBLIC
+--
+--   Live database has instead:
+--     events_select  roles = {public}  FOR SELECT
+--       qual       = (company_id = current_org_id())
+--       with_check = NULL
+--     events_insert  roles = {public}  FOR INSERT
+--       qual       = NULL
+--       with_check = (company_id = current_org_id())
+--
+--   These two policies are OUT-OF-BAND — they do not exist in any SQL
+--   file in this repository under these names. They replaced the
+--   repository-defined "batch_events: select/insert own company" policies
+--   at an unknown prior date via direct Supabase SQL Editor or dashboard edits.
+--
+--   current_org_id() is the same out-of-band SECURITY DEFINER helper function
+--   first identified during Batch 4 (distribution_records) hardening:
+--     current_org_id(): derives company_id from user_profiles via auth.uid(),
+--                       with fallback to auth.jwt()->app_metadata->company_id.
+--                       Returns NULL under unauthenticated context.
+--   The function is not defined in any repository SQL file and has no
+--   SET search_path (future hardening item, see Batch 4 documentation).
+--
+--   Security assessment before Batch 6 revoke:
+--     events_select USING: company_id = current_org_id() = NULL for anon
+--       → condition never satisfied → 0 rows returned to anon.
+--     events_insert WITH CHECK: current_org_id() = NULL → check fails
+--       → INSERT blocked for anon.
+--     No UPDATE or DELETE policies exist on batch_events in either the
+--     repository definition or the live database.
+--     The NULL-guard pattern is confirmed, not inferred: current_org_id()
+--     is the same helper function confirmed live during Batch 4 hardening.
+--
+--   After Batch 6 REVOKE ALL FROM anon:
+--     Anon has no table-level grant → cannot reach RLS evaluation at all.
+--     The TO PUBLIC / NULL-guard pattern is now a redundant backstop.
+--
+--   Batch 6 did NOT alter events_select, events_insert, current_org_id(),
+--   any other RLS policy, any helper function, any RPC body or grant, or
+--   the batch_events table schema.
+--
+--   FUTURE HARDENING RECOMMENDED (separate task, not part of Batch 6):
+--     1. Replace events_select/events_insert with explicit TO authenticated
+--        policies to eliminate the TO PUBLIC surface.
+--     2. Capture events_select/events_insert in the repository so future
+--        schema recovery does not require out-of-band knowledge.
+--     3. Add SET search_path to current_org_id() (shared item with Batch 4/5
+--        future hardening).
+--     See also: dist_* anomaly in supabase_public_trace_batch4_hardening_20260821.sql
+--               batches_* anomaly in supabase_public_trace_batch5_hardening_20260821.sql
+--
+-- ── LIVE SCHEMA DRIFT: batch_events (documented, not remediated in Batch 6) ──
+--
+--   The repository CREATE TABLE for public.batch_events in supabase_sfda_tables.sql
+--   defines the following columns only:
+--     id, company_id, batch_id, event_type, description, created_at
+--
+--   Live schema inspection (2026-08-21) confirmed the table has been materially
+--   expanded out-of-band. Observed live columns include (non-exhaustive):
+--     id               — matches repo definition
+--     company_id       — matches repo definition
+--     batch_id         — matches repo definition
+--     event_type       — matches repo definition
+--     description      — matches repo definition
+--     created_at       — matches repo definition
+--     occurred_at      — OUT-OF-BAND; timestamptz NOT NULL
+--                        Read by both get_public_batch_trace (Source F) and
+--                        get_batch_journey (Source 10). Both RPCs were written
+--                        against the expanded live schema.
+--     actor_id         — OUT-OF-BAND; internal PII / FK to users
+--     actor_name       — OUT-OF-BAND; internal PII — employee/user name
+--     actor_role       — OUT-OF-BAND; internal RBAC role string
+--     device_id        — OUT-OF-BAND; internal device identifier
+--     scan_location    — OUT-OF-BAND; physical location data
+--     ip_address       — OUT-OF-BAND; network PII
+--     metadata         — OUT-OF-BAND; JSONB internal payload
+--     related_nc_id    — OUT-OF-BAND; FK to non-conformance records
+--     related_capa_id  — OUT-OF-BAND; FK to CAPAs
+--     related_recall_id      — OUT-OF-BAND; FK to recalls
+--     related_operation_id   — OUT-OF-BAND; FK to operations
+--     quantity_before  — OUT-OF-BAND; internal quantity tracking
+--     quantity_after   — OUT-OF-BAND; internal quantity tracking
+--     quantity_unit    — OUT-OF-BAND; unit string
+--     synced_at        — OUT-OF-BAND; offline sync timestamp
+--     was_offline      — OUT-OF-BAND; boolean offline-mode indicator
+--     signed_by        — OUT-OF-BAND; digital signature metadata (PII)
+--     signed_at        — OUT-OF-BAND; signature timestamp
+--     signature_hash   — OUT-OF-BAND; cryptographic hash
+--
+--   Security significance:
+--     Many out-of-band columns contain internal PII, supply-chain identifiers,
+--     operational data, and cryptographic material. All are in the FORBIDDEN
+--     category under get_public_batch_trace's strict allowlist and are
+--     confirmed absent from the public /trace page output (smoke test verified).
+--     The SECURITY DEFINER allowlist model in get_public_batch_trace ensures
+--     that only explicitly constructed fields (event_type CASE, occurred_at,
+--     title) are returned — no wildcard SELECT is used.
+--
+--   Batch 6 did NOT alter the batch_events schema. This drift is documented
+--   here so that future schema recovery operations account for the gap between
+--   supabase_sfda_tables.sql and the live table.
+--
+--   FUTURE HARDENING RECOMMENDED (separate task, not part of Batch 6):
+--     Capture the full live batch_events schema in a repository migration file
+--     so the live state is reproducible from source control.
+--
+-- SCOPE
+--   • Revokes: anon on public.batch_events
+--   • Does NOT touch: authenticated grants, RLS policies, function grants,
+--     events_select, events_insert, current_org_id(), any RPC body or grant,
+--     or the batch_events table schema
+--
+-- HARDENING SERIES (chronological)
+--   supabase_log_scan_event_hardening_20260819.sql
+--     scan_events: anon grants revoked, log_scan_event body hardened,
+--     rate guard, input caps, SECURITY DEFINER
+--   supabase_public_trace_table_hardening_20260820.sql
+--     products, production_orders: anon grants revoked
+--   supabase_public_trace_batch1_hardening_20260820.sql
+--     batch_qc_results, bill_of_materials: anon grants revoked
+--   supabase_public_trace_batch2_hardening_20260821.sql
+--     recalls, capas: anon grants revoked
+--   supabase_public_trace_batch3_hardening_20260821.sql
+--     raw_material_lots, raw_materials: anon grants revoked
+--   supabase_public_trace_batch4_hardening_20260821.sql
+--     quality_inspections, distribution_records: anon grants revoked
+--   supabase_public_trace_batch5_hardening_20260821.sql
+--     batches, batch_journey_events: anon grants revoked
+--   supabase_public_trace_batch6_hardening_20260821.sql  ← THIS FILE
+--     batch_events: anon grants revoked
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+BEGIN;
+
+REVOKE ALL ON TABLE public.batch_events FROM anon;
+
+COMMIT;
