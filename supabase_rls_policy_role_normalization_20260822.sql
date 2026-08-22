@@ -1,0 +1,245 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- TraceFlow — DG-2: Normalize live RLS policy roles TO authenticated
+-- File:       supabase_rls_policy_role_normalization_20260822.sql
+-- Live-applied and smoke-tested: 2026-08-22
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+--
+-- GOVERNANCE DESIGNATION: DG-2
+--   This is a least-privilege governance cleanup task, not a security
+--   incident response. It follows the Public Trace Table hardening series
+--   (Batches 1–6, 2026-08-19–21) and the invitation RPC hardening (2026-08-21).
+--
+-- SCOPE
+--   Normalizes 8 live RLS policy role assignments from TO PUBLIC
+--   to TO authenticated on three tables:
+--     • public.distribution_records  (3 policies)
+--     • public.batches               (3 policies)
+--     • public.batch_events          (2 policies)
+--
+-- THIS IS NOT A FIX FOR AN ACTIVE ANON DATA LEAK
+--   Anonymous (anon) table-level privileges were already revoked from all
+--   three tables by the Public Trace Table hardening series:
+--     • public.distribution_records — revoked in Batch 4
+--       (supabase_public_trace_batch4_hardening_20260821.sql)
+--     • public.batches              — revoked in Batch 5
+--       (supabase_public_trace_batch5_hardening_20260821.sql)
+--     • public.batch_events         — revoked in Batch 6
+--       (supabase_public_trace_batch6_hardening_20260821.sql)
+--   The TO PUBLIC policies were already ineffective for anon callers because
+--   anon cannot reach RLS evaluation without a table-level grant.
+--   This migration removes the unnecessary TO PUBLIC surface for completeness
+--   and least-privilege correctness.
+--
+-- PRE-CHANGE LIVE STATE (verified immediately before applying, 2026-08-22)
+--
+--   Confirmed via pg_policies SELECT before change:
+--
+--   public.distribution_records:
+--     dist_select  roles = {public}  FOR SELECT  USING (company_id = current_org_id())
+--     dist_insert  roles = {public}  FOR INSERT  WITH CHECK (involves current_org_id()
+--                                                            and current_user_role())
+--     dist_update  roles = {public}  FOR UPDATE  USING / WITH CHECK (involves
+--                                                            current_org_id()
+--                                                            and current_user_role())
+--
+--   public.batches:
+--     batches_select  roles = {public}  FOR SELECT  USING (company_id = current_org_id())
+--     batches_insert  roles = {public}  FOR INSERT  WITH CHECK (company_id = current_org_id()
+--                                                               and current_user_role()
+--                                                               authorization condition)
+--     batches_update  roles = {public}  FOR UPDATE  USING (company_id = current_org_id())
+--                                                   WITH CHECK (current_user_role()
+--                                                               authorization logic)
+--
+--   public.batch_events:
+--     events_select  roles = {public}  FOR SELECT  USING (company_id = current_org_id())
+--     events_insert  roles = {public}  FOR INSERT  WITH CHECK (company_id = current_org_id())
+--
+--   Confirmed via has_table_privilege before change:
+--     authenticated has SELECT/INSERT/UPDATE on all three tables = true  ✓
+--     anon has SELECT on all three tables = false  ✓ (revoked in Batches 4/5/6)
+--
+-- POST-CHANGE LIVE VERIFICATION (2026-08-22)
+--
+--   All 8 policies confirmed via pg_policies SELECT after change:
+--     dist_select    roles = {authenticated}  ✓
+--     dist_insert    roles = {authenticated}  ✓
+--     dist_update    roles = {authenticated}  ✓
+--     batches_select roles = {authenticated}  ✓
+--     batches_insert roles = {authenticated}  ✓
+--     batches_update roles = {authenticated}  ✓
+--     events_select  roles = {authenticated}  ✓
+--     events_insert  roles = {authenticated}  ✓
+--
+--   Policy names: unchanged
+--   Commands (FOR SELECT/INSERT/UPDATE): unchanged
+--   USING expressions: unchanged  ← preserved verbatim by ALTER POLICY
+--   WITH CHECK expressions: unchanged  ← preserved verbatim by ALTER POLICY
+--
+-- WHY ALTER POLICY WAS CHOSEN OVER DROP + RECREATE
+--
+--   The exact USING and WITH CHECK expressions for dist_insert, dist_update,
+--   batches_insert, and batches_update were not captured verbatim in any
+--   repository migration file. These policies are out-of-band (created
+--   directly in the Supabase SQL Editor at an unknown prior date). Dropping
+--   and recreating them would require transcribing the live expressions into
+--   SQL with perfect fidelity, introducing transcription risk.
+--
+--   PostgreSQL ALTER POLICY supports changing the roles list without
+--   modifying USING or WITH CHECK:
+--
+--     ALTER POLICY policy_name ON table_name TO authenticated;
+--
+--   This statement changes ONLY the role assignment. All USING and WITH CHECK
+--   expressions are preserved bit-for-bit on the live policy object.
+--   No authorization logic was altered.
+--
+-- WHY THIS CHANGE IS SAFE
+--
+--   1. Authenticated application consumers:
+--      All direct .from() callers on these tables run under authenticated
+--      sessions. They continue to match the policy via the authenticated role
+--      instead of via PUBLIC. Zero behavioral change.
+--        distribution_records: ProductPassportClient.tsx, RecallClient.tsx,
+--                              ProductJourneyDetailClient.tsx
+--        batches: ProductPassportClient.tsx, RecallClient.tsx,
+--                 ProductJourneyDetailClient.tsx, useQualityInspections.ts
+--        batch_events: ProductJourneyDetailClient.tsx (SELECT),
+--                      SFDAClient.tsx (INSERT — simulation drill)
+--
+--   2. SECURITY DEFINER RPC consumers:
+--      get_public_batch_trace(uuid) reads all three tables as part of the
+--      public /trace route. As a SECURITY DEFINER function running as the
+--      postgres superuser, it is unconditionally exempt from table-level
+--      privilege checks and from RLS when FORCE ROW LEVEL SECURITY is not
+--      set. This migration has zero effect on any SECURITY DEFINER path.
+--      get_batch_journey(uuid) reads batch_events — same reasoning applies.
+--
+--   3. service_role:
+--      Supabase service_role bypasses RLS entirely. Unaffected.
+--
+--   4. anon:
+--      anon had no table-level grant on any of the three tables before this
+--      change (revoked in Batches 4/5/6). Cannot reach RLS evaluation.
+--      The policy role change adds a belt-and-suspenders second layer.
+--
+--   5. Public /trace route:
+--      Confirmed in smoke test: /trace/<uuid> without authentication renders
+--      correctly after this change. The route exclusively uses
+--      get_public_batch_trace (SECURITY DEFINER), which is unaffected.
+--
+-- SMOKE TESTS (2026-08-22): PASS
+--
+--   Authenticated:
+--     • /product-journey/<uuid> with authenticated session:
+--       - Page loads
+--       - Product Journey section renders
+--       - Distribution stage renders
+--       - No permission errors observed
+--     Result: PASS ✓
+--
+--   Anonymous:
+--     • /trace/<uuid> in private/incognito (no authentication):
+--       - Public Digital Product Passport renders
+--       - Batch Summary renders
+--       - Product Journey renders
+--       - Distribution stage renders
+--       - Public trace behavior unchanged from pre-change
+--     Result: PASS ✓
+--
+-- OUT-OF-BAND POLICY NAMES — FIRST AUTHORITATIVE REPOSITORY RECORD
+--
+--   The 8 live policies altered in this file have no executable definition
+--   in any prior repository migration file. They were created out-of-band
+--   directly in the Supabase SQL Editor at an unknown prior date and
+--   replaced the original repository-era policies (defined in
+--   supabase_sfda_tables.sql under different names using get_my_company_id()).
+--   This file is the first repository record of the exact live policy names
+--   as executable SQL statements (ALTER, not CREATE).
+--
+--   The original repository-era policies — "batch_events: select own company",
+--   "batch_events: insert own company", "distribution_records: select own
+--   company", "distribution_records: insert own company" — no longer exist in
+--   the live database. supabase_sfda_tables.sql defines them but they have
+--   been superseded in the live database by the out-of-band policies above.
+--
+--   Note: public.batches is entirely out-of-band — no CREATE TABLE, no RLS
+--   enablement, and no policies are defined in any repository SQL file.
+--   The three batches_* policies were first documented (as TO PUBLIC) in
+--   supabase_public_trace_batch5_hardening_20260821.sql.
+--
+-- WHAT THIS FILE DOES NOT ADDRESS
+--
+--   The following are separate governance items, deferred and not part of
+--   this migration:
+--
+--   1. current_org_id() / current_user_role() helper functions:
+--      Both are SECURITY DEFINER but lack SET search_path (future
+--      search_path injection hardening item). These functions remain
+--      unchanged. Helper-function hardening MUST NOT be mixed into this
+--      migration — it requires separate review of function bodies and
+--      thorough smoke testing of policy expression evaluation.
+--
+--   2. Capturing supabase_sfda_tables.sql policy drift:
+--      The original policies defined in supabase_sfda_tables.sql are
+--      stale. Adding a recovery warning to that file is a separate
+--      documentation task.
+--
+--   3. Capturing batches table DDL:
+--      No CREATE TABLE for public.batches exists in any repository file.
+--      Capturing the full live schema is a separate task.
+--
+--   4. Full verbatim capture of USING/WITH CHECK expressions:
+--      The exact expressions for dist_insert, dist_update, batches_insert,
+--      and batches_update are not in this file. They were preserved in-place
+--      on the live policy objects by ALTER POLICY. A future task should read
+--      pg_policies and capture them here for completeness.
+--
+-- HARDENING / GOVERNANCE SERIES CONTEXT (chronological)
+--   supabase_log_scan_event_hardening_20260819.sql
+--     scan_events: anon grants revoked, log_scan_event hardened
+--   supabase_public_trace_table_hardening_20260820.sql
+--     products, production_orders: anon grants revoked
+--   supabase_public_trace_batch1_hardening_20260820.sql
+--     batch_qc_results, bill_of_materials: anon grants revoked
+--   supabase_public_trace_batch2_hardening_20260821.sql
+--     recalls, capas: anon grants revoked
+--   supabase_public_trace_batch3_hardening_20260821.sql
+--     raw_material_lots, raw_materials: anon grants revoked
+--   supabase_public_trace_batch4_hardening_20260821.sql
+--     quality_inspections, distribution_records: anon grants revoked;
+--     dist_select/insert/update TO PUBLIC anomaly first documented
+--   supabase_public_trace_batch5_hardening_20260821.sql
+--     batches, batch_journey_events: anon grants revoked;
+--     batches_select/insert/update TO PUBLIC anomaly first documented
+--   supabase_public_trace_batch6_hardening_20260821.sql
+--     batch_events: anon grants revoked;
+--     events_select/events_insert TO PUBLIC anomaly first documented
+--   supabase_lookup_invitation_hardening_20260821.sql
+--     lookup_invitation: PUBLIC EXECUTE revoked
+--   supabase_rls_policy_role_normalization_20260822.sql  ← THIS FILE (DG-2)
+--     distribution_records, batches, batch_events:
+--     all 8 live TO PUBLIC policies normalized to TO authenticated
+--
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+BEGIN;
+
+-- ── public.distribution_records ──────────────────────────────────────────────
+
+ALTER POLICY dist_select ON public.distribution_records TO authenticated;
+ALTER POLICY dist_insert ON public.distribution_records TO authenticated;
+ALTER POLICY dist_update ON public.distribution_records TO authenticated;
+
+-- ── public.batches ────────────────────────────────────────────────────────────
+
+ALTER POLICY batches_select ON public.batches TO authenticated;
+ALTER POLICY batches_insert ON public.batches TO authenticated;
+ALTER POLICY batches_update ON public.batches TO authenticated;
+
+-- ── public.batch_events ───────────────────────────────────────────────────────
+
+ALTER POLICY events_select ON public.batch_events TO authenticated;
+ALTER POLICY events_insert ON public.batch_events TO authenticated;
+
+COMMIT;
