@@ -1,3 +1,60 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- PRIVILEGE REGRESSION DANGER — READ BEFORE RUNNING
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+--
+-- This file is NOT superseded.
+-- The get_batch_trace(uuid) function body remains current. It is actively
+-- called by authenticated application code (ProductJourneyDetailClient.tsx)
+-- and may be required for schema recovery. Do NOT discard this file.
+--
+-- HOWEVER: the historical GRANT EXECUTE TO anon in this file (below) is NO
+-- LONGER the authoritative permission model. It was explicitly revoked as
+-- part of Phase 3 security hardening.
+--
+-- AUTHORITATIVE PERMISSION MODEL:
+--   phase3_lock_legacy_trace_rpcs.sql is the authoritative source.
+--   Current intended permissions for get_batch_trace(uuid):
+--     authenticated = EXECUTE  (granted)
+--     service_role  = EXECUTE  (granted)
+--     anon          = REVOKED
+--     PUBLIC        = REVOKED
+--
+-- WHY THIS FILE IS DANGEROUS TO RE-RUN STANDALONE:
+--
+--   1. On a LIVE hardened database:
+--      PostgreSQL CREATE OR REPLACE FUNCTION preserves the existing ACL.
+--      However, the GRANT EXECUTE ON FUNCTION get_batch_trace(uuid) TO anon
+--      statement below will RESTORE anon EXECUTE regardless of any prior
+--      REVOKE. The live database will regress to anon_execute = true.
+--
+--   2. On a fresh database (schema recovery):
+--      CREATE OR REPLACE FUNCTION (when no function exists yet) assigns the
+--      PostgreSQL default ACL: EXECUTE to PUBLIC. Combined with the explicit
+--      GRANT TO anon below, this leaves anon = true and PUBLIC = true on a
+--      function that returns sensitive internal data — until Phase 3 is applied.
+--
+-- WHAT get_batch_trace RETURNS (fields that must NOT be anon-accessible):
+--   inspector_name  — employee PII from batch_qc_results
+--   notes           — free-text QC inspection notes; may contain failure
+--                     details, rejection reasons, internal process anomalies
+--   supplier_name   — B2B commercial data from suppliers table
+--   customer_name   — B2B commercial data from sales table
+--
+-- NOTE ON THE ORIGINAL HEADER BELOW:
+--   The original file header states: "Safe to re-run — CREATE OR REPLACE is
+--   idempotent." That claim is NO LONGER CORRECT after Phase 3 hardening.
+--   Re-running this file standalone on a hardened database is NOT safe. It
+--   will restore anon EXECUTE on a function returning sensitive internal data.
+--
+-- REQUIRED RECOVERY SEQUENCE:
+--   If this file is run as part of schema recovery, you MUST immediately run:
+--     phase3_lock_legacy_trace_rpcs.sql
+--   That file re-applies REVOKE FROM anon and REVOKE FROM PUBLIC, restoring
+--   the hardened permission model. Failure to run it will leave anon and
+--   PUBLIC EXECUTE enabled on get_batch_trace.
+--
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 -- ============================================================
 -- TraceFlow — get_batch_trace RPC (v2)
 -- File: supabase_get_batch_trace.sql
