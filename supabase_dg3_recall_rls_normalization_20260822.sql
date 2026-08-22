@@ -1,0 +1,254 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- TraceFlow — DG-3: Normalize recall_affected_batches RLS policies
+-- File:       supabase_dg3_recall_rls_normalization_20260822.sql
+-- Live-applied and smoke-tested: 2026-08-22
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+--
+-- GOVERNANCE DESIGNATION: DG-3
+--   Least-privilege governance cleanup for public.recall_affected_batches.
+--   Follows DG-2 (supabase_rls_policy_role_normalization_20260822.sql) which
+--   normalized distribution_records, batches, and batch_events.
+--
+-- SCOPE
+--   Normalizes the SELECT and INSERT policy families on
+--   public.recall_affected_batches from a 5-policy TO PUBLIC coexistence to
+--   a 3-policy TO authenticated state. Also corrects a stale role allowlist
+--   on the INSERT policy.
+--
+--   Tables modified: public.recall_affected_batches only.
+--   audit_log is explicitly out of scope — handled separately.
+--   current_org_id() and current_user_role() are not modified here.
+--
+-- PRE-CHANGE LIVE STATE (5 policies, verified before applying, 2026-08-22)
+--
+--   The table had two overlapping policy families created at different times:
+--
+--   rab_* family (out-of-band, created directly in Supabase SQL Editor):
+--     rab_select  roles = {public}   FOR SELECT  USING  (company_id = current_org_id())
+--     rab_insert  roles = {public}   FOR INSERT  WITH CHECK (
+--                                      (company_id = current_org_id()) AND
+--                                      (current_user_role() = ANY (
+--                                        ARRAY['owner'::text, 'admin'::text,
+--                                              'quality_manager'::text]
+--                                      ))
+--                                    )
+--
+--   co_rab_* family (supabase_recall_affected_batches.sql, v6):
+--     co_rab_select  roles = {authenticated}  FOR SELECT  USING  (company_id = get_my_company_id())
+--     co_rab_insert  roles = {authenticated}  FOR INSERT  WITH CHECK (company_id = get_my_company_id())
+--     co_rab_delete  roles = {authenticated}  FOR DELETE  USING  (company_id = get_my_company_id())
+--
+-- THE PERMISSIVE OR BYPASS PROBLEM
+--
+--   PostgreSQL PERMISSIVE policies combine with OR: a row passes if ANY
+--   policy evaluates to true. co_rab_insert's WITH CHECK is company_id only —
+--   no role restriction. Because co_rab_insert evaluated to true for any
+--   authenticated company member, rab_insert's role allowlist
+--   (['owner', 'admin', 'quality_manager']) was never consulted. Any
+--   authenticated user in the correct company could INSERT regardless of role.
+--
+--   Similarly, co_rab_select and rab_select had functionally equivalent USING
+--   expressions (get_my_company_id() and current_org_id() both resolve to
+--   company_id from user_profiles WHERE user_id = auth.uid()). Their SELECT
+--   coexistence was harmless but redundant.
+--
+-- WHY co_rab_SELECT WAS DROPPED
+--
+--   co_rab_select (USING: get_my_company_id()) and rab_select (USING:
+--   current_org_id()) produce identical access for authenticated users —
+--   both restrict to rows matching the caller's company. rab_select is the
+--   newer out-of-band policy and is the intended authoritative SELECT policy.
+--   Dropping co_rab_select consolidates the table to a single SELECT policy
+--   with no behavioral change.
+--
+-- WHY co_rab_DELETE WAS RETAINED
+--
+--   co_rab_delete is the only DELETE policy on recall_affected_batches. There
+--   is no rab_delete counterpart. Dropping it would completely block all
+--   authenticated DELETE under RLS. No application code DELETE on this table
+--   was found; however, absence of app-code evidence is not a sufficient basis
+--   for removing the only DELETE policy. co_rab_delete is retained unchanged.
+--
+-- STALE rab_INSERT ROLE ALLOWLIST — OLD vs NEW
+--
+--   Old allowlist: ['owner', 'admin', 'quality_manager']
+--     owner          — not defined in the current application role model
+--                      (permissions.ts); zero live users hold this role
+--     admin          — current application role; 3 live users confirmed
+--     quality_manager — not defined in the current application role model
+--                      (permissions.ts); zero live users hold this role
+--
+--   New allowlist: ['admin', 'manager']
+--     admin   — canEdit(role, 'recall') = true; canEditSFDA = true
+--     manager — canEdit(role, 'recall') = true; canEditSFDA = true
+--
+--   Live user_profiles role count at time of change (2026-08-22):
+--     admin          = 3
+--     manager        = 0  (intentionally included — see below)
+--     owner          = 0
+--     quality_manager = 0
+--
+-- MANAGER ROLE — ZERO LIVE USERS, INTENTIONALLY SUPPORTED
+--
+--   manager has zero live users at the time of this change. It is included in
+--   the new allowlist because:
+--     • permissions.ts grants manager edit:recall and edit:sfda — the same
+--       relevant permissions as admin
+--     • app/recall/RecallClient.tsx:529: canEditRecall = canEdit(role, 'recall')
+--       → true for manager → manager can reach the INSERT code path at line 580
+--     • app/sfda/SFDAClient.tsx:843: canEditSFDA = role === 'admin' || role === 'manager'
+--       → manager can reach the simulation drill INSERT at line 1224
+--     • If manager were excluded from the DB allowlist, future manager users would
+--       hit silent INSERT failures at the database layer despite having app-layer
+--       authorization. The application's permission model is authoritative.
+--
+-- APPLICATION PERMISSION MODEL ALIGNMENT (permissions.ts)
+--
+--   Role         edit:recall   edit:sfda   In new rab_insert allowlist
+--   ──────────   ───────────   ─────────   ───────────────────────────
+--   admin        YES           YES         YES
+--   manager      YES           YES         YES
+--   operations   NO            NO          NO
+--   qc_inspector NO            NO (view)   NO
+--   inspector    NO            NO          NO (legacy alias for qc_inspector)
+--   sales        NO            NO          NO
+--   warehouse    NO            NO          NO
+--
+-- HELPER FUNCTIONS — NOT MODIFIED
+--
+--   current_org_id() and current_user_role() are SECURITY DEFINER functions
+--   used in the rab_select USING and rab_insert WITH CHECK expressions.
+--   Both functions currently lack SET search_path (a future hardening item).
+--   Helper-function hardening is a separate governance task and is NOT
+--   performed here. These functions remain entirely unchanged.
+--
+-- PUBLIC TRACE ROUTE — UNAFFECTED
+--
+--   get_public_batch_trace(uuid) and get_batch_journey(uuid) are SECURITY
+--   DEFINER functions that run as the postgres superuser. They are
+--   unconditionally exempt from table-level privilege checks and from RLS
+--   when FORCE ROW LEVEL SECURITY is not set. RLS policy changes on
+--   recall_affected_batches have zero effect on any SECURITY DEFINER path.
+--   The public /trace route continues to function without authentication.
+--
+-- POST-CHANGE LIVE VERIFICATION (2026-08-22)
+--
+--   pg_policies after change — exactly 3 policies on recall_affected_batches:
+--
+--     co_rab_delete  roles = {authenticated}  FOR DELETE
+--                    USING = (company_id = get_my_company_id())     ✓ unchanged
+--
+--     rab_insert     roles = {authenticated}  FOR INSERT
+--                    WITH CHECK = ((company_id = current_org_id()) AND
+--                                  (current_user_role() = ANY (
+--                                    ARRAY['admin'::text, 'manager'::text]
+--                                  )))                              ✓
+--
+--     rab_select     roles = {authenticated}  FOR SELECT
+--                    USING = (company_id = current_org_id())        ✓
+--
+--   Absent (confirmed): co_rab_select, co_rab_insert                ✓
+--
+--   has_table_privilege:
+--     anon SELECT   = false  ✓ (no table-level grant; unchanged by this file)
+--     anon INSERT   = false  ✓
+--     auth SELECT   = true   ✓
+--     auth INSERT   = true   ✓
+--
+-- SMOKE TESTS (2026-08-22): PASS
+--
+--   Admin user:
+--     • /recall: existing recall scope entries load                  PASS ✓
+--     • /recall: recall scope INSERT succeeds                        PASS ✓
+--     • /sfda: recall readiness metrics load                         PASS ✓
+--     • /sfda: simulation drill INSERT succeeds                      PASS ✓
+--
+--   Anonymous:
+--     • /trace/<uuid> in private/incognito (no authentication):
+--       Public Digital Product Passport renders                      PASS ✓
+--
+--   Manager INSERT:
+--     Cannot be live-tested — zero manager users exist. The allowlist
+--     change is validated against permissions.ts; functional verification
+--     will occur when the first manager user is created.
+--
+-- WHY ALTER POLICY WAS USED FOR rab_INSERT
+--
+--   ALTER POLICY supports replacing both the role assignment and the WITH CHECK
+--   expression in a single atomic statement:
+--
+--     ALTER POLICY name ON table TO role WITH CHECK (expr);
+--
+--   This changes ONLY the specified fields. No DROP + RECREATE is needed,
+--   eliminating any window where the INSERT policy is absent. For rab_select,
+--   no USING clause is supplied to ALTER — the existing USING expression is
+--   preserved verbatim by PostgreSQL.
+--
+-- RECOVERY NOTE
+--
+--   If supabase_recall_affected_batches.sql is re-run after this migration,
+--   its RLS section will recreate co_rab_select and co_rab_insert. This
+--   reverses DG-3. After running supabase_recall_affected_batches.sql for
+--   schema recovery, immediately re-run this file to restore the DG-3 state.
+--
+-- WHAT THIS FILE DOES NOT ADDRESS
+--
+--   1. audit_log_select TO PUBLIC — separate governance item; not in scope.
+--   2. supabase_sfda_tables.sql recovery risk — separate cleanup migration.
+--   3. current_org_id() / current_user_role() SET search_path — future hardening.
+--   4. Old sfda_tables-era recall policy names — not present in live DB;
+--      supabase_recall_affected_batches.sql (v6) already handles them.
+--
+-- HARDENING / GOVERNANCE SERIES CONTEXT (chronological)
+--   supabase_log_scan_event_hardening_20260819.sql
+--     scan_events: anon grants revoked, log_scan_event hardened
+--   supabase_public_trace_table_hardening_20260820.sql
+--     products, production_orders: anon grants revoked
+--   supabase_public_trace_batch1_hardening_20260820.sql
+--     batch_qc_results, bill_of_materials: anon grants revoked
+--   supabase_public_trace_batch2_hardening_20260821.sql
+--     recalls, capas: anon grants revoked
+--   supabase_public_trace_batch3_hardening_20260821.sql
+--     raw_material_lots, raw_materials: anon grants revoked
+--   supabase_public_trace_batch4_hardening_20260821.sql
+--     quality_inspections, distribution_records: anon grants revoked
+--   supabase_public_trace_batch5_hardening_20260821.sql
+--     batches, batch_journey_events: anon grants revoked
+--   supabase_public_trace_batch6_hardening_20260821.sql
+--     batch_events: anon grants revoked
+--   supabase_lookup_invitation_hardening_20260821.sql
+--     lookup_invitation: PUBLIC EXECUTE revoked
+--   supabase_rls_policy_role_normalization_20260822.sql  (DG-2)
+--     distribution_records, batches, batch_events:
+--     8 live TO PUBLIC policies normalized to TO authenticated
+--   supabase_dg3_recall_rls_normalization_20260822.sql   ← THIS FILE (DG-3)
+--     recall_affected_batches:
+--     SELECT/INSERT consolidated from 5-policy coexistence to 3-policy
+--     TO authenticated; stale INSERT allowlist corrected to admin + manager
+--
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+BEGIN;
+
+ALTER POLICY rab_select
+  ON public.recall_affected_batches
+  TO authenticated;
+
+DROP POLICY IF EXISTS co_rab_select
+  ON public.recall_affected_batches;
+
+DROP POLICY IF EXISTS co_rab_insert
+  ON public.recall_affected_batches;
+
+ALTER POLICY rab_insert
+  ON public.recall_affected_batches
+  TO authenticated
+  WITH CHECK (
+    (company_id = current_org_id())
+    AND
+    (current_user_role() = ANY (
+      ARRAY['admin'::text, 'manager'::text]
+    ))
+  );
+
+COMMIT;

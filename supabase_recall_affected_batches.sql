@@ -1,3 +1,65 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- RLS RECOVERY WARNING — READ BEFORE RUNNING
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+--
+-- This file is NOT fully superseded. The schema DDL, column additions, FK
+-- establishment, indexes, and table comments (sections 1–7, 9–10) remain
+-- current and may be required for schema recovery. Do NOT discard this file.
+--
+-- HOWEVER: the RLS section (section 8, lines ~410–431) is STALE relative to
+-- DG-3 (supabase_dg3_recall_rls_normalization_20260822.sql).
+--
+-- WHAT HAPPENS WHEN THIS FILE IS RE-RUN AFTER DG-3:
+--
+--   Section 8 executes the following:
+--     DROP POLICY IF EXISTS "co_rab_select" ON public.recall_affected_batches;
+--     DROP POLICY IF EXISTS "co_rab_insert" ON public.recall_affected_batches;
+--     CREATE POLICY "co_rab_select" ... USING (company_id = get_my_company_id());
+--     CREATE POLICY "co_rab_insert" ... WITH CHECK (company_id = get_my_company_id());
+--
+--   After DG-3, co_rab_select and co_rab_insert do not exist — the DROP
+--   statements are no-ops. But the CREATE statements RECREATE them:
+--
+--   co_rab_insert WITH CHECK: company_id only — no role restriction.
+--   PostgreSQL PERMISSIVE policies combine with OR: a row passes if ANY
+--   policy evaluates to true. co_rab_insert will evaluate to true for any
+--   authenticated company member, bypassing rab_insert's admin/manager
+--   role restriction entirely. The DG-3 INSERT role restriction is reversed.
+--
+--   co_rab_select (USING: get_my_company_id()) reintroduces a redundant
+--   SELECT policy alongside rab_select (USING: current_org_id()). This is
+--   functionally harmless for SELECT but inconsistent with the DG-3 state.
+--
+--   rab_select and rab_insert are NOT in section 8's DROP list — they
+--   survive re-run. The result is a 5-policy coexistence (same as
+--   the pre-DG-3 state) with DG-3 fully reversed for INSERT.
+--
+-- REQUIRED RECOVERY SEQUENCE:
+--
+--   If this file is run as part of schema recovery, you MUST immediately
+--   also run:
+--     supabase_dg3_recall_rls_normalization_20260822.sql
+--
+--   That migration drops co_rab_select and co_rab_insert, normalizes
+--   rab_select and rab_insert to TO authenticated, and restores the
+--   admin/manager role restriction on rab_insert. Failure to run it
+--   leaves any authenticated company member able to INSERT into
+--   recall_affected_batches regardless of role.
+--
+-- DG-3 AUTHORITATIVE POLICY STATE (post-DG-3 live state):
+--
+--   rab_select    roles = {authenticated}  FOR SELECT  USING (company_id = current_org_id())
+--   rab_insert    roles = {authenticated}  FOR INSERT  WITH CHECK (
+--                   (company_id = current_org_id()) AND
+--                   (current_user_role() = ANY (ARRAY['admin'::text, 'manager'::text]))
+--                 )
+--   co_rab_delete roles = {authenticated}  FOR DELETE  USING (company_id = get_my_company_id())
+--
+--   co_rab_delete is intentionally retained by DG-3 — it is the only DELETE
+--   policy and has no rab_delete counterpart.
+--
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 -- ============================================================
 -- TraceFlow — recall_affected_batches migration (v6 — FK establishment)
 -- File: supabase_recall_affected_batches.sql
