@@ -1,0 +1,253 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- TraceFlow — Harden audit_log and activity_logs: revoke anon grants,
+--             normalize RLS policies to TO authenticated
+-- File:       supabase_activity_audit_log_hardening_20260822.sql
+-- Live-applied and smoke-tested: 2026-08-22
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+--
+-- SCOPE
+--   Two tables — public.audit_log and public.activity_logs:
+--     1. Revoke direct anon table-level privileges (SELECT, INSERT, UPDATE,
+--        DELETE) on both tables.
+--     2. Normalize live RLS policies from TO PUBLIC to TO authenticated.
+--
+--   No USING or WITH CHECK expressions were changed.
+--   No application code was changed.
+--   No helper functions were changed.
+--
+-- TABLE ROLES — audit_log vs activity_logs
+--
+--   public.audit_log:
+--     LEGACY TABLE. Created in supabase_sfda_tables.sql as an SFDA compliance
+--     activity log. The application has since migrated entirely to
+--     public.activity_logs for all audit and activity logging. No application
+--     code reads from or writes to audit_log:
+--       • Zero .from('audit_log') calls exist in any app file.
+--       • No triggers or RPCs write to audit_log.
+--       • The logActivity() helper (app/lib/activity.ts) writes to
+--         activity_logs, not audit_log.
+--     The table is retained (may contain historical data from before the
+--     migration) but is no longer an active operational surface.
+--
+--   public.activity_logs:
+--     LIVE OPERATIONAL TABLE. Created in supabase_activity_logs.sql. This is
+--     the authoritative source for all user-action events in TraceFlow. It is
+--     read and written by multiple authenticated application code paths (see
+--     consumer list below).
+--
+-- PRE-CHANGE STATE (verified immediately before applying, 2026-08-22)
+--
+--   public.audit_log:
+--     anon SELECT  = true   ← Supabase platform default; never revoked
+--     anon INSERT  = true   ← Supabase platform default; never revoked
+--     anon UPDATE  = true   ← Supabase platform default; never revoked
+--     anon DELETE  = true   ← Supabase platform default; never revoked
+--     auth SELECT  = true
+--     auth INSERT  = true
+--
+--     RLS policies:
+--       audit_log_select  roles = {public}   FOR SELECT
+--         USING = (company_id = current_org_id()) AND current_user_role()
+--                 authorization logic  ← out-of-band policy; USING preserved
+--       [No INSERT policy exists live]
+--
+--   public.activity_logs:
+--     anon SELECT  = true   ← Supabase platform default; never revoked
+--     anon INSERT  = true   ← Supabase platform default; never revoked
+--     anon UPDATE  = true   ← Supabase platform default; never revoked
+--     anon DELETE  = true   ← Supabase platform default; never revoked
+--     auth SELECT  = true
+--     auth INSERT  = true
+--
+--     RLS policies:
+--       "activity_logs: select own company"  roles = {public}  FOR SELECT
+--         USING = (company_id = get_my_company_id())
+--       "activity_logs: insert own company"  roles = {public}  FOR INSERT
+--         WITH CHECK = (company_id = get_my_company_id())
+--
+-- EFFECTIVE PRE-CHANGE ANON EXPOSURE
+--
+--   Despite anon having direct table-level grants, the effective anon data
+--   exposure was zero for both tables due to RLS company guards:
+--
+--   SELECT: audit_log_select USING includes current_org_id(), which returns
+--     NULL for anon callers (auth.uid() is NULL → no user_profiles row →
+--     returns NULL). The expression company_id = NULL evaluates to UNKNOWN,
+--     not TRUE — no rows are returned.
+--
+--   INSERT: company_id columns on both tables are NOT NULL. For anon,
+--     current_org_id() / get_my_company_id() return NULL → WITH CHECK fails
+--     (UNKNOWN ≠ TRUE) → INSERT is blocked at policy level. Even if policy
+--     were bypassed, the NOT NULL constraint would block the INSERT.
+--
+--   The direct anon table grants were therefore unnecessary excess privilege —
+--   never actionable, and violating the least-privilege principle that all
+--   prior batch hardening has applied across other tables.
+--
+-- POST-CHANGE STATE (verified immediately after applying, 2026-08-22)
+--
+--   public.audit_log:
+--     anon SELECT  = false  ✓
+--     anon INSERT  = false  ✓
+--     anon UPDATE  = false  ✓
+--     anon DELETE  = false  ✓
+--     auth SELECT  = true   ✓ (unchanged)
+--     auth INSERT  = true   ✓ (unchanged)
+--
+--     RLS policies:
+--       audit_log_select  roles = {authenticated}  FOR SELECT  ✓
+--         USING expression: unchanged (preserved verbatim by ALTER POLICY)
+--
+--   public.activity_logs:
+--     anon SELECT  = false  ✓
+--     anon INSERT  = false  ✓
+--     anon UPDATE  = false  ✓
+--     anon DELETE  = false  ✓
+--     auth SELECT  = true   ✓ (unchanged)
+--     auth INSERT  = true   ✓ (unchanged)
+--
+--     RLS policies:
+--       "activity_logs: select own company"  roles = {authenticated}  ✓
+--         USING expression: (company_id = get_my_company_id())  ← unchanged
+--       "activity_logs: insert own company"  roles = {authenticated}  ✓
+--         WITH CHECK expression: (company_id = get_my_company_id())  ← unchanged
+--
+-- WHY AUTHENTICATED BEHAVIOR IS UNCHANGED
+--
+--   1. REVOKE ALL FROM anon removes only anon's direct table privilege.
+--      Authenticated sessions are not affected — they hold their own grants
+--      independently of the anon role.
+--
+--   2. ALTER POLICY ... TO authenticated changes only the roles list on the
+--      policy object. All USING and WITH CHECK expressions are preserved
+--      bit-for-bit. Authenticated users who previously satisfied the policy
+--      via the PUBLIC role continue to satisfy it via the authenticated role.
+--      Zero behavioral change for any authenticated code path.
+--
+-- activity_logs AUTHENTICATED CONSUMERS (all require continued SELECT/INSERT)
+--
+--   SELECT consumers (all use authenticated sessions):
+--     app/lib/dashboard.ts:124
+--       Dashboard activity feed: SELECT id, action_type, entity_type, entity_id,
+--       message, actor_email, metadata, created_at ORDER BY created_at DESC LIMIT 30
+--
+--     app/components/NotificationPanel.tsx:133
+--       Notification panel feed: SELECT id, action_type, message, actor_email,
+--       created_at, entity_type, entity_id ORDER BY created_at DESC LIMIT 40
+--
+--     app/components/NotificationPanel.tsx:162–169
+--       Realtime postgres_changes subscription on INSERT events, filtered by
+--       company_id. Powers in-app notification delivery as new activity occurs.
+--
+--     app/sfda/SFDAClient.tsx:924
+--       SFDA audit tab: SELECT id, actor_email, actor_user_id, action_type,
+--       entity_type, entity_id, message, created_at ORDER BY created_at DESC
+--       LIMIT 100. Powers the "Timestamped Activity Log" display.
+--
+--     app/sfda/SFDAClient.tsx:1024
+--       SFDA compliance count: SELECT id (count only, head: true) for
+--       complianceData.auditCount.
+--
+--   INSERT consumers (all use authenticated sessions via logActivity()):
+--     app/lib/activity.ts:99 — logActivity() core helper
+--     Called from:
+--       app/production/ProductionClient.tsx   production_order.*, bill_of_materials.*
+--       app/products/ProductsClient.tsx        product.created, .deleted, .imported
+--       app/sales/SalesClient.tsx              sale.created, .deleted, .imported
+--       app/quality-control/QualityControlClient.tsx  qc_inspection.*
+--       app/capa/CapaClient.tsx                capa.opened, .updated, .verified, .closed, .deleted
+--       app/recall/RecallClient.tsx            recall.initiated, .updated, .closed, .deleted
+--       app/team/TeamClient.tsx                invitation.*, team.role_changed, team.member_removed
+--
+-- WHAT THIS FILE DOES NOT ADDRESS
+--
+--   1. current_org_id() and current_user_role() helper functions:
+--      Both are SECURITY DEFINER but lack SET search_path. Hardening these
+--      functions is a separate future governance task and is NOT performed here.
+--
+--   2. supabase_sfda_tables.sql recovery risk for audit_log:
+--      Re-running supabase_sfda_tables.sql after this change will CREATE
+--      "audit_log: select own company" and "audit_log: insert own company"
+--      as TO PUBLIC policies (the DROP IF EXISTS for those names is a no-op
+--      because the live policy is named audit_log_select, not the old name).
+--      These new TO PUBLIC policies will coexist with the now-TO authenticated
+--      audit_log_select via permissive OR, effectively restoring TO PUBLIC
+--      access. A recovery warning must be added to supabase_sfda_tables.sql.
+--
+--   3. supabase_activity_logs.sql recovery risk:
+--      Re-running supabase_activity_logs.sql after this change will DROP and
+--      RECREATE "activity_logs: select own company" and
+--      "activity_logs: insert own company" as TO PUBLIC (the file's CREATE
+--      POLICY has no TO clause, which defaults to TO PUBLIC). This directly
+--      reverses the ALTER TO authenticated applied here. A recovery warning
+--      must be added to supabase_activity_logs.sql.
+--
+--   4. audit_log deprecation:
+--      The table is retained and not dropped. It may contain historical data
+--      from the period before activity_logs was introduced. Whether to formally
+--      deprecate or eventually drop the table is a separate business decision.
+--
+--   5. public /trace route: entirely unrelated. The /trace route uses
+--      get_public_batch_trace (SECURITY DEFINER) on production_orders,
+--      products, bill_of_materials, suppliers, batch_qc_results, and sales.
+--      Neither audit_log nor activity_logs is read or written by any
+--      SECURITY DEFINER trace function. Unaffected.
+--
+-- WHY ALTER POLICY WAS USED (NOT DROP + RECREATE)
+--
+--   ALTER POLICY supports changing the roles list without touching USING or
+--   WITH CHECK. For audit_log_select, the verbatim USING expression was not
+--   fully captured in any repository file (it is an out-of-band policy).
+--   For activity_logs, the expressions are simple and known, but ALTER is
+--   the consistent and lower-risk choice. No expression was changed.
+--
+-- HARDENING / GOVERNANCE SERIES CONTEXT (chronological)
+--   supabase_log_scan_event_hardening_20260819.sql
+--     scan_events: anon grants revoked, log_scan_event hardened
+--   supabase_public_trace_table_hardening_20260820.sql
+--     products, production_orders: anon grants revoked
+--   supabase_public_trace_batch1_hardening_20260820.sql
+--     batch_qc_results, bill_of_materials: anon grants revoked
+--   supabase_public_trace_batch2_hardening_20260821.sql
+--     recalls, capas: anon grants revoked
+--   supabase_public_trace_batch3_hardening_20260821.sql
+--     raw_material_lots, raw_materials: anon grants revoked
+--   supabase_public_trace_batch4_hardening_20260821.sql
+--     quality_inspections, distribution_records: anon grants revoked
+--   supabase_public_trace_batch5_hardening_20260821.sql
+--     batches, batch_journey_events: anon grants revoked
+--   supabase_public_trace_batch6_hardening_20260821.sql
+--     batch_events: anon grants revoked
+--   supabase_lookup_invitation_hardening_20260821.sql
+--     lookup_invitation: PUBLIC EXECUTE revoked
+--   supabase_rls_policy_role_normalization_20260822.sql  (DG-2)
+--     distribution_records, batches, batch_events:
+--     8 live TO PUBLIC policies normalized to TO authenticated
+--   supabase_dg3_recall_rls_normalization_20260822.sql   (DG-3)
+--     recall_affected_batches: 5-policy coexistence collapsed to 3-policy
+--     TO authenticated; stale INSERT allowlist corrected to admin + manager
+--   supabase_activity_audit_log_hardening_20260822.sql   ← THIS FILE
+--     audit_log: anon grants revoked, audit_log_select TO authenticated
+--     activity_logs: anon grants revoked, both policies TO authenticated
+--
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+BEGIN;
+
+REVOKE ALL ON TABLE public.audit_log FROM anon;
+
+ALTER POLICY audit_log_select
+  ON public.audit_log
+  TO authenticated;
+
+REVOKE ALL ON TABLE public.activity_logs FROM anon;
+
+ALTER POLICY "activity_logs: select own company"
+  ON public.activity_logs
+  TO authenticated;
+
+ALTER POLICY "activity_logs: insert own company"
+  ON public.activity_logs
+  TO authenticated;
+
+COMMIT;

@@ -1,3 +1,60 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- PRIVILEGE REGRESSION WARNING — READ BEFORE RUNNING
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+--
+-- This file is NOT superseded. Its CREATE TABLE, index, and column
+-- definitions remain current and valid for schema recovery. Do NOT discard
+-- this file.
+--
+-- HOWEVER: the RLS section (lines ~33–43) is STALE relative to the live
+-- hardened policy state established by:
+--   supabase_activity_audit_log_hardening_20260822.sql
+--
+-- WHAT HAPPENS WHEN THIS FILE IS RE-RUN AFTER THAT HARDENING:
+--
+--   The RLS section uses DROP POLICY IF EXISTS + CREATE POLICY (not ALTER).
+--   The live policy names match the names in this file exactly. Therefore:
+--
+--     DROP POLICY IF EXISTS "activity_logs: select own company"
+--       → FIRES — drops the hardened TO authenticated SELECT policy
+--     CREATE POLICY "activity_logs: select own company" ... (no TO clause)
+--       → RECREATES as TO PUBLIC (PostgreSQL default when no TO is supplied)
+--       → Directly reverses the policy-role normalization from TO authenticated
+--         back to TO PUBLIC
+--
+--     DROP POLICY IF EXISTS "activity_logs: insert own company"
+--       → FIRES — drops the hardened TO authenticated INSERT policy
+--     CREATE POLICY "activity_logs: insert own company" ... (no TO clause)
+--       → RECREATES as TO PUBLIC
+--       → Same regression on the INSERT path
+--
+-- WHAT IS NOT REVERSED:
+--
+--   The anon table-level REVOKE applied by the hardening file is DURABLE.
+--   This file contains no GRANT statement. Re-running does NOT restore anon
+--   table-level privileges. The practical data exposure for anon remains zero.
+--   However, the policy-role designation reverts to TO PUBLIC, which violates
+--   the least-privilege model established by the hardening programme.
+--
+-- REQUIRED RECOVERY SEQUENCE:
+--
+--   If this file is run as part of schema recovery, you MUST immediately
+--   also run:
+--     supabase_activity_audit_log_hardening_20260822.sql
+--
+--   That file re-applies REVOKE ALL FROM anon and ALTERs both policies back
+--   to TO authenticated, restoring the hardened state. Failure to run it
+--   leaves both activity_logs policies as TO PUBLIC.
+--
+-- NOTE ON THE "IDEMPOTENT" CLAIM BELOW:
+--   The original file header states "Idempotent: safe to run multiple times."
+--   That claim is NO LONGER CORRECT as a complete standalone recovery
+--   instruction after the hardening applied on 2026-08-22. Re-running this
+--   file alone produces a different policy-role state than the current live
+--   database. Run the hardening file immediately after.
+--
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 -- ============================================================
 -- TraceFlow — Activity Logs Table
 -- ============================================================
