@@ -1,0 +1,116 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- TraceFlow — Revoke unnecessary PUBLIC EXECUTE on lookup_invitation
+-- File:       supabase_lookup_invitation_hardening_20260821.sql
+-- Live-applied and smoke-tested: <PENDING — fill in after live apply>
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+--
+-- SCOPE
+--   This file is entirely unrelated to the Public Trace table hardening
+--   (Batches 1–6). It addresses a separate invitation/auth RPC surface.
+--   The Public Trace hardening is complete and this change does not affect
+--   any of the 13 tables or 2 RPCs in that hardening programme.
+--
+-- WHAT THIS FILE RECORDS
+--   Revocation of the PostgreSQL default PUBLIC EXECUTE privilege from
+--   public.lookup_invitation(text).
+--
+--   When a PostgreSQL function is created without an explicit
+--   REVOKE ALL ... FROM PUBLIC, all roles inherit EXECUTE access via
+--   the PostgreSQL default PUBLIC grant. supabase_invite_accept.sql
+--   issued GRANT EXECUTE TO anon, authenticated but never issued the
+--   corresponding REVOKE FROM PUBLIC. This change closes that gap.
+--
+-- CONFIRMED LIVE STATE (2026-08-21, before applying change)
+--
+--   public.lookup_invitation(text):
+--     • SECURITY DEFINER: true
+--     • SET search_path:  = public
+--     • anon EXECUTE:     true  ← explicit grant (supabase_invite_accept.sql:45)
+--     • authenticated EXECUTE: true  ← explicit grant
+--     • PUBLIC EXECUTE:   true  ← PostgreSQL default; never revoked; this is the gap
+--
+-- WHY anon EXECUTE IS PRESERVED
+--
+--   GRANT EXECUTE TO anon is intentional and required.
+--   The function is the backend of the invitation detection flow on the
+--   anonymous /signup route (app/signup/page.tsx). An unauthenticated user
+--   types their email on the signup page; the page calls lookup_invitation()
+--   to detect whether a pending invitation exists before the user has an
+--   account. Without anon EXECUTE the signup invitation flow breaks.
+--   The explicit GRANT TO anon is re-issued here to make this file
+--   independently idempotent and correct after a REVOKE ALL FROM PUBLIC.
+--
+-- WHY authenticated EXECUTE IS PRESERVED
+--
+--   GRANT EXECUTE TO authenticated is retained for completeness. Authenticated
+--   users may also call the function (e.g. checking invitation state during
+--   the post-signup session handshake). The grant is harmless: authenticated
+--   users are already company-scoped and the function returns only
+--   company_name, role, and expires_at for pending invitations matching
+--   the queried email.
+--
+-- WHY PUBLIC EXECUTE IS UNNECESSARY
+--
+--   The PostgreSQL PUBLIC pseudo-role includes every role including future
+--   roles not yet created. No TraceFlow code path depends on PUBLIC EXECUTE:
+--   the Supabase JavaScript client authenticates connections as the explicit
+--   anon or authenticated role (derived from the JWT), never as a generic
+--   PostgreSQL role that would require the PUBLIC grant. Retaining PUBLIC
+--   EXECUTE is an unnecessary excess privilege — the intended model is
+--   explicit targeted grants only.
+--
+-- FUNCTION SECURITY PROPERTIES (unchanged by this file)
+--
+--   public.lookup_invitation(text):
+--     • SECURITY DEFINER ensures the function runs as its owner (postgres),
+--       bypassing RLS on the invitations and companies tables. This is
+--       required because anon callers have no table-level access to those
+--       tables and no RLS policy permits them to read rows directly.
+--     • SET search_path = public prevents search_path injection attacks;
+--       all object resolution is anchored to the public schema.
+--     • Input: p_email text — an email address, not a secret token.
+--       The lookup is by email address; no cryptographic token is involved.
+--     • Returns ONLY: company_name (text), role (text), expires_at (timestamptz)
+--       Not returned: invitation id, company_id, invited_by, email, created_at,
+--       status, or any internal UUID.
+--     • Filtering: WHERE status = 'pending' AND expires_at > now()
+--       Accepted, expired, and cancelled invitations (status = 'expired' after
+--       cancellation) are unconditionally excluded from the response.
+--     • LIMIT 1 ORDER BY created_at DESC: at most one row returned.
+--
+-- WHAT THIS CHANGE DOES NOT ADDRESS
+--
+--   The following are known design-level governance items that exist
+--   independently of the PUBLIC EXECUTE gap. They are deferred to a
+--   separate hardening task and are NOT addressed here:
+--
+--   1. Email-based enumeration: lookup_invitation accepts an email address
+--      as its identifier. Any caller who knows or guesses a target email
+--      can determine whether that person has a pending invitation and
+--      learn the inviting company's name and the assigned role. This is
+--      intrinsic to the email-lookup design and is unaffected by revoking
+--      PUBLIC EXECUTE. Mitigation would require a token-based invitation
+--      model (UUID token delivered in the invitation email URL).
+--
+--   2. No rate limiting: the function has no built-in rate guard against
+--      high-frequency email probing. Adding rate limiting inside the
+--      function body is a separate hardening step.
+--
+--   Both items are unrelated to this file's scope.
+--
+-- RECOVERY NOTE
+--   If supabase_invite_accept.sql is re-run as part of schema recovery, it
+--   will re-issue GRANT EXECUTE TO anon, authenticated but will NOT restore
+--   the REVOKE FROM PUBLIC applied here (because it predates this file and
+--   does not include that statement). Run THIS file immediately after
+--   supabase_invite_accept.sql in any schema recovery sequence to restore
+--   the hardened grant state.
+--
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+BEGIN;
+
+REVOKE ALL ON FUNCTION public.lookup_invitation(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.lookup_invitation(text) TO anon, authenticated;
+
+COMMIT;

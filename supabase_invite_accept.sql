@@ -1,3 +1,20 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- SCHEMA RECOVERY NOTE — this file is NOT superseded and remains valid.
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- PostgreSQL grants EXECUTE to PUBLIC by default when a function is created.
+-- This file intentionally grants EXECUTE to anon and authenticated so that
+-- the /signup invitation flow works for unauthenticated users. However, it
+-- does NOT revoke the PostgreSQL default PUBLIC EXECUTE grant.
+--
+-- After running this file for schema recovery, you MUST also run:
+--   supabase_lookup_invitation_hardening_20260821.sql
+--
+-- That file revokes PUBLIC EXECUTE while preserving anon and authenticated
+-- EXECUTE. Failure to run it leaves PUBLIC EXECUTE enabled on
+-- public.lookup_invitation(text), which is unnecessary and was revoked
+-- in the live database on 2026-08-21.
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 -- ============================================================
 -- TraceFlow — Invitation Acceptance Functions
 -- Run AFTER supabase_team_management.sql
