@@ -1,0 +1,414 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- TraceFlow — DG-5: Consolidate public.batch_lineage RLS policies:
+--             DROP co_batch_lineage; normalize lineage_insert role allowlist
+-- File:       supabase_dg5_batch_lineage_policy_consolidation_20260823.sql
+-- Live-applied and smoke-tested: 2026-08-23
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+--
+-- SCOPE
+--   One table — public.batch_lineage:
+--     1. DROP POLICY "co_batch_lineage"    — 1 statement.
+--     2. ALTER POLICY lineage_insert ... WITH CHECK (...)    — 1 statement.
+--     Total: 2 executable statements.
+--
+--   No USING expressions are changed.
+--   No other policies on any table are changed.
+--   No application code is changed.
+--   No function definitions are changed.
+--   No table-level grants are changed.
+--   No multitenancy files are modified.
+--
+-- DISCOVERY CONTEXT
+--
+--   co_batch_lineage was identified as a pre-existing permissive-policy
+--   overlap during the DG-4 post-change audit (2026-08-23). It was out of
+--   scope for DG-4 and explicitly deferred as a DG-5 candidate at that time.
+--   DG-5 is the planned follow-on.
+--
+-- ── PRE-CHANGE LIVE POLICY MATRIX ─────────────────────────────────────────
+--
+--   Policy           Cmd    Roles            USING                       WITH CHECK
+--   ─────────────── ────── ──────────────── ─────────────────────────── ──────────────────────────────────────
+--   co_batch_lineage ALL    {authenticated}  company_id=get_my_company_id()  company_id=get_my_company_id()
+--   lineage_select   SELECT {authenticated}  company_id=current_org_id() —
+--   lineage_insert   INSERT {authenticated}  —                           (see verbatim expression below)
+--
+--   Verbatim pre-change lineage_insert WITH CHECK
+--   (confirmed via live pg_get_expr() query, 2026-08-23):
+--
+--     ((company_id = current_org_id()) AND
+--      (current_user_role() = ANY (
+--        ARRAY[
+--          'owner'::text,
+--          'admin'::text,
+--          'quality_manager'::text,
+--          'supervisor'::text,
+--          'operator'::text
+--        ]
+--      )))
+--
+--   Pre-change anon table grants: all revoked by DG-4 (SELECT=false,
+--   INSERT=false, UPDATE=false, DELETE=false). Unchanged by DG-5.
+--
+-- ── THE PERMISSIVE OR BYPASS (co_batch_lineage vs lineage_insert) ──────────
+--
+--   PostgreSQL PERMISSIVE policies combine with OR for INSERT: a row passes
+--   WITH CHECK if ANY permissive policy's expression evaluates true.
+--
+--   co_batch_lineage FOR ALL, WITH CHECK: company_id = get_my_company_id()
+--   lineage_insert   FOR INSERT, WITH CHECK: current_org_id() AND role restriction
+--
+--   Because co_batch_lineage's simpler check (company_id only) evaluates true
+--   for any authenticated company member, it satisfies WITH CHECK before
+--   lineage_insert's role restriction can deny. The role restriction was
+--   structurally bypassed for every authenticated INSERT since co_batch_lineage
+--   was created (originally in supabase_multitenancy_v2.sql).
+--
+--   Corollaries:
+--     SELECT: co_batch_lineage (FOR ALL, USING company_id=get_my_company_id())
+--       and lineage_select (FOR SELECT, USING company_id=current_org_id())
+--       are functionally identical for authenticated sessions — get_my_company_id()
+--       and current_org_id() both return the session user's company_id from
+--       user_profiles. co_batch_lineage added zero SELECT coverage.
+--     UPDATE: co_batch_lineage FOR ALL provided UPDATE access for all
+--       authenticated company members. No app path uses authenticated UPDATE.
+--     DELETE: same — no app path uses authenticated DELETE.
+--
+-- ── STALE lineage_insert ROLE ALLOWLIST ───────────────────────────────────
+--
+--   The pre-change lineage_insert allowlist was written for a prior role model
+--   that has been entirely superseded. Comparison against the authoritative
+--   current role model (app/lib/roles.ts + user_profiles_role_check DB
+--   constraint in supabase_team_management.sql):
+--
+--     Role in allowlist    Current app?  In user_profiles CHECK?  Assessment
+--     ──────────────────── ───────────── ─────────────────────── ─────────────────────────────────────
+--     owner                NO            NO                      Dead — not in any current role set
+--     admin                YES           YES                     Live — only surviving original role
+--     quality_manager      NO            NO                      Dead — no mapping to any current role
+--     supervisor           NO            NO                      Dead — no mapping confirmed
+--     operator             NO            NO                      Dead — likely predecessor to 'operations';
+--                                                                 no direct mapping confirmed
+--
+--   The user_profiles_role_check constraint (live) accepts only:
+--     admin | manager | inspector | operations | warehouse | qc_inspector | sales | NULL
+--
+--   No user can hold role 'owner', 'quality_manager', 'supervisor', or
+--   'operator' under this constraint. Those role strings are permanently dead.
+--   The stale allowlist was never exercised under the current system because
+--   co_batch_lineage's permissive OR bypass always satisfied the INSERT check
+--   before lineage_insert's role restriction was reached.
+--
+-- ── POST-CHANGE LIVE POLICY MATRIX ────────────────────────────────────────
+--
+--   Policy           Cmd    Roles            USING                       WITH CHECK
+--   ─────────────── ────── ──────────────── ─────────────────────────── ──────────────────────────────────────
+--   co_batch_lineage  —     ABSENT          —                           — (dropped)
+--   lineage_select   SELECT {authenticated}  company_id=current_org_id() — (unchanged)
+--   lineage_insert   INSERT {authenticated}  —                           (see normalized expression below)
+--
+--   Normalized lineage_insert WITH CHECK (applied by DG-5):
+--
+--     ((company_id = current_org_id()) AND
+--      (current_user_role() = ANY (
+--        ARRAY[
+--          'admin'::text,
+--          'manager'::text,
+--          'operations'::text
+--        ]
+--      )))
+--
+--   Role allowlist rationale:
+--     INSERT into batch_lineage represents creation of a production traceability
+--     relationship between batches. The current application permission closest
+--     to this operation is edit:production, held by admin, manager, and
+--     operations (confirmed from app/lib/permissions.ts). qc_inspector,
+--     inspector, sales, and warehouse do not hold edit:production and are
+--     correctly excluded. The stale roles (owner, quality_manager, supervisor,
+--     operator) are replaced entirely.
+--
+--   Effective post-change behavior by role:
+--     admin       SELECT=YES  INSERT=YES  UPDATE=NO  DELETE=NO
+--     manager     SELECT=YES  INSERT=YES  UPDATE=NO  DELETE=NO
+--     operations  SELECT=YES  INSERT=YES  UPDATE=NO  DELETE=NO
+--     qc_inspector SELECT=YES INSERT=NO   UPDATE=NO  DELETE=NO
+--     inspector   SELECT=YES  INSERT=NO   UPDATE=NO  DELETE=NO
+--     sales       SELECT=YES  INSERT=NO   UPDATE=NO  DELETE=NO
+--     warehouse   SELECT=YES  INSERT=NO   UPDATE=NO  DELETE=NO
+--     anon        SELECT=NO   INSERT=NO   UPDATE=NO  DELETE=NO
+--
+--   UPDATE and DELETE for authenticated sessions:
+--     No policy covers UPDATE or DELETE after co_batch_lineage is dropped.
+--     PostgreSQL RLS with no applicable permissive policy issues an implicit
+--     DENY. batch_lineage is operationally append-only for authenticated
+--     sessions; no app consumer needs UPDATE or DELETE. This is intentional.
+--
+-- ── PostgreSQL ALTER POLICY SEMANTICS ─────────────────────────────────────
+--
+--   ALTER POLICY lineage_insert ... WITH CHECK (...) modifies only the WITH
+--   CHECK expression. All other policy attributes are preserved verbatim:
+--     TO authenticated  — unchanged (not supplied to ALTER POLICY)
+--     FOR INSERT (cmd)  — unchanged (cmd cannot be altered; retained from CREATE)
+--     USING clause      — none (INSERT-only policies have no USING; unaffected)
+--
+-- ── TRIGGER IMPACT ────────────────────────────────────────────────────────
+--
+--   All four known batch_lineage triggers fire on INSERT events only. None
+--   fire on UPDATE or DELETE. Removing co_batch_lineage does not affect
+--   trigger execution.
+--
+--   For INSERT, DG-5 narrows which authenticated roles can INSERT (from any
+--   authenticated company member to admin/manager/operations). For those roles,
+--   trigger execution is identical to pre-DG-5:
+--
+--   1. trg_lineage_company → tf_lineage_company() (SECURITY DEFINER,
+--      SET search_path = public): BEFORE INSERT — fills company_id from
+--      production_orders. Runs as postgres (BYPASSRLS). Unaffected by the
+--      calling session's role.
+--
+--   2. validate_lineage_company (NOT SECURITY DEFINER): BEFORE INSERT —
+--      validates company_id consistency between parent and child batches.
+--      Runs as the calling session role (admin/manager/operations). These
+--      roles hold authenticated SELECT on production_orders and batches
+--      (post-DG-2 hardening). No regression.
+--
+--   3. trg_lineage_decrement_qty (NOT SECURITY DEFINER): AFTER INSERT —
+--      decrements quantity_remaining on batches. Runs as the calling session
+--      role. admin/manager/operations can UPDATE batches (authenticated grants
+--      intact post-DG-2). No regression.
+--
+--   4. audit_trigger_fn (SECURITY DEFINER): AFTER INSERT/UPDATE/DELETE —
+--      logs DML to audit_log as postgres. Unaffected by role restrictions.
+--
+--   For roles that can no longer INSERT (qc_inspector, inspector, sales,
+--   warehouse): INSERT is rejected at the WITH CHECK stage before any trigger
+--   fires. No trigger regression.
+--
+-- ── APP DEPENDENCY ANALYSIS ───────────────────────────────────────────────
+--
+--   Exhaustive repository search confirmed:
+--
+--   SELECT consumers:
+--     app/recall/RecallClient.tsx:987 — authenticated SELECT only.
+--       .from('batch_lineage')
+--       .select('parent_batch_id, child_batch_id, relationship_type')
+--       .or(orFilter)
+--     DG-5 does not touch lineage_select. This consumer is unaffected.
+--     Accessible by all authenticated roles with view:recall (admin, manager,
+--     operations, qc_inspector, inspector).
+--
+--   INSERT consumers:
+--     Zero authenticated app-layer INSERT consumers found. No .from('batch_lineage').insert()
+--     call exists in any application file. INSERT is performed only by:
+--       seed_demo_data.sql — runs as postgres (BYPASSRLS); RLS never evaluated.
+--     All other INSERT sources (backfill, migration scripts) also run as postgres.
+--
+--   UPDATE consumers:
+--     Zero authenticated UPDATE consumers. All UPDATE references are in
+--     migration scripts running as postgres (company_id backfill only).
+--
+--   DELETE consumers:
+--     Zero. No DELETE on batch_lineage found anywhere in the repository.
+--
+--   RPCs:
+--     get_recall_impact() — SECURITY DEFINER; does NOT query batch_lineage.
+--     insert_capa_from_recall() — SECURITY DEFINER; does NOT touch batch_lineage.
+--     search_recall_by_lot() — does NOT reference batch_lineage.
+--
+-- ── SECURITY ANALYSIS ─────────────────────────────────────────────────────
+--
+--   Permissive OR bypass: eliminated by DROP co_batch_lineage.
+--
+--   Company isolation: maintained. lineage_select USING and lineage_insert
+--     WITH CHECK both include company_id = current_org_id(). current_org_id()
+--     is SECURITY DEFINER + SET search_path = public (hardened in
+--     supabase_helpers_search_path_hardening_20260823.sql). Cross-company
+--     access is not possible.
+--
+--   anon: double-blocked. DG-4 revoked all anon table-level grants.
+--     Both surviving policies are TO authenticated. DG-5 introduces no new
+--     grants. anon state is unchanged from post-DG-4.
+--
+-- ── POST-CHANGE VERIFICATION RESULTS (live, 2026-08-23) ──────────────────
+--
+--   policy_count             = 2   ✓
+--   co_batch_lineage_count   = 0   ✓
+--   update_delete_all_count  = 0   ✓
+--   anon_grants              = 0   ✓
+--
+-- !! RECOVERY GAP — READ BEFORE RUNNING IN A RECOVERY SCENARIO !!!!!!!!!!!
+--
+--   lineage_select and lineage_insert have NO CREATE POLICY statement in any
+--   repository file. Both were created entirely out-of-band (directly in the
+--   Supabase SQL Editor) and have never been committed to version control.
+--
+--   CONFIRMED via repository-wide grep (2026-08-23): zero hits for
+--   CREATE POLICY lineage_select or CREATE POLICY lineage_insert in any .sql
+--   file.
+--
+--   CONSEQUENCE: This file (DG-5) and its predecessor (DG-4) contain only
+--   DROP POLICY, ALTER POLICY, and REVOKE statements. If the live database is
+--   reset by re-running any multitenancy file (see MULTITENANCY RE-RUN RISK
+--   below), lineage_select and lineage_insert are dropped by the clean-slate
+--   loop. Neither DG-4 nor DG-5 can recreate them — DG-4 uses ALTER POLICY
+--   (fails if the target policy is absent) and DG-5 does the same.
+--
+--   REQUIRED RECOVERY ORDER after any multitenancy re-run:
+--
+--   Step 1 — MANUALLY recreate lineage_select and lineage_insert from their
+--   authoritative definitions (not present in any repository file). Use the
+--   post-DG-5 verified expressions — do NOT use the stale pre-DG-5 allowlist.
+--   These CREATE POLICY statements are the canonical post-DG-5 definitions:
+--
+--     CREATE POLICY lineage_select ON public.batch_lineage
+--       FOR SELECT TO authenticated
+--       USING (company_id = current_org_id());
+--
+--     CREATE POLICY lineage_insert ON public.batch_lineage
+--       FOR INSERT TO authenticated
+--       WITH CHECK (
+--         (company_id = current_org_id()) AND
+--         (current_user_role() = ANY (
+--           ARRAY['admin'::text, 'manager'::text, 'operations'::text]
+--         ))
+--       );
+--
+--   Step 2 — Apply DG-4:
+--   supabase_dg4_batch_lineage_operations_qci_rls_normalization_20260823.sql
+--   DG-4's ALTER POLICY statements for lineage_select and lineage_insert are
+--   no-ops (policies already have the correct TO authenticated from Step 1).
+--   DG-4 still performs the necessary anon REVOKE on batch_lineage,
+--   operations, and qc_inspections, and normalizes those tables' policies.
+--
+--   Step 3 — Apply DG-5 (this file):
+--   DROP co_batch_lineage succeeds (multitenancy re-run recreated it).
+--   ALTER POLICY lineage_insert is a no-op (WITH CHECK already correct
+--   from Step 1). Both statements are safe to re-run.
+--
+--   FUTURE TASK: A dedicated CREATE POLICY migration for lineage_select and
+--   lineage_insert should be committed to close this recovery gap permanently.
+--
+-- !! MULTITENANCY RE-RUN RISK !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+--
+--   supabase_multitenancy_v2.sql, supabase_multitenancy_migration.sql, and
+--   supabase_multitenancy_resume.sql each contain a clean-slate DO block that:
+--     1. Drops ALL policies on listed tables by table name (including
+--        lineage_select and lineage_insert on batch_lineage).
+--     2. Recreates ONLY co_batch_lineage (FOR ALL TO authenticated,
+--        USING/WITH CHECK: company_id = get_my_company_id()).
+--
+--   If any of these files is re-run after DG-5:
+--     - co_batch_lineage is RECREATED (restores permissive bypass)
+--     - lineage_select is DROPPED (no SELECT policy)
+--     - lineage_insert is DROPPED (no INSERT policy)
+--     - DG-5 and DG-4 cannot be directly replayed (both use ALTER POLICY)
+--
+--   These files are NOT modified by DG-5. Follow the REQUIRED RECOVERY ORDER
+--   above if a multitenancy re-run occurs.
+--
+-- ── ROLLBACK ──────────────────────────────────────────────────────────────
+--
+--   To revert DG-5 exactly to the pre-DG-5 live state:
+--
+--   BEGIN;
+--
+--   -- Recreate co_batch_lineage verbatim (from multitenancy_v2.sql:463-465,
+--   -- multitenancy_migration.sql:534-537, multitenancy_resume.sql:297-299;
+--   -- all three are identical):
+--   CREATE POLICY "co_batch_lineage" ON public.batch_lineage
+--     FOR ALL TO authenticated
+--     USING  (company_id = get_my_company_id())
+--     WITH CHECK (company_id = get_my_company_id());
+--
+--   -- Restore lineage_insert's original verbatim WITH CHECK
+--   -- (confirmed via live pg_get_expr(), 2026-08-23):
+--   ALTER POLICY lineage_insert ON public.batch_lineage
+--     WITH CHECK (
+--       (company_id = current_org_id()) AND
+--       (current_user_role() = ANY (
+--         ARRAY[
+--           'owner'::text,
+--           'admin'::text,
+--           'quality_manager'::text,
+--           'supervisor'::text,
+--           'operator'::text
+--         ]
+--       ))
+--     );
+--
+--   COMMIT;
+--
+-- ── IDEMPOTENCY ───────────────────────────────────────────────────────────
+--
+--   This file is NOT fully idempotent:
+--     DROP POLICY "co_batch_lineage" — errors if co_batch_lineage is absent.
+--     ALTER POLICY lineage_insert    — errors if lineage_insert is absent.
+--   Re-run only after confirming both target objects exist. If running after
+--   a multitenancy reset, follow the REQUIRED RECOVERY ORDER above first.
+--
+-- ── HARDENING / GOVERNANCE SERIES CONTEXT (chronological) ─────────────────
+--   supabase_log_scan_event_hardening_20260819.sql
+--     scan_events: anon grants revoked, log_scan_event hardened
+--   supabase_public_trace_table_hardening_20260820.sql
+--     products, production_orders: anon grants revoked
+--   supabase_public_trace_batch1_hardening_20260820.sql
+--     batch_qc_results, bill_of_materials: anon grants revoked
+--   supabase_public_trace_batch2_hardening_20260821.sql
+--     recalls, capas: anon grants revoked
+--   supabase_public_trace_batch3_hardening_20260821.sql
+--     raw_material_lots, raw_materials: anon grants revoked
+--   supabase_public_trace_batch4_hardening_20260821.sql
+--     quality_inspections, distribution_records: anon grants revoked
+--   supabase_public_trace_batch5_hardening_20260821.sql
+--     batches, batch_journey_events: anon grants revoked
+--   supabase_public_trace_batch6_hardening_20260821.sql
+--     batch_events: anon grants revoked
+--   supabase_lookup_invitation_hardening_20260821.sql
+--     lookup_invitation: PUBLIC EXECUTE revoked
+--   supabase_rls_policy_role_normalization_20260822.sql  (DG-2)
+--     distribution_records, batches, batch_events:
+--     8 live TO PUBLIC policies normalized to TO authenticated
+--   supabase_dg3_recall_rls_normalization_20260822.sql   (DG-3)
+--     recall_affected_batches: 5-policy coexistence collapsed to 3-policy
+--     TO authenticated; stale INSERT allowlist corrected to admin + manager
+--   supabase_activity_audit_log_hardening_20260822.sql
+--     audit_log: anon grants revoked, audit_log_select TO authenticated
+--     activity_logs: anon grants revoked, both policies TO authenticated
+--   supabase_helpers_search_path_hardening_20260823.sql
+--     current_org_id(), current_user_role():
+--     SET search_path = public added; anon EXECUTE revoked
+--   supabase_dg4_batch_lineage_operations_qci_rls_normalization_20260823.sql  (DG-4)
+--     batch_lineage, operations, qc_inspections:
+--     8 TO PUBLIC policies normalized to TO authenticated; anon grants revoked
+--   supabase_dg5_batch_lineage_policy_consolidation_20260823.sql  ← THIS FILE (DG-5)
+--     batch_lineage: co_batch_lineage dropped (permissive bypass removed);
+--     lineage_insert WITH CHECK normalized to current role model
+--     (admin, manager, operations)
+--
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+BEGIN;
+
+-- Remove the company-only FOR ALL policy whose permissive OR semantics
+-- allowed any authenticated company member to bypass lineage_insert's role
+-- restriction. After this DROP, lineage_insert is the sole INSERT gate.
+DROP POLICY "co_batch_lineage" ON public.batch_lineage;
+
+-- Replace the stale legacy role allowlist (owner, quality_manager, supervisor,
+-- operator — none of which can exist under the current user_profiles_role_check
+-- constraint) with the current production-edit authorization model.
+-- ALTER POLICY with only WITH CHECK changes that expression only;
+-- TO authenticated and the INSERT cmd are preserved verbatim.
+ALTER POLICY lineage_insert ON public.batch_lineage
+  WITH CHECK (
+    (company_id = current_org_id()) AND
+    (current_user_role() = ANY (
+      ARRAY[
+        'admin'::text,
+        'manager'::text,
+        'operations'::text
+      ]
+    ))
+  );
+
+COMMIT;
