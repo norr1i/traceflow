@@ -1,0 +1,462 @@
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- TraceFlow — DG-4: Normalize batch_lineage, operations, qc_inspections RLS:
+--             revoke anon table grants; convert TO PUBLIC → TO authenticated
+-- File:       supabase_dg4_batch_lineage_operations_qci_rls_normalization_20260823.sql
+-- Live-applied and smoke-tested: 2026-08-23
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+--
+-- SCOPE
+--   Three tables — public.batch_lineage, public.operations, public.qc_inspections:
+--     1. REVOKE ALL ON TABLE ... FROM anon    — 3 statements (one per table).
+--     2. ALTER POLICY ... TO authenticated    — 8 statements (8 policies across 3 tables).
+--     Total: 11 executable statements.
+--
+--   No USING or WITH CHECK expressions are changed.
+--   No application code is changed.
+--   No function definitions are changed.
+--   No helper functions are created or modified.
+--   No table DDL is changed.
+--
+-- DISCOVERY CONTEXT
+--
+--   These three tables were not identified in the initial helper-function
+--   dependency audit (conducted via pg_get_functiondef grep, 2026-08-23).
+--   A live pg_policies query during post-helpers-hardening verification
+--   revealed 8 additional TO PUBLIC policies across these three tables that
+--   call current_org_id() and current_user_role(). These policies were
+--   entirely out-of-band — created directly in the Supabase SQL Editor
+--   with no representation in any repository file (operations and qc_inspections
+--   have zero repository presence; batch_lineage is partially represented in
+--   supabase_multitenancy_v2.sql).
+--
+--   A temporary recovery GRANT EXECUTE ON FUNCTION current_org_id() TO anon
+--   and GRANT EXECUTE ON FUNCTION current_user_role() TO anon was applied
+--   immediately after the helper hardening file ran REVOKE ALL FROM PUBLIC
+--   (which was a no-op because no PUBLIC grantee row existed; the anon grant
+--   was an explicit direct grant that had survived). The recovery grant was
+--   applied as a belt-and-suspenders measure. DG-4 then normalized all 8
+--   policies to TO authenticated, making the anon EXECUTE grants on the
+--   helper functions structurally unnecessary. Following DG-4 verification,
+--   the helpers file ACL finalization removed the anon EXECUTE grants.
+--
+-- ── batch_lineage ─────────────────────────────────────────────────────────
+--
+-- TABLE ROLE
+--
+--   public.batch_lineage records directed parent→child batch relationships:
+--   one row per edge in the batch graph. Used by the recall feature to trace
+--   upstream ingredients and downstream products for a recalled batch.
+--
+-- REPOSITORY STATUS
+--
+--   Partially represented. supabase_multitenancy_v2.sql (lines 334–359)
+--   defines:
+--     • tf_lineage_company() trigger function (SECURITY DEFINER,
+--       SET search_path = public)
+--     • co_batch_lineage policy (FOR ALL TO authenticated, USING/WITH CHECK:
+--       company_id = get_my_company_id())
+--   The CREATE TABLE, indexes, and the two policies normalized here
+--   (lineage_select, lineage_insert) have no repository DDL representation.
+--
+-- PRE-CHANGE LIVE POLICIES (batch_lineage)
+--
+--   co_batch_lineage  FOR ALL   roles = {authenticated}  (from multitenancy_v2)
+--     USING:      company_id = get_my_company_id()
+--     WITH CHECK: company_id = get_my_company_id()
+--
+--   lineage_select    FOR SELECT  roles = {public}   ← DG-4 target
+--     USING: company_id = current_org_id()
+--
+--   lineage_insert    FOR INSERT  roles = {public}   ← DG-4 target
+--     WITH CHECK: (company_id = current_org_id()) AND
+--                 (current_user_role() role restriction — exact allowlist not
+--                  captured verbatim; specific roles unverified)
+--
+-- PRE-CHANGE ANON TABLE GRANTS (batch_lineage)
+--
+--   anon SELECT  = true   ← Supabase platform default; never revoked
+--   anon INSERT  = true   ← Supabase platform default; never revoked
+--   anon UPDATE  = true   ← Supabase platform default; never revoked
+--   anon DELETE  = true   ← Supabase platform default; never revoked
+--
+-- PRE-EXISTING PERMISSIVE-POLICY OVERLAP — co_batch_lineage vs lineage_insert
+--
+--   co_batch_lineage (FOR ALL, company_id = get_my_company_id()) and
+--   lineage_insert (FOR INSERT WITH CHECK: current_org_id() + current_user_role()
+--   role restriction) coexist as PERMISSIVE policies. PostgreSQL's PERMISSIVE
+--   OR semantics mean a row INSERT passes if ANY permissive policy's WITH CHECK
+--   evaluates true. An authenticated user who satisfies co_batch_lineage's
+--   company_id check can INSERT into batch_lineage regardless of their role —
+--   bypassing lineage_insert's current_user_role() role restriction entirely.
+--
+--   This permissive-policy overlap predates DG-4 and is not introduced by it.
+--   DG-4 does not widen or narrow this gap — it only changes the roles list on
+--   lineage_select and lineage_insert from PUBLIC to authenticated. The overlap
+--   is documented here as a future DG-5 cleanup candidate: consolidate
+--   batch_lineage to a single policy with the correct role restriction and
+--   remove co_batch_lineage, or adjust co_batch_lineage's role list.
+--
+-- TRIGGERS ON batch_lineage (all four confirmed live 2026-08-23)
+--
+--   1. audit_trigger_fn (SECURITY DEFINER)
+--      AFTER INSERT OR UPDATE OR DELETE — logs DML to audit_log.
+--      SECURITY DEFINER: runs as postgres (BYPASSRLS). DG-4 does not affect
+--      trigger execution for authenticated users. The anon INSERT path via
+--      lineage_insert was already blocked by WITH CHECK role restriction
+--      (role-restricted via current_user_role()) before DG-4. After DG-4, the policy change to
+--      TO authenticated prevents anon from reaching the trigger entirely.
+--
+--   2. tf_lineage_company (SECURITY DEFINER, SET search_path = public)
+--      BEFORE INSERT — fills company_id by looking up production_orders
+--      via the batch's parent_batch production order. Defined in
+--      supabase_multitenancy_v2.sql. SECURITY DEFINER: runs as postgres.
+--      search_path hardened. Unaffected by DG-4.
+--
+--   3. trg_lineage_decrement_qty (NOT SECURITY DEFINER)
+--      AFTER INSERT — decrements batch quantity in the batches table.
+--      Runs as the calling session role. After DG-4, anon sessions no longer
+--      trigger this path because the INSERT policies are TO authenticated.
+--      Pre-DG-4, an anon INSERT on batch_lineage would have fired this trigger
+--      as the anon role. Anon cannot read or write to public.batches (anon
+--      grants were revoked in supabase_public_trace_batch5_hardening_20260821.sql
+--      and policies are TO authenticated after DG-2). The pre-DG-4 anon INSERT
+--      path was therefore already blocked by batches table grants and RLS before
+--      this trigger could cause a problem, but DG-4 eliminates the anon trigger
+--      path entirely.
+--
+--   4. validate_lineage_company (NOT SECURITY DEFINER)
+--      BEFORE INSERT — validates company_id consistency between parent_batch and
+--      child_batch. Runs as the calling session role. Same safety reasoning as
+--      trg_lineage_decrement_qty: pre-DG-4 anon path was already blocked
+--      downstream; DG-4 eliminates the trigger path for anon entirely.
+--
+-- APP CONSUMERS (batch_lineage)
+--
+--   app/recall/RecallClient.tsx:987 — authenticated SELECT only:
+--
+--     const { data: edgesRaw } = await supabase
+--       .from('batch_lineage')
+--       .select('parent_batch_id, child_batch_id, relationship_type')
+--       .or(orFilter)
+--
+--   Uses an authenticated Supabase client session. No anon path. Unaffected
+--   by DG-4. lineage_select TO authenticated change has zero behavioral impact
+--   on this consumer.
+--
+--   No INSERT consumers exist in the application for batch_lineage. INSERT
+--   is performed only via direct DB operations or the multitenancy_v2.sql
+--   batch-creation trigger cascade.
+--
+-- MULTITENANCY RECOVERY NOTE (batch_lineage)
+--
+--   supabase_multitenancy_v2.sql lines 461–467 include a clean-slate DROP
+--   section that drops ALL policies on batch_lineage (including lineage_select
+--   and lineage_insert), then recreates only co_batch_lineage
+--   (FOR ALL TO authenticated). If supabase_multitenancy_v2.sql is re-run
+--   after DG-4, lineage_select and lineage_insert are dropped by the clean-slate
+--   section and co_batch_lineage is recreated TO authenticated. The net effect
+--   is equivalent to the post-DG-4 state (no TO PUBLIC policies; anon blocked
+--   by REVOKE which is not undone by multitenancy_v2.sql). The co_batch_lineage
+--   permissive-policy overlap remains a future DG-5 cleanup item regardless.
+--
+-- ── operations ────────────────────────────────────────────────────────────
+--
+-- TABLE ROLE
+--
+--   public.operations records manufacturing work orders: one row per operation
+--   linked to a production_order and a product. Used by the production and
+--   quality-control features to track operational status and associate QC
+--   inspections.
+--
+-- REPOSITORY STATUS
+--
+--   Zero repository presence. No CREATE TABLE, no indexes, no policy definitions
+--   in any repository file. Entirely out-of-band. A future governance task
+--   should capture the DDL.
+--
+-- PRE-CHANGE LIVE POLICIES (operations)
+--
+--   operations_select  FOR SELECT   roles = {public}   ← DG-4 target
+--     USING: company_id = current_org_id()
+--
+--   operations_insert  FOR INSERT   roles = {public}   ← DG-4 target
+--     WITH CHECK: (company_id = current_org_id()) AND
+--                 (current_user_role() role restriction — exact allowlist not
+--                  captured verbatim; specific roles unverified)
+--
+--   operations_update  FOR UPDATE   roles = {public}   ← DG-4 target
+--     USING:      company_id = current_org_id()
+--     WITH CHECK: (company_id = current_org_id()) AND
+--                 (current_user_role() role restriction — exact allowlist not
+--                  captured verbatim; specific roles unverified)
+--
+-- PRE-CHANGE ANON TABLE GRANTS (operations)
+--
+--   anon SELECT  = true   ← Supabase platform default; never revoked
+--   anon INSERT  = true   ← Supabase platform default; never revoked
+--   anon UPDATE  = true   ← Supabase platform default; never revoked
+--   anon DELETE  = true   ← Supabase platform default; never revoked
+--
+-- TRIGGERS ON operations (verified live 2026-08-23)
+--
+--   One trigger confirmed: an AFTER INSERT OR UPDATE audit trigger.
+--   SECURITY DEFINER: runs as postgres (BYPASSRLS). Unaffected by DG-4 for
+--   authenticated sessions. Anon INSERT/UPDATE path eliminated by DG-4.
+--
+-- APP CONSUMERS (operations)
+--
+--   Zero confirmed .from('operations') calls in any application file.
+--   The table is read/written via Supabase JS client in authenticated flows
+--   that could not be confirmed from repository search alone (entirely
+--   out-of-band DDL); all such flows use authenticated sessions.
+--
+-- ── qc_inspections ────────────────────────────────────────────────────────
+--
+-- TABLE ROLE
+--
+--   public.qc_inspections records quality-control inspection results: one row
+--   per inspection event, linked to an operation. FK: qc_inspections.operation_id
+--   → operations.id. The FK does NOT create any anon access dependency —
+--   FK enforcement runs as the superuser and is not subject to RLS.
+--
+-- REPOSITORY STATUS
+--
+--   Zero repository presence. No CREATE TABLE, no indexes, no policy definitions
+--   in any repository file. Entirely out-of-band. A future governance task
+--   should capture the DDL along with operations.
+--
+-- PRE-CHANGE LIVE POLICIES (qc_inspections)
+--
+--   qci_select  FOR SELECT   roles = {public}   ← DG-4 target
+--     USING: company_id = current_org_id()
+--
+--   qci_insert  FOR INSERT   roles = {public}   ← DG-4 target
+--     WITH CHECK: (company_id = current_org_id()) AND
+--                 (current_user_role() role restriction — exact allowlist not
+--                  captured verbatim; specific roles unverified)
+--
+--   qci_update  FOR UPDATE   roles = {public}   ← DG-4 target
+--     USING:      company_id = current_org_id()
+--     WITH CHECK: (company_id = current_org_id()) AND
+--                 (current_user_role() role restriction — exact allowlist not
+--                  captured verbatim; specific roles unverified)
+--
+-- PRE-CHANGE ANON TABLE GRANTS (qc_inspections)
+--
+--   anon SELECT  = true   ← Supabase platform default; never revoked
+--   anon INSERT  = true   ← Supabase platform default; never revoked
+--   anon UPDATE  = true   ← Supabase platform default; never revoked
+--   anon DELETE  = true   ← Supabase platform default; never revoked
+--
+-- TRIGGERS ON qc_inspections (verified live 2026-08-23)
+--
+--   One trigger confirmed: an AFTER INSERT OR UPDATE audit trigger.
+--   SECURITY DEFINER: runs as postgres (BYPASSRLS). Unaffected by DG-4 for
+--   authenticated sessions. Anon INSERT/UPDATE path eliminated by DG-4.
+--
+-- APP CONSUMERS (qc_inspections)
+--
+--   Zero confirmed .from('qc_inspections') calls in any application file.
+--   All access is authenticated (quality-control feature).
+--
+-- ── EFFECTIVE PRE-CHANGE ANON EXPOSURE (all three tables) ─────────────────
+--
+--   Despite anon holding direct table-level SELECT, INSERT, UPDATE, DELETE
+--   grants on all three tables, the effective anon data exposure was zero
+--   due to RLS company guards:
+--
+--   SELECT: all three SELECT policies use USING: company_id = current_org_id().
+--     For anon, current_org_id() returns NULL (auth.uid() is NULL → no
+--     user_profiles row → JWT fallback also returns NULL for anon JWTs).
+--     company_id = NULL evaluates to UNKNOWN, not TRUE → no rows returned.
+--
+--   INSERT: all three INSERT policies include WITH CHECK: company_id =
+--     current_org_id(). For anon, current_org_id() returns NULL → WITH CHECK
+--     fails (UNKNOWN ≠ TRUE). Additionally, all three tables have NOT NULL on
+--     company_id — the NOT NULL constraint provides a secondary block even if
+--     the policy check were somehow bypassed.
+--
+--   INSERT (role restriction): all three INSERT policies also include a
+--     current_user_role() role restriction (specific allowlist not captured
+--     verbatim). For anon,
+--     current_user_role() returns NULL → role restriction also fails.
+--
+--   The anon grants were therefore structurally unnecessary excess privilege
+--   that violated the least-privilege principle applied across the broader
+--   hardening programme. DG-4 eliminates them.
+--
+-- POST-CHANGE LIVE STATE (verified 2026-08-23 after DG-4)
+--
+--   public.batch_lineage:
+--     anon SELECT  = false  ✓
+--     anon INSERT  = false  ✓
+--     anon UPDATE  = false  ✓
+--     anon DELETE  = false  ✓
+--     co_batch_lineage   roles = {authenticated}  FOR ALL   ✓ (unchanged)
+--     lineage_select     roles = {authenticated}  FOR SELECT  ✓
+--     lineage_insert     roles = {authenticated}  FOR INSERT  ✓
+--
+--   public.operations:
+--     anon SELECT  = false  ✓
+--     anon INSERT  = false  ✓
+--     anon UPDATE  = false  ✓
+--     anon DELETE  = false  ✓
+--     operations_select  roles = {authenticated}  FOR SELECT  ✓
+--     operations_insert  roles = {authenticated}  FOR INSERT  ✓
+--     operations_update  roles = {authenticated}  FOR UPDATE  ✓
+--
+--   public.qc_inspections:
+--     anon SELECT  = false  ✓
+--     anon INSERT  = false  ✓
+--     anon UPDATE  = false  ✓
+--     anon DELETE  = false  ✓
+--     qci_select  roles = {authenticated}  FOR SELECT  ✓
+--     qci_insert  roles = {authenticated}  FOR INSERT  ✓
+--     qci_update  roles = {authenticated}  FOR UPDATE  ✓
+--
+--   Schema-wide TO PUBLIC helper-dependent policies remaining:  0  ✓
+--   anon table privileges remaining (3 tables):                 0  ✓
+--   co_batch_lineage exists (unchanged):                        1  ✓
+--   helper_dependent_public_policies (schema-wide):             0  ✓
+--
+-- WHY AUTHENTICATED BEHAVIOR IS UNCHANGED
+--
+--   1. REVOKE ALL FROM anon removes only anon's direct table-level privilege.
+--      Authenticated sessions hold their own grants independently of the anon
+--      role. No authenticated SELECT, INSERT, UPDATE, or DELETE path is affected.
+--
+--   2. ALTER POLICY ... TO authenticated changes only the roles list on each
+--      policy object. All USING and WITH CHECK expressions are preserved
+--      bit-for-bit. Authenticated sessions that previously satisfied these
+--      policies via the PUBLIC role continue to satisfy them via the
+--      authenticated role. Zero behavioral change for any authenticated
+--      code path.
+--
+-- HELPER FUNCTION ACL FINALIZATION (follow-on, same date)
+--
+--   After DG-4 was verified (zero helper-dependent TO PUBLIC policies), the
+--   following ACL finalization was applied to both helper functions:
+--
+--     REVOKE EXECUTE ON FUNCTION public.current_org_id()    FROM anon;
+--     REVOKE EXECUTE ON FUNCTION public.current_user_role() FROM anon;
+--
+--   Documented in supabase_helpers_search_path_hardening_20260823.sql.
+--
+-- REALTIME
+--
+--   No Realtime publications exist for batch_lineage, operations, or
+--   qc_inspections (confirmed via live pg_publication_tables query, 2026-08-23).
+--   DG-4 does not affect any Realtime subscription.
+--
+-- DEFERRED / OUT-OF-SCOPE ITEMS
+--
+--   1. co_batch_lineage permissive-policy overlap (batch_lineage):
+--      Documented above under "PRE-EXISTING PERMISSIVE-POLICY OVERLAP."
+--      Future DG-5 cleanup candidate.
+--
+--   2. operations and qc_inspections DDL capture:
+--      Both tables have zero repository presence. CREATE TABLE, columns,
+--      indexes, and constraints exist only as live out-of-band objects.
+--      A future task should capture their DDL into repository files,
+--      especially given their use of company_id FK and the operations→
+--      qc_inspections FK relationship (qc_inspections.operation_id → operations.id).
+--
+--   3. invitations TO PUBLIC policies:
+--      inv_insert and inv_select on public.invitations remain TO PUBLIC
+--      intentionally. Both policies use get_my_company_id(), NOT
+--      current_org_id() or current_user_role(). They are designed for the
+--      pre-authentication invitation acceptance flow. Out of scope for DG-4
+--      and for the helpers hardening file.
+--
+-- ROLLBACK
+--
+--   To revert DG-4 (partially — REVOKE is not reversible without knowing the
+--   original grant state; REVOKE can be counteracted with re-GRANTing):
+--
+--   BEGIN;
+--   -- Restore anon table grants (platform-default state):
+--   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.batch_lineage  TO anon;
+--   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.operations      TO anon;
+--   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.qc_inspections  TO anon;
+--   -- Restore policy roles to PUBLIC:
+--   ALTER POLICY lineage_select     ON public.batch_lineage   TO PUBLIC;
+--   ALTER POLICY lineage_insert     ON public.batch_lineage   TO PUBLIC;
+--   ALTER POLICY operations_select  ON public.operations      TO PUBLIC;
+--   ALTER POLICY operations_insert  ON public.operations      TO PUBLIC;
+--   ALTER POLICY operations_update  ON public.operations      TO PUBLIC;
+--   ALTER POLICY qci_select         ON public.qc_inspections  TO PUBLIC;
+--   ALTER POLICY qci_insert         ON public.qc_inspections  TO PUBLIC;
+--   ALTER POLICY qci_update         ON public.qc_inspections  TO PUBLIC;
+--   -- Restore temporary anon EXECUTE on helpers (if rolling back before
+--   -- helpers ACL finalization was applied):
+--   GRANT EXECUTE ON FUNCTION public.current_org_id()    TO anon;
+--   GRANT EXECUTE ON FUNCTION public.current_user_role() TO anon;
+--   COMMIT;
+--
+--   NOTE: If rolling back after the helpers ACL finalization file was also
+--   applied, the helper EXECUTE REVOKEs in that file must also be rolled back.
+--
+-- IDEMPOTENCY
+--
+--   REVOKE ALL FROM anon — idempotent (no-op if anon grants already absent).
+--   ALTER POLICY ... TO authenticated — idempotent (no-op if already TO
+--     authenticated). Exact policy names must exist; will error if a named
+--     policy does not exist.
+--
+-- HARDENING / GOVERNANCE SERIES CONTEXT (chronological)
+--   supabase_log_scan_event_hardening_20260819.sql
+--     scan_events: anon grants revoked, log_scan_event hardened
+--   supabase_public_trace_table_hardening_20260820.sql
+--     products, production_orders: anon grants revoked
+--   supabase_public_trace_batch1_hardening_20260820.sql
+--     batch_qc_results, bill_of_materials: anon grants revoked
+--   supabase_public_trace_batch2_hardening_20260821.sql
+--     recalls, capas: anon grants revoked
+--   supabase_public_trace_batch3_hardening_20260821.sql
+--     raw_material_lots, raw_materials: anon grants revoked
+--   supabase_public_trace_batch4_hardening_20260821.sql
+--     quality_inspections, distribution_records: anon grants revoked
+--   supabase_public_trace_batch5_hardening_20260821.sql
+--     batches, batch_journey_events: anon grants revoked
+--   supabase_public_trace_batch6_hardening_20260821.sql
+--     batch_events: anon grants revoked
+--   supabase_lookup_invitation_hardening_20260821.sql
+--     lookup_invitation: PUBLIC EXECUTE revoked
+--   supabase_rls_policy_role_normalization_20260822.sql  (DG-2)
+--     distribution_records, batches, batch_events:
+--     8 live TO PUBLIC policies normalized to TO authenticated
+--   supabase_dg3_recall_rls_normalization_20260822.sql   (DG-3)
+--     recall_affected_batches: 5-policy coexistence collapsed to 3-policy
+--     TO authenticated; stale INSERT allowlist corrected to admin + manager
+--   supabase_activity_audit_log_hardening_20260822.sql
+--     audit_log: anon grants revoked, audit_log_select TO authenticated
+--     activity_logs: anon grants revoked, both policies TO authenticated
+--   supabase_helpers_search_path_hardening_20260823.sql  (phase 1 applied before this)
+--     current_org_id(), current_user_role():
+--     SET search_path = public added
+--   supabase_dg4_batch_lineage_operations_qci_rls_normalization_20260823.sql ← THIS FILE
+--     batch_lineage, operations, qc_inspections:
+--     8 TO PUBLIC policies normalized to TO authenticated; anon grants revoked
+--   supabase_helpers_search_path_hardening_20260823.sql  (phase 2 applied after this)
+--     current_org_id(), current_user_role():
+--     anon EXECUTE revoked; authenticated, service_role explicit grants retained
+--
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+BEGIN;
+
+REVOKE ALL ON TABLE public.batch_lineage FROM anon;
+ALTER POLICY lineage_select ON public.batch_lineage TO authenticated;
+ALTER POLICY lineage_insert ON public.batch_lineage TO authenticated;
+
+REVOKE ALL ON TABLE public.operations FROM anon;
+ALTER POLICY operations_select ON public.operations TO authenticated;
+ALTER POLICY operations_insert ON public.operations TO authenticated;
+ALTER POLICY operations_update ON public.operations TO authenticated;
+
+REVOKE ALL ON TABLE public.qc_inspections FROM anon;
+ALTER POLICY qci_select ON public.qc_inspections TO authenticated;
+ALTER POLICY qci_insert ON public.qc_inspections TO authenticated;
+ALTER POLICY qci_update ON public.qc_inspections TO authenticated;
+
+COMMIT;
