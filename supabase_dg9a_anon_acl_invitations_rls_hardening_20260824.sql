@@ -1,0 +1,249 @@
+-- ============================================================
+-- DG-9A: Anon Table ACL + Invitations RLS Hardening
+-- File: supabase_dg9a_anon_acl_invitations_rls_hardening_20260824.sql
+-- Created: 2026-08-24
+-- Status: EXECUTED AND VERIFIED LIVE (2026-08-24)
+-- ============================================================
+--
+-- PURPOSE
+-- -------
+-- Revoke direct anon table privileges from public.invitations and
+-- public.recall_affected_batches, and narrow the inv_select /
+-- inv_insert RLS policies from TO PUBLIC to TO authenticated.
+--
+-- No policy expressions are changed. No function, trigger, or
+-- table DDL other than ACL REVOKE is included.
+--
+-- TABLES COVERED
+-- --------------
+--   public.invitations              — team invitation records
+--   public.recall_affected_batches  — recall scope persistence
+--
+-- ── PRE-DG-9A LIVE STATE (verified 2026-08-24 before execution) ─────────────
+--
+--   public.invitations
+--
+--     Table ACL:
+--       anon: broad direct table privileges present
+--
+--     RLS policies:
+--       inv_select — FOR SELECT  roles = {public}
+--                    USING = (company_id = get_my_company_id())
+--       inv_insert — FOR INSERT  roles = {public}
+--                    WITH CHECK = (company_id = get_my_company_id())
+--
+--   public.recall_affected_batches
+--
+--     Table ACL:
+--       anon: broad direct table privileges present
+--
+--     RLS policies (already authenticated-only, not modified by DG-9A):
+--       co_rab_delete — FOR DELETE  roles = {authenticated}
+--       rab_insert    — FOR INSERT  roles = {authenticated}
+--       rab_select    — FOR SELECT  roles = {authenticated}
+--
+-- ── WHY THIS WAS A LIVE HARDENING ISSUE ──────────────────────────────────────
+--
+--   For public.invitations:
+--
+--     The inv_select and inv_insert policies were structurally TO PUBLIC,
+--     meaning any role (including anon) was eligible to be evaluated against
+--     them. Practical anon access was blocked at two layers:
+--
+--       1. DG-8 (2026-08-24) revoked EXECUTE on get_my_company_id() from
+--          anon, so the policy USING/WITH CHECK expressions could not
+--          evaluate — anon callers received a permission-denied error at
+--          the function call.
+--       2. Broad anon table ACLs existed independently of RLS.
+--
+--     Relying on helper EXECUTE denial as the sole protection layer is not
+--     the intended design. If get_my_company_id() EXECUTE were ever
+--     re-granted to anon (e.g., a future developer running GRANT ALL
+--     PRIVILEGES ON ALL FUNCTIONS TO PUBLIC), the TO PUBLIC invitation
+--     policies would immediately re-expose the table to anon evaluation.
+--     The correct fix is to remove anon from the policy role scope entirely.
+--
+--     Additionally, direct anon table ACLs on invitations are unnecessary:
+--     every invitation flow is handled through SECURITY DEFINER RPCs or
+--     triggers that run as the function owner (bypassing RLS and table ACL).
+--     There is no verified anonymous direct-table invitation flow in the app.
+--
+--   For public.recall_affected_batches:
+--
+--     The existing RLS policies were already authenticated-only (no policy
+--     change was required). However, direct anon table ACLs still existed,
+--     creating unnecessary exposure: if RLS were accidentally disabled on
+--     the table, anon would have had unguarded read/write access to all
+--     recall scope data. All app consumers (SFDAClient.tsx, RecallClient.tsx)
+--     use authenticated Supabase sessions. No anon path exists.
+--
+-- ── POST-DG-9A TARGET STATE (verified live 2026-08-24 after execution) ───────
+--
+--   public.invitations
+--
+--     Table ACL:
+--       anon direct privilege count = 0  ✓
+--
+--     RLS policies:
+--       inv_select — FOR SELECT  roles = {authenticated}  ✓
+--                    USING = (company_id = get_my_company_id())  ← unchanged
+--       inv_insert — FOR INSERT  roles = {authenticated}  ✓
+--                    WITH CHECK = (company_id = get_my_company_id())  ← unchanged
+--
+--   public.recall_affected_batches
+--
+--     Table ACL:
+--       anon direct privilege count = 0  ✓
+--
+--     RLS policies (unmodified by DG-9A):
+--       co_rab_delete — FOR DELETE  roles = {authenticated}  ✓
+--       rab_insert    — FOR INSERT  roles = {authenticated}  ✓
+--       rab_select    — FOR SELECT  roles = {authenticated}  ✓
+--
+-- ── WHAT THIS FILE DOES NOT CHANGE ───────────────────────────────────────────
+--
+--   No CREATE POLICY
+--   No DROP POLICY
+--   No GRANT
+--   No function changes
+--   No trigger changes
+--   No policy-expression changes (USING/WITH CHECK preserved verbatim)
+--   No changes to: activity_logs, audit_log, batch_events,
+--     distribution_records, or any public trace policy
+--   No changes to recall_affected_batches RLS policies
+--
+-- ── DEPENDENCY SAFETY ────────────────────────────────────────────────────────
+--
+--   public.invitations — all flows are SECURITY DEFINER or authenticated:
+--
+--     invite_member(p_email, p_role)      SECURITY DEFINER, TO authenticated
+--     tf_bootstrap_company()              SECURITY DEFINER trigger on
+--                                          user_profiles INSERT; reads
+--                                          invitations directly in PL/pgSQL
+--                                          body — bypasses RLS and table ACL
+--     get_team_members()                  SECURITY DEFINER, TO authenticated
+--     cancel_invitation(p_invitation_id)  SECURITY DEFINER, TO authenticated
+--     accept_my_invitation()              SECURITY DEFINER, TO authenticated
+--
+--     All SECURITY DEFINER functions run as the function owner (postgres /
+--     superuser). The owner's table access is not derived from the relacl
+--     entries and is not affected by REVOKE FROM anon. These functions
+--     continue to work unchanged.
+--
+--   public.recall_affected_batches — all app callers are authenticated:
+--
+--     SFDAClient.tsx:951   .from('recall_affected_batches')  — authenticated
+--     SFDAClient.tsx:1224  .from('recall_affected_batches').insert(...)
+--                                                             — authenticated
+--     RecallClient.tsx:580 .from('recall_affected_batches')  — authenticated
+--
+--     No public RPC reads or writes recall_affected_batches. No SECURITY
+--     DEFINER function accessible to anon touches this table.
+--
+--   authenticated and service_role grants are untouched. REVOKE FROM anon
+--   targets only the anon role's entry in pg_class.relacl; grants to
+--   authenticated and service_role are stored as separate ACL entries.
+--
+-- ── RELATIONSHIP TO DG-8 ─────────────────────────────────────────────────────
+--
+--   DG-8 (2026-08-24) revoked anon EXECUTE on get_my_company_id() and
+--   get_my_role(). That change made the inv_select/inv_insert TO PUBLIC
+--   policy expressions unevaluable by anon (EXECUTE denied at function call).
+--   DG-9A removes anon from the policy role scope entirely, making the
+--   authorization correct by policy design rather than relying on a
+--   downstream EXECUTE denial as the sole barrier.
+--
+-- ── EXECUTION AND VERIFICATION ───────────────────────────────────────────────
+--
+--   Executed live via Supabase Dashboard SQL Editor on 2026-08-24.
+--
+--   Post-execution verification (SELECT-only, run after execution):
+--
+--     WITH inv_anon AS (
+--       SELECT COUNT(*) AS n
+--       FROM pg_class c
+--       CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl, acldefault('r', c.relowner))) a
+--       WHERE c.relname = 'invitations'
+--         AND c.relnamespace = 'public'::regnamespace
+--         AND a.grantee::regrole::text = 'anon'
+--     ),
+--     rab_anon AS (
+--       SELECT COUNT(*) AS n
+--       FROM pg_class c
+--       CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl, acldefault('r', c.relowner))) a
+--       WHERE c.relname = 'recall_affected_batches'
+--         AND c.relnamespace = 'public'::regnamespace
+--         AND a.grantee::regrole::text = 'anon'
+--     )
+--     SELECT 'invitations anon priv count'         , n::text FROM inv_anon
+--     UNION ALL
+--     SELECT 'recall_affected_batches anon priv count', n::text FROM rab_anon
+--     UNION ALL
+--     SELECT tablename || '.' || policyname || ' roles', roles::text
+--     FROM pg_policies
+--     WHERE schemaname = 'public'
+--       AND tablename IN ('invitations', 'recall_affected_batches')
+--     ORDER BY 1;
+--
+--   Confirmed post-DG-9A results:
+--     invitations anon priv count              = 0  ✓
+--     recall_affected_batches anon priv count  = 0  ✓
+--     invitations.inv_select roles             = {authenticated}  ✓
+--     invitations.inv_insert roles             = {authenticated}  ✓
+--     recall_affected_batches.co_rab_delete    = {authenticated}  ✓
+--     recall_affected_batches.rab_insert       = {authenticated}  ✓
+--     recall_affected_batches.rab_select       = {authenticated}  ✓
+--
+-- ── DG-9B SCOPE (separate task — NOT part of this file) ─────────────────────
+--
+--   DG-9B will address:
+--     1. Defensive DROP POLICY IF EXISTS for the 6 stale old-named policy
+--        names from supabase_sfda_tables.sql (audit_log, batch_events,
+--        distribution_records) that could be resurrected by re-running that
+--        file. These names do not exist live but represent a re-run hazard.
+--     2. Protection against supabase_activity_logs.sql re-run reversing the
+--        TO authenticated hardening applied by the activity_audit_log
+--        hardening file.
+--   DG-9B changes are not included here.
+--
+-- ════════════════════════════════════════════════════════════════
+-- EXECUTABLE MIGRATION
+-- (idempotent — REVOKE on absent privilege is a no-op;
+--  ALTER POLICY to the same role is a no-op)
+-- ════════════════════════════════════════════════════════════════
+
+BEGIN;
+
+REVOKE ALL ON TABLE public.invitations FROM anon;
+REVOKE ALL ON TABLE public.recall_affected_batches FROM anon;
+
+ALTER POLICY inv_select
+  ON public.invitations
+  TO authenticated;
+
+ALTER POLICY inv_insert
+  ON public.invitations
+  TO authenticated;
+
+COMMIT;
+
+-- ════════════════════════════════════════════════════════════════
+-- ROLLBACK
+-- (restores exact pre-DG-9A authorization surface)
+-- DO NOT execute unless reverting DG-9A.
+-- ════════════════════════════════════════════════════════════════
+--
+-- GRANT ALL ON TABLE public.invitations TO anon;
+-- GRANT ALL ON TABLE public.recall_affected_batches TO anon;
+--
+-- ALTER POLICY inv_select
+--   ON public.invitations
+--   TO PUBLIC;
+--
+-- ALTER POLICY inv_insert
+--   ON public.invitations
+--   TO PUBLIC;
+--
+-- Note: recall_affected_batches RLS policies are unchanged by DG-9A
+-- and do not need to be restored. Only the table ACL and the two
+-- inv_select/inv_insert role scopes require rollback.
