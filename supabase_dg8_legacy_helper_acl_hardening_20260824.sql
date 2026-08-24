@@ -1,0 +1,204 @@
+-- ============================================================
+-- DG-8: Legacy Helper ACL Hardening
+-- File: supabase_dg8_legacy_helper_acl_hardening_20260824.sql
+-- Created: 2026-08-24
+-- Status: EXECUTED AND VERIFIED LIVE (2026-08-24)
+-- ============================================================
+--
+-- PURPOSE
+-- -------
+-- Revoke PUBLIC and anon EXECUTE from the two legacy multitenant
+-- helpers and re-issue explicit grants to authenticated and
+-- service_role only. No function bodies, SECURITY DEFINER flags,
+-- or search_path settings are changed. No RLS policies or table
+-- DDL are touched.
+--
+-- FUNCTIONS COVERED
+-- -----------------
+--   public.get_my_company_id()  — returns caller's company_id uuid
+--   public.get_my_role()        — returns caller's role text
+--
+-- Both are SECURITY DEFINER STABLE LANGUAGE sql with
+-- SET search_path = public. Neither is altered by this file.
+--
+-- ── PRE-DG-8 LIVE ACL STATE (verified 2026-08-24 before execution) ──────────
+--
+--   For BOTH public.get_my_company_id() and public.get_my_role():
+--
+--     grantee        direct EXECUTE   effective EXECUTE
+--     -----------    --------------   -----------------
+--     PUBLIC         true             true
+--     anon           true             true
+--     authenticated  true             true
+--     service_role   true             true
+--
+--   Origin: PostgreSQL default PUBLIC grant was never revoked after
+--   the functions were first created (CREATE OR REPLACE FUNCTION
+--   supabase_multitenancy_v2.sql:104, supabase_rbac.sql:9). The
+--   supabase_fix_capas_rls.sql and supabase_recovery.sql files added
+--   explicit GRANT TO authenticated but issued no REVOKE FROM PUBLIC
+--   or REVOKE FROM anon, leaving all four grantees with EXECUTE.
+--
+-- ── WHY REVOKING anon ALONE WAS INSUFFICIENT ────────────────────────────────
+--
+--   PostgreSQL grants EXECUTE to a role if ANY of the following is true:
+--     1. The role has a direct ACL entry for EXECUTE.
+--     2. PUBLIC has an ACL entry for EXECUTE (all roles inherit PUBLIC).
+--     3. The role is a member of another role that has EXECUTE.
+--
+--   With PUBLIC direct EXECUTE = true, revoking only the direct anon
+--   grant would leave anon with effective EXECUTE = true through
+--   inheritance from PUBLIC. Both PUBLIC and the direct anon entry
+--   must be revoked to reduce anon effective EXECUTE to false.
+--
+-- ── POST-DG-8 TARGET STATE (verified live 2026-08-24 after execution) ────────
+--
+--   For BOTH public.get_my_company_id() and public.get_my_role():
+--
+--     grantee        direct EXECUTE   effective EXECUTE
+--     -----------    --------------   -----------------
+--     PUBLIC         false            —
+--     anon           false            false
+--     authenticated  true             true
+--     service_role   true             true
+--
+--   postgres (function owner) retains owner privilege, unaffected by ACL.
+--
+-- ── FUNCTION PROPERTIES — UNCHANGED ─────────────────────────────────────────
+--
+--   Both helpers retain:
+--     SECURITY DEFINER  = true   (bypasses RLS to read user_profiles;
+--                                  necessary to prevent circular dependency)
+--     STABLE            = true
+--     search_path       = public  (hardened against schema injection;
+--                                  set in all repository definitions)
+--
+--   confirmed post-DG-8:
+--     security_definer     = true   ✓
+--     search_path_hardened = true   ✓
+--
+-- ── DEPENDENCY SAFETY ────────────────────────────────────────────────────────
+--
+--   authenticated callers — unaffected:
+--     RLS policy USING/WITH CHECK expressions that call
+--     get_my_company_id() (user_profiles, activity_logs, capas,
+--     recalls, recall_affected_batches, sfda_tables batch_events/
+--     distribution_records, qc_inspections, etc.) continue to work.
+--     RLS evaluates the function in the context of the querying user;
+--     authenticated users retain explicit EXECUTE.
+--
+--   authenticated RPC callers — unaffected:
+--     supabase_recall_impact_rpc.sql calls get_my_company_id() inside
+--     an RPC body. The authenticated invoker retains EXECUTE.
+--
+--   DEFAULT column expressions — unaffected:
+--     supabase_multitenancy_v2.sql set DEFAULT get_my_company_id()
+--     on products, suppliers, raw_materials, production_orders, sales,
+--     quality_inspections. DEFAULT expressions are evaluated as the
+--     inserting user (authenticated). EXECUTE is retained.
+--
+--   Nested SECURITY DEFINER callers — unaffected:
+--     supabase_team_management.sql contains a SECURITY DEFINER
+--     PLPGSQL function that calls get_my_company_id() in its body.
+--     When a SECURITY DEFINER function calls another function
+--     internally, the nested call executes as the definer's role
+--     (postgres / owner). The owner's privilege is not derived from
+--     the ACL and is never removed by REVOKE FROM PUBLIC or FROM anon.
+--
+--   service_role — unaffected:
+--     Supabase internal maintenance and Admin SDK paths retain EXECUTE
+--     via the explicit re-issued GRANT TO service_role.
+--
+--   anon — intended block:
+--     anon callers (unauthenticated sessions) could previously call
+--     both helpers. auth.uid() returns NULL for anon, so both
+--     functions returned NULL, providing no data exposure. However,
+--     anon EXECUTE on SECURITY DEFINER functions is an unnecessary
+--     attack surface: it grants anon access to a code path running
+--     as the function owner (postgres), regardless of the current
+--     return value. If a future body change added any fallback or
+--     default, anon would immediately inherit the exposure. This
+--     change closes that regression vector.
+--
+-- ── RELATIONSHIP TO PRIOR HELPER HARDENING ───────────────────────────────────
+--
+--   supabase_helpers_search_path_hardening_20260823.sql (executed
+--   2026-08-23) applied REVOKE EXECUTE FROM anon to:
+--     public.current_org_id()
+--     public.current_user_role()
+--   and explicitly noted (line 177) that get_my_company_id() /
+--   get_my_role() anon EXECUTE had not yet been audited. DG-8 closes
+--   that deferred item, extending ACL parity to the legacy aliases.
+--
+--   After DG-8, all four helper functions share the same ACL model:
+--     EXECUTE: authenticated (direct), service_role (direct)
+--     NO EXECUTE: PUBLIC, anon
+--
+-- ── EXECUTION AND VERIFICATION ───────────────────────────────────────────────
+--
+--   Executed live via Supabase Dashboard SQL Editor on 2026-08-24.
+--
+--   Post-execution verification (SELECT-only, run after execution):
+--
+--     SELECT
+--       proname,
+--       prosecdef                          AS security_definer,
+--       'search_path=public' = ANY(proconfig) AS search_path_hardened,
+--       a.grantee::regrole::text           AS grantee,
+--       bool_or(a.privilege_type = 'EXECUTE') AS direct_execute
+--     FROM pg_proc p
+--     CROSS JOIN LATERAL aclexplode(
+--       COALESCE(p.proacl, acldefault('f', p.proowner))
+--     ) a
+--     WHERE p.proname IN ('get_my_company_id', 'get_my_role')
+--       AND p.pronamespace = 'public'::regnamespace
+--       AND a.grantee::regrole::text IN (
+--             'PUBLIC','anon','authenticated','service_role'
+--           )
+--     GROUP BY p.proname, p.prosecdef, p.proconfig, a.grantee
+--     ORDER BY p.proname, a.grantee;
+--
+--   Confirmed post-DG-8 results:
+--     security_definer     = true for both  ✓
+--     search_path_hardened = true for both  ✓
+--     PUBLIC  direct EXECUTE = false        ✓
+--     anon    direct EXECUTE = false        ✓
+--     anon    effective EXECUTE = false     ✓
+--     authenticated direct EXECUTE = true   ✓
+--     service_role  direct EXECUTE = true   ✓
+--
+-- ════════════════════════════════════════════════════════════════
+-- EXECUTABLE MIGRATION
+-- (idempotent — safe to re-run; REVOKE on absent privilege is
+--  a no-op; GRANT on existing privilege is a no-op)
+-- ════════════════════════════════════════════════════════════════
+
+BEGIN;
+
+REVOKE EXECUTE ON FUNCTION public.get_my_company_id() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.get_my_company_id() FROM anon;
+GRANT  EXECUTE ON FUNCTION public.get_my_company_id() TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.get_my_company_id() TO service_role;
+
+REVOKE EXECUTE ON FUNCTION public.get_my_role() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.get_my_role() FROM anon;
+GRANT  EXECUTE ON FUNCTION public.get_my_role() TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.get_my_role() TO service_role;
+
+COMMIT;
+
+-- ════════════════════════════════════════════════════════════════
+-- ROLLBACK
+-- (restores exact pre-DG-8 ACL state)
+-- DO NOT execute unless reverting DG-8.
+-- ════════════════════════════════════════════════════════════════
+--
+-- GRANT EXECUTE ON FUNCTION public.get_my_company_id() TO PUBLIC;
+-- GRANT EXECUTE ON FUNCTION public.get_my_company_id() TO anon;
+--
+-- GRANT EXECUTE ON FUNCTION public.get_my_role() TO PUBLIC;
+-- GRANT EXECUTE ON FUNCTION public.get_my_role() TO anon;
+--
+-- Note: authenticated and service_role grants remain present after
+-- rollback; they existed pre-DG-8 and do not need to be removed.
+-- Only PUBLIC and direct anon grants need to be restored.
