@@ -1,0 +1,144 @@
+-- ============================================================
+-- FINAL SECURITY CLOSEOUT: get_recall_impact ACL Normalization
+-- File: supabase_final_recall_impact_acl_closeout_20260825.sql
+-- Created: 2026-08-25
+-- Status: EXECUTED AND VERIFIED LIVE (2026-08-25)
+-- ============================================================
+--
+-- PURPOSE
+-- -------
+-- Documents and serves as the repository source for the live EXECUTE
+-- privilege normalization applied to public.get_recall_impact on
+-- 2026-08-25 as the final action of the TraceFlow security hardening
+-- programme.
+--
+-- This file closes the last unresolved Medium item identified during
+-- the Final Security Sweep (2026-08-25). All other Medium items were
+-- resolved or confirmed clean by live verification during the same
+-- closeout session.
+--
+-- ── FUNCTION SIGNATURE ────────────────────────────────────────────────────────
+--
+--   public.get_recall_impact(text, text, uuid, uuid)
+--
+--   Exact live signature verified before execution. The argument types
+--   (text, text, uuid, uuid) are part of the PostgreSQL function OID
+--   identity and must be specified verbatim in REVOKE statements.
+--
+-- ── PRE-CLOSEOUT EXECUTE ACL ─────────────────────────────────────────────────
+--
+--   Before this transaction:
+--
+--     PUBLIC         direct = true
+--     anon           direct = true
+--     anon           effective = true
+--     authenticated  effective = true (via authenticated grant or PUBLIC)
+--     service_role   effective = true
+--
+--   PUBLIC EXECUTE grants are a pre-hardening era artifact. When
+--   get_recall_impact was originally created, PostgreSQL default behavior
+--   grants EXECUTE to PUBLIC. That grant was never explicitly revoked.
+--   phase3_lock_legacy_trace_rpcs.sql revoked anon EXECUTE on
+--   get_batch_trace, get_batch_journey, and get_root_cause_analysis
+--   but did not address get_recall_impact.
+--
+-- ── POST-CLOSEOUT EXECUTE ACL (verified 2026-08-25) ─────────────────────────
+--
+--   public_direct_execute     = false
+--   anon_direct_execute       = false
+--   anon_effective_execute    = false
+--   authenticated_execute     = true   ← intentionally preserved
+--   service_role_execute      = true   ← intentionally preserved
+--
+--   authenticated and service_role can invoke get_recall_impact as
+--   required by recall impact analysis workflows. anon has no legitimate
+--   reason to call a recall impact RPC — public recall information is
+--   surfaced via get_public_batch_trace which has a deliberate, audited
+--   data contract.
+--
+-- ── WHAT THIS TRANSACTION DOES NOT MODIFY ────────────────────────────────────
+--
+--   No function body was modified. get_recall_impact body, search_path,
+--   SECURITY DEFINER/INVOKER flag, and owner are unchanged.
+--
+--   No RLS policy was created, altered, or dropped.
+--
+--   No table ACL was modified.
+--
+--   No GRANT was issued.
+--
+--   No public QR trace RPC (get_public_batch_trace, log_scan_event) was
+--   changed.
+--
+-- ── FINAL SECURITY SWEEP — CLOSEOUT VERIFICATION RESULTS ─────────────────────
+--
+--   The following items were verified live during the 2026-08-25 closeout
+--   session. All items were confirmed clean.
+--
+--   Legacy authenticated-only RPCs (anon EXECUTE):
+--
+--     get_batch_trace(uuid)
+--       PUBLIC direct = false ✓  anon direct = false ✓  anon effective = false ✓
+--
+--     get_batch_journey(uuid)
+--       PUBLIC direct = false ✓  anon direct = false ✓  anon effective = false ✓
+--
+--     get_recall_impact(text, text, uuid, uuid)
+--       PUBLIC direct = false ✓  anon direct = false ✓  anon effective = false ✓
+--       (closed by this transaction)
+--
+--   Internal table anon SELECT exposure (from supabase_multitenancy_v2.sql
+--   historical TO anon policies — replaced by SECURITY DEFINER hardening):
+--
+--     bill_of_materials:      anon SELECT = false ✓  policies TO authenticated ✓
+--     batch_qc_results:       anon SELECT = false ✓  policies TO authenticated ✓
+--     batch_journey_events:   anon SELECT = false ✓  policies TO authenticated ✓
+--
+-- ── FINAL SECURITY PROGRAMME CONCLUSION ──────────────────────────────────────
+--
+--   After this closeout transaction:
+--
+--     No confirmed Critical live security defect remains.
+--     No confirmed High live security defect remains.
+--
+--   All SECURITY DEFINER functions have hardened SET search_path.
+--   All non-public RLS policies are TO authenticated.
+--   All UPDATE policies enforce company_id in both USING and WITH CHECK.
+--   authenticated holds no direct TRUNCATE/DDL privileges on audit_log.
+--   audit_trigger_fn EXECUTE is restricted to the postgres owner.
+--   anon EXECUTE is intentionally granted only to the two public QR RPCs:
+--     get_public_batch_trace(uuid) and log_scan_event(...).
+--   All other authenticated-only RPCs have anon EXECUTE verified closed.
+--
+-- ── REMAINING GOVERNANCE BACKLOG (not security defects) ─────────────────────
+--
+--   The following items are documentation/recovery gaps. They represent no
+--   confirmed live vulnerability and do NOT require action before returning
+--   to product work:
+--
+--     public.batches CREATE TABLE — out-of-band; DG-10B presupposes existence
+--     public.audit_log current schema — live schema diverges from sfda_tables.sql
+--     public.audit_action CREATE TYPE — no CREATE TYPE in any repository file
+--     invitations/recall_affected_batches/activity_logs — no canonical
+--       DROP IF EXISTS + CREATE policy file; recovery depends on ALTER sequence
+--     supabase_multitenancy_v2.sql re-run risk — no DG-9B-style neutralizer
+--       for the three internal tables; Medium-risk developer-action scenario
+--     audit_batch_lineage INSERT-only coverage — product/compliance decision
+--     recalls/capas/production_orders — no audit trigger; compliance decision
+--
+-- ════════════════════════════════════════════════════════════════
+-- EXECUTABLE MIGRATION
+-- EXECUTED AND VERIFIED LIVE on 2026-08-25 via Supabase SQL Editor.
+-- ════════════════════════════════════════════════════════════════
+
+BEGIN;
+
+REVOKE EXECUTE
+  ON FUNCTION public.get_recall_impact(text, text, uuid, uuid)
+  FROM PUBLIC;
+
+REVOKE EXECUTE
+  ON FUNCTION public.get_recall_impact(text, text, uuid, uuid)
+  FROM anon;
+
+COMMIT;
