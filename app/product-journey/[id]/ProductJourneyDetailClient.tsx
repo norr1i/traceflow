@@ -1509,72 +1509,90 @@ function ProductStoryPanel({ batchId, sku }: { batchId: string; sku: string }) {
   }
 
   return (
-    <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
+    <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden max-w-[560px] mx-auto">
       <button
         onClick={() => setOpen(o => !o)}
         className="flex w-full items-center gap-2.5 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
       >
         <QrCode size={15} className="text-gray-400 dark:text-gray-500" />
         <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Product Story</h2>
-        <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">Public QR trace page</span>
         {open
-          ? <ChevronUp   size={14} className="text-gray-400 dark:text-gray-500" />
-          : <ChevronDown size={14} className="text-gray-400 dark:text-gray-500" />
+          ? <ChevronUp   size={14} className="ml-auto text-gray-400 dark:text-gray-500" />
+          : <ChevronDown size={14} className="ml-auto text-gray-400 dark:text-gray-500" />
         }
       </button>
 
       {open && (
-        <div className="border-t border-gray-100 dark:border-gray-700 px-4 py-4 space-y-4">
+        <div className="border-t border-gray-100 dark:border-gray-700 px-4 py-4">
+          {/* Two-column layout: [QR identity] [unified story + actions] */}
+          <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-x-5">
 
-          {/* QR code */}
-          <div className="flex justify-center">
-            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white p-3 shadow-sm">
-              {origin && <QRCodeSVG value={traceUrl} size={160} level="H" marginSize={1} />}
+            {/* Left column: QR sub-panel anchoring the batch identity */}
+            <div className="flex flex-col items-center gap-2 shrink-0 bg-gray-50 dark:bg-gray-700/40 rounded-xl px-3 pt-3 pb-2">
+              <div className="rounded-lg bg-white p-2 shadow-sm">
+                {origin && <QRCodeSVG value={traceUrl} size={108} level="H" marginSize={1} />}
+              </div>
+              <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono tracking-wide">
+                Batch ···{batchId.slice(-12)}
+              </span>
             </div>
-          </div>
 
-          {/* URL display */}
-          <div className="rounded-lg bg-gray-50 dark:bg-gray-700/40 px-3 py-2 font-mono text-[11px] text-gray-500 dark:text-gray-400 break-all select-all">
-            {traceUrl || `…/trace/${batchId}`}
-          </div>
+            {/* Right column: unified story + actions as one vertical narrative */}
+            <div className="flex-1 min-w-0 flex flex-col gap-1">
 
-          {/* Actions */}
-          <div className="flex gap-2">
-            <button
-              onClick={handleCopy}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-            >
-              {copied
-                ? <Check size={13} className="text-emerald-500" />
-                : <Copy  size={13} />
-              }
-              {copied ? 'Copied!' : 'Copy URL'}
-            </button>
+              {/* Story content */}
+              <span className="inline-flex rounded-full bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400 self-start">
+                Public trace
+              </span>
+              <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                Anyone who scans this code can view the public journey of this batch — from production and quality checks to distribution and recall status.
+              </p>
+              <p className="mt-1 text-[10px] text-gray-400/70 dark:text-gray-500/70">
+                Includes: production · quality checks · distribution · recall status
+              </p>
 
-            <a
-              href={traceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-            >
-              <ExternalLink size={13} />
-              Open Story
-            </a>
+              {/* Actions — part of the same column, deliberate top spacing */}
+              <div className="flex flex-col items-center gap-2 mt-3">
+                {/* Row 1: primary + first secondary */}
+                <div className="flex items-center gap-2">
+                  <a
+                    href={traceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-[#3a6f8f] hover:bg-[#2d5a74] px-3 py-1.5 text-xs font-semibold text-white transition-colors whitespace-nowrap"
+                  >
+                    <ExternalLink size={13} />
+                    View Public Story
+                  </a>
 
-            <button
-              onClick={handleDownload}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-            >
-              <Download size={13} />
-              Download QR
-            </button>
+                  <button
+                    onClick={handleCopy}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors whitespace-nowrap"
+                  >
+                    {copied
+                      ? <Check size={12} className="text-emerald-500" />
+                      : <Copy  size={12} />
+                    }
+                    {copied ? 'Copied!' : 'Copy Link'}
+                  </button>
+                </div>
+
+                {/* Row 2: centered under row 1 */}
+                <button
+                  onClick={handleDownload}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors whitespace-nowrap"
+                >
+                  <Download size={12} />
+                  Download QR
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Hidden high-res canvas used by handleDownload */}
           <div ref={qrDlRef} className="hidden" aria-hidden="true">
             {origin && <QRCodeCanvas value={traceUrl} size={512} level="H" marginSize={4} />}
           </div>
-
         </div>
       )}
     </div>
@@ -2748,7 +2766,7 @@ function SidebarTimeline({
                   ? 'border border-[var(--border)]/35 bg-[var(--surface)] rounded-xl px-3 -mx-3 hover:border-[var(--border)]/55 hover:shadow-[0_1px_8px_-2px_rgba(0,0,0,0.08)]'
                   : 'border border-[var(--border)]/18 bg-[var(--surface)] rounded-lg px-3 -mx-3 hover:border-[var(--border)]/38 hover:shadow-[0_1px_6px_-2px_rgba(0,0,0,0.06)]'
 
-              const contentPad = isRecallOpened ? 'pt-[9px] pb-[9px]' : 'pt-[6px] pb-[6px]'
+              const contentPad = isRecallOpened ? 'pt-[9px] pb-[9px]' : 'pt-[4px] pb-[4px]'
 
               return (
                 <Fragment key={`${event.event_type}-${event.event_timestamp}-${i}`}>
@@ -2761,45 +2779,44 @@ function SidebarTimeline({
                       className="relative z-[1]"
                       style={{
                         paddingTop:    i === 0 ? 0 : (phase === 'issues' ? 48 : 36),
-                        paddingBottom: phase === 'issues' ? 14 : 10,
+                        paddingBottom: phase === 'issues' ? 16 : 12,
                         paddingLeft:   56,
                       }}
                     >
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 max-w-[960px]">
                         <PhaseIcon
-                          size={phase === 'issues' ? 10 : 8}
+                          size={phase === 'issues' ? 11 : 9}
                           className={`shrink-0 ${
                             phase === 'issues'
-                              ? 'text-red-400 dark:text-red-500 opacity-55'
-                              : 'text-[var(--subtle)] opacity-35'
+                              ? 'text-red-400 dark:text-red-500 opacity-65'
+                              : 'text-[var(--muted)] opacity-50'
                           }`}
                         />
                         <span className={`shrink-0 font-bold uppercase whitespace-nowrap ${
                           phase === 'issues'
-                            ? 'text-[9.5px] tracking-[0.15em] text-red-400/75 dark:text-red-500/65'
-                            : 'text-[9px] tracking-[0.13em] text-[var(--subtle)]'
+                            ? 'text-[10px] tracking-[0.15em] text-red-400/85 dark:text-red-500/75'
+                            : 'text-[10px] tracking-[0.14em] text-[var(--muted)]'
                         }`}>
                           {PHASE_LABELS[phase]}
                         </span>
                         {(phaseCounts[phase] ?? 0) > 0 && (
-                          <span className="shrink-0 text-[8px] tabular-nums text-[var(--subtle)] opacity-35">
+                          <span className="shrink-0 text-[9px] tabular-nums text-[var(--subtle)] opacity-45">
                             · {phaseCounts[phase]}
                           </span>
                         )}
-                        <div className={`flex-1 h-px bg-[var(--border)] ${phase === 'issues' ? 'opacity-35' : 'opacity-25'}`} />
+                        <div className={`flex-1 h-px bg-[var(--border)] ${phase === 'issues' ? 'opacity-40' : 'opacity-30'}`} />
                       </div>
                     </div>
                   )}
 
                   {/* Event wrapper — button is the card; evidence animates below, connected via Wrap. */}
-                  <div className="mb-1.5">
+                  <div className="mb-1">
 
                     <button
                       onClick={() => toggleKey(evKey)}
                       className={`group relative flex flex-col w-full text-left cursor-pointer transition-all duration-150 ${cardBase}`}
                     >
-                      {/* ── Content row ── */}
-                      <div className={`flex items-start gap-4 w-full ${contentPad}`}>
+                      <div className={`flex items-start gap-4 w-full max-w-[960px] ${contentPad}`}>
 
                         {/* Icon badge — ring-[var(--bg)] masks connector line; gentle scale on hover */}
                         <div
