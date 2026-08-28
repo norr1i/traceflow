@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import { useAuth, useRole } from '../lib/auth-context'
@@ -863,23 +863,49 @@ export default function RecallClient() {
     [batches],
   )
 
-  const handleSearch = useCallback(async () => {
-    const q = query.trim()
-    if (!q) return
+  const router       = useRouter()
+  const searchParams = useSearchParams()
+
+  // Derive tab view from URL. Any value other than 'impact' resolves safely to Registry.
+  const urlTab  = searchParams.get('tab')
+  const view: 'lookup' | 'registry' = urlTab === 'impact' ? 'lookup' : 'registry'
+
+  // Resolve the committed lookup identifier from URL — precedence: batch > lot > sku.
+  // An empty string (absent param) is falsy and treated as absent.
+  const urlBatch      = searchParams.get('batch') ?? ''
+  const urlLot        = searchParams.get('lot')   ?? ''
+  const urlSku        = searchParams.get('sku')   ?? ''
+  const urlIdentifier: string | null     = urlBatch || urlLot || urlSku || null
+  const urlMode:       SearchType | null = urlBatch ? 'batch_id' : urlLot ? 'lot' : urlSku ? 'sku' : null
+  // Stable primitive key for the committed lookup state. Null when no identifier present.
+  const urlKey = urlMode && urlIdentifier ? `${urlMode}:${urlIdentifier}` : null
+
+  function setView(v: 'lookup' | 'registry') {
+    if (v === 'lookup') router.push('/recall?tab=impact')
+    else                router.push('/recall')
+  }
+
+  // Tracks the URL key for which an auto-search was last triggered.
+  // Written by both the auto-search effect AND handleSearch so the URL update
+  // from a manual search does not cause the effect to re-run the same query.
+  const autoSearchRef = useRef<string | null>(null)
+
+  // Core search — parameterised so the auto-search effect can call it with URL
+  // values it already holds, without waiting for React state to settle first.
+  const runSearch = useCallback(async (type: SearchType, q: string) => {
+    if (!companyId) return
     setSearching(true)
     setBatches(null)
     setEdges([])
     setSearched(false)
     setExpandedId(null)
 
-    if (!companyId) return
-
     try {
       // ── Step 1: resolve batch IDs (all paths scoped by company) ────────
 
       let batchIds: string[] = []
 
-      if (searchType === 'lot') {
+      if (type === 'lot') {
         // RPC handles company scoping inside SQL — no unbounded ID scrape
         const { data } = await supabase
           .rpc('search_recall_by_lot', { p_company_id: companyId, p_lot_number: q })
@@ -888,7 +914,7 @@ export default function RecallClient() {
             .map(r => r.production_order_id)
         )]
 
-      } else if (searchType === 'batch_id') {
+      } else if (type === 'batch_id') {
         batchIds = [q]
 
       } else {
@@ -1038,12 +1064,59 @@ export default function RecallClient() {
       setSearching(false)
       setSearched(true)
     }
-  }, [query, searchType, companyId])
+  }, [companyId])
+
+  // Thin wrapper called by the Search button and Enter-key handler.
+  // Sets the guard ref and commits the identifier to the URL BEFORE dispatching
+  // runSearch, so the subsequent URL-change effect fires with the ref already set
+  // and exits without re-running the same query.
+  const handleSearch = useCallback(() => {
+    const q = query.trim()
+    if (!q || !companyId) return
+    const paramName = searchType === 'batch_id' ? 'batch' : searchType
+    autoSearchRef.current = `${searchType}:${q}`
+    router.replace(`/recall?tab=impact&${paramName}=${encodeURIComponent(q)}`)
+    runSearch(searchType, q)
+  }, [query, searchType, companyId, router, runSearch])
+
+  // Auto-search effect: triggers once per unique committed URL identifier.
+  //
+  // Guard (ref): prevents re-running for the same urlKey — covers both the URL
+  // update emitted by a manual handleSearch and React Strict Mode double-invocation.
+  //
+  // Strict Mode safety: a 0 ms timer defers the network call. The first invocation's
+  // cleanup cancels its timer before it fires; the second (real) invocation's timer
+  // completes — exactly one search per stable URL state, even in Strict Mode dev.
+  useEffect(() => {
+    if (!urlKey || !urlMode || !urlIdentifier || !companyId) {
+      // No committed identifier — reset guard so a future deep-link re-triggers.
+      if (!urlKey) autoSearchRef.current = null
+      return
+    }
+    if (autoSearchRef.current === urlKey) return  // Already handled (auto or manual)
+
+    // Capture primitives so the timer closure is immune to stale-closure issues.
+    const mode = urlMode
+    const id   = urlIdentifier
+    const key  = urlKey
+
+    let cancelled = false
+    const timer = setTimeout(() => {
+      if (cancelled) return
+      autoSearchRef.current = key
+      setSearchType(mode)
+      setQuery(id)
+      runSearch(mode, id)
+    }, 0)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [urlKey, companyId, urlMode, urlIdentifier, runSearch])
 
   const role          = useRole()
   const canEditRecall = canEdit(role, 'recall')
-
-  const [view, setView] = useState<'lookup' | 'registry'>('lookup')
 
   const [createPrefill, setCreatePrefill] = useState<{
     form:             Partial<RecallFormData>
@@ -1100,8 +1173,8 @@ export default function RecallClient() {
       {/* ── View switcher ─────────────────────────────────────────────────── */}
       <div className="flex gap-1 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 p-1 shadow-sm w-fit">
         {([
-          { key: 'lookup'   as const, label: 'Impact Lookup'   },
           { key: 'registry' as const, label: 'Recall Registry'  },
+          { key: 'lookup'   as const, label: 'Impact Lookup'   },
         ]).map(v => (
           <button key={v.key} onClick={() => setView(v.key)}
             className={`rounded-md px-4 py-1.5 text-sm font-medium transition ${
@@ -1160,7 +1233,13 @@ export default function RecallClient() {
             />
             {query && (
               <button
-                onClick={() => { setQuery(''); setBatches(null); setSearched(false) }}
+                onClick={() => {
+                  setQuery('')
+                  setBatches(null)
+                  setSearched(false)
+                  autoSearchRef.current = null
+                  router.replace('/recall?tab=impact')
+                }}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
               >
                 <X size={14} />
@@ -1179,6 +1258,20 @@ export default function RecallClient() {
           </button>
         </div>
       </div>
+
+      {/* ── Instructional pre-search state ────────────────────────────────── */}
+      {!searched && !searching && (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 py-16 px-6 text-center shadow-sm">
+          <Search size={32} className="mb-4 text-gray-300 dark:text-gray-600" />
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Trace recall impact</h3>
+          <p className="mt-2 max-w-xs text-xs text-gray-400 dark:text-gray-500 leading-relaxed">
+            Search by lot number, batch ID, or SKU to identify affected batches, QC results, and downstream shipments.
+          </p>
+          <p className="mt-3 text-[10px] text-gray-300 dark:text-gray-600">
+            Affected batches · Quality results · Downstream shipments
+          </p>
+        </div>
+      )}
 
       {/* ── Recall alert ──────────────────────────────────────────────────── */}
       {highRiskBatches.length > 0 && (

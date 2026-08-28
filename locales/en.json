@@ -36,7 +36,7 @@
     "/products": "Manage your product catalog.",
     "/raw-materials": "Track inventory levels and reorder points.",
     "/production": "Manage and track all production runs.",
-    "/recall": "Search any lot number, batch ID, or SKU to trace affected batches, QC results, and downstream shipments.",
+    "/recall": "Monitor active recalls and trace affected batches, quality results, and downstream shipments.",
     "/capa": "Corrective and Preventive Actions — track root causes, corrective actions, and closure verification.",
     "/sfda": "Inspection readiness, CAPA management, and regulatory compliance tracking."
   },
