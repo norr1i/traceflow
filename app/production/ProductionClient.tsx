@@ -672,7 +672,13 @@ export default function ProductionClient() {
               <div className="flex items-center gap-2 border-t border-gray-200/60 dark:border-white/[0.07] px-5 py-3.5">
                 {/* Print Label — primary action */}
                 <button
-                  onClick={() => window.print()}
+                  onClick={() => {
+                    document.body.classList.add('printing-label')
+                    window.addEventListener('afterprint', () => {
+                      document.body.classList.remove('printing-label')
+                    }, { once: true })
+                    window.print()
+                  }}
                   className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#3a6f8f] px-3 py-2 text-xs font-semibold text-white hover:bg-[#2d5a74] transition-colors"
                 >
                   <Printer size={13} /> Print Label

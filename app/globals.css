@@ -255,19 +255,17 @@ html[lang="ar"] .toast-slide-in {
 }
 
 /* ── Batch label print ───────────────────────────────────────────────────────
-   Triggered by window.print() from the label modal.
-   Hides the entire app shell; makes only the .tf-print-label element visible,
-   positioned at the top-left of the page so it prints edge-to-edge on label
-   media (no clip, no page chrome). Physical dimensions are 4"×2" (standard)
-   or 4"×4" (large) — operators set matching paper size in the print dialog.
+   Scoped to body.printing-label (set by Production label print handler).
+   Hides the entire app shell; makes only .tf-print-label visible, fixed at
+   the top-left so it prints edge-to-edge. 4"×2" standard, 4"×4" large.
    ─────────────────────────────────────────────────────────────────────── */
 @media print {
-  body * { visibility: hidden !important; }
+  body.printing-label * { visibility: hidden !important; }
 
-  .tf-print-label,
-  .tf-print-label * { visibility: visible !important; }
+  body.printing-label .tf-print-label,
+  body.printing-label .tf-print-label * { visibility: visible !important; }
 
-  .tf-print-label {
+  body.printing-label .tf-print-label {
     position: fixed !important;
     top:      0 !important;
     left:     0 !important;
@@ -276,6 +274,46 @@ html[lang="ar"] .toast-slide-in {
     border-radius: 0 !important;
   }
 
-  .tf-label-standard { width: 4in !important; height: 2in !important; }
-  .tf-label-large    { width: 4in !important; height: 4in !important; }
+  body.printing-label .tf-label-standard { width: 4in !important; height: 2in !important; }
+  body.printing-label .tf-label-large    { width: 4in !important; height: 4in !important; }
+}
+
+/* ── Material Impact Analysis — screen: print root is invisible ─────────── */
+.mi-print-root { display: none; }
+
+/* ── Material Impact Analysis print ─────────────────────────────────────────
+   Scoped to body.printing-material-impact (set by Material Impact PDF handler).
+
+   .mi-print-root is a React portal mounted as a DIRECT CHILD of <body>, so:
+   ─ body.printing-material-impact > *:not(.mi-print-root) targets every other
+     direct body child (the Next.js #__next root, Toast portals, etc.) and
+     removes them from layout entirely with display:none. No live-UI pages are
+     generated; no duplicate content before the report.
+   ─ .mi-print-root flows as a normal block element from the document top,
+     paginating naturally without position:absolute or visibility cascade tricks.
+   ─────────────────────────────────────────────────────────────────────── */
+@media print {
+  /* 1. Remove every body child except the print root from the print layout */
+  body.printing-material-impact > *:not(.mi-print-root) { display: none !important; }
+
+  /* 1b. Belt-and-suspenders: explicitly suppress the live UI wrapper so it
+         contributes zero layout height regardless of the Next.js root structure.
+         Uses a descendant combinator — works at any nesting depth. */
+  body.printing-material-impact .mi-screen-root { display: none !important; }
+
+  /* 2. Show and style the print root */
+  body.printing-material-impact .mi-print-root {
+    display:    block      !important;
+    width:      100%       !important;
+    padding:    32px 40px  !important;
+    box-sizing: border-box !important;
+    color:      #111827    !important;
+    background: #ffffff    !important;
+  }
+
+  /* 3. Prevent stranded headings; keep rows together; repeat table headers */
+  body.printing-material-impact .mi-print-root h2,
+  body.printing-material-impact .mi-print-root h3 { page-break-after:  avoid; break-after:  avoid; }
+  body.printing-material-impact .mi-print-root tr  { page-break-inside: avoid; break-inside: avoid; }
+  body.printing-material-impact .mi-print-root thead { display: table-header-group; }
 }

@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, type CSSProperties } from 'react'
+import { createPortal } from 'react-dom'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import { useAuth, useRole } from '../lib/auth-context'
@@ -111,8 +112,8 @@ const STATUS_BADGE: Record<string, string> = {
 }
 
 const SEARCH_OPTIONS: { key: SearchType; label: string; placeholder: string }[] = [
-  { key: 'lot',      label: 'Lot Number',    placeholder: 'e.g. LOT-2025-SS316-0891' },
   { key: 'material', label: 'Material Name', placeholder: 'e.g. Stainless Steel'     },
+  { key: 'lot',      label: 'Lot Number',    placeholder: 'e.g. LOT-2025-SS316-0891' },
   { key: 'batch',    label: 'Batch ID',      placeholder: 'Enter production batch ID' },
 ]
 
@@ -128,7 +129,7 @@ function exportCSV(result: ImpactResult, query: string, searchType: SearchType) 
   const q = (s: string) => `"${s.replace(/"/g, '""')}"`
   const rows: string[][] = []
 
-  rows.push([`Recall Impact Analysis — ${searchType.toUpperCase()}: ${query}`])
+  rows.push([`Material Impact Analysis — ${searchType.toUpperCase()}: ${query}`])
   rows.push([`Generated: ${new Date().toLocaleString()}`])
   rows.push([])
   rows.push(['AFFECTED PRODUCTS'])
@@ -165,7 +166,7 @@ function exportCSV(result: ImpactResult, query: string, searchType: SearchType) 
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
   const url  = URL.createObjectURL(blob)
   const a    = Object.assign(document.createElement('a'), {
-    href: url, download: `recall-impact-${new Date().toISOString().slice(0, 10)}.csv`,
+    href: url, download: `material-impact-${new Date().toISOString().slice(0, 10)}.csv`,
   })
   document.body.appendChild(a); a.click(); document.body.removeChild(a)
   URL.revokeObjectURL(url)
@@ -189,15 +190,37 @@ function exportJSON(result: ImpactResult, query: string, searchType: SearchType)
     },
     affected_products:     result.affected_products,
     affected_batches:      result.affected_batches,
-    affected_distributors: result.affected_distributors,
+    affected_distributors: result.affected_distributors.map(d => ({
+      batch_id:       d.batch_id,
+      recipient_name: d.recipient_name,
+      recipient_type: d.recipient_type,
+      quantity:       d.quantity,
+      shipped_at:     d.shipped_at,
+    })),
   }
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
   const url  = URL.createObjectURL(blob)
   const a    = Object.assign(document.createElement('a'), {
-    href: url, download: `recall-impact-${new Date().toISOString().slice(0, 10)}.json`,
+    href: url, download: `material-impact-${new Date().toISOString().slice(0, 10)}.json`,
   })
   document.body.appendChild(a); a.click(); document.body.removeChild(a)
   URL.revokeObjectURL(url)
+}
+
+function handleExportPDF() {
+  const prevTitle = document.title
+  const date      = new Date().toISOString().slice(0, 10)
+  const wasDark   = document.documentElement.classList.contains('dark')
+  document.title  = `material-impact-${date}`
+  document.body.classList.add('printing-material-impact')
+  if (wasDark) document.documentElement.classList.remove('dark')
+  const cleanup = () => {
+    document.title = prevTitle
+    document.body.classList.remove('printing-material-impact')
+    if (wasDark) document.documentElement.classList.add('dark')
+  }
+  window.addEventListener('afterprint', cleanup, { once: true })
+  window.print()
 }
 
 // ── Skeleton atoms ────────────────────────────────────────────────────────────
@@ -274,6 +297,7 @@ function TableSection({ title, icon: Icon, count, children, defaultOpen = true }
         />
       </button>
       <div
+        className="tf-print-section-body"
         style={{
           display: 'grid',
           gridTemplateRows: open ? '1fr' : '0fr',
@@ -290,6 +314,260 @@ function TableSection({ title, icon: Icon, count, children, defaultOpen = true }
 
 function Empty({ text }: { text: string }) {
   return <p className="text-sm text-gray-400 dark:text-gray-500 italic">{text}</p>
+}
+
+// ── Print-only report root ────────────────────────────────────────────────────
+// Hidden on screen (display:none via .mi-print-root CSS).
+// Made visible via body.printing-material-impact @media print rules.
+// Uses inline styles exclusively — independent of Tailwind cascade and dark mode.
+
+function MaterialImpactPrintRoot({ result, query, searchType }: {
+  result: ImpactResult; query: string; searchType: SearchType
+}) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+  const risk = RISK_CONFIG[result.risk_level]
+  const generated = new Date().toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+  const searchLabel =
+    searchType === 'material' ? 'Material Name' :
+    searchType === 'lot'      ? 'Lot Number'     : 'Batch ID'
+
+  const scope = `${result.total_batches} production batch${result.total_batches !== 1 ? 'es' : ''}`
+  const distLine = result.total_distributors > 0
+    ? `${result.total_affected_units.toLocaleString()} units distributed to ${result.total_distributors} recipient${result.total_distributors !== 1 ? 's' : ''}.`
+    : 'No distribution records are linked to affected batches.'
+  const actionLine = result.has_open_recall
+    ? 'Active recall in progress. Notify all affected distributors and initiate field recovery immediately.'
+    : result.risk_level === 'critical' || result.risk_level === 'high'
+    ? 'Risk level warrants immediate review. Assess need for recall notification and SFDA regulatory reporting.'
+    : result.risk_level === 'medium'
+    ? 'Review all affected batches and verify quality disposition before further distribution.'
+    : 'No immediate action required. Monitor affected batches for quality indicators.'
+  const needsRegulatory = result.has_open_recall || result.risk_level === 'critical' || result.risk_level === 'high'
+
+  const riskBgMap: Record<ImpactResult['risk_level'], string> = {
+    none: '#F0FDF4', low: '#EFF6FF', medium: '#FFFBEB', high: '#FFF7ED', critical: '#FEF2F2',
+  }
+  const riskBorderMap: Record<ImpactResult['risk_level'], string> = {
+    none: '#BBF7D0', low: '#BFDBFE', medium: '#FDE68A', high: '#FDBA74', critical: '#FCA5A5',
+  }
+
+  const th: CSSProperties = {
+    padding: '5px 8px', textAlign: 'left', fontWeight: 700,
+    borderBottom: '2px solid #D1D5DB', color: '#374151',
+    background: '#F3F4F6', fontSize: 11,
+  }
+  const tdBase: CSSProperties = {
+    padding: '4px 8px', borderBottom: '1px solid #F3F4F6', fontSize: 11, color: '#374151',
+  }
+  const h2style: CSSProperties = {
+    fontSize: 13, fontWeight: 700, color: '#111827',
+    margin: '0 0 8px 0', paddingBottom: 4, borderBottom: '1px solid #E5E7EB',
+  }
+  const tblStyle: CSSProperties = { width: '100%', borderCollapse: 'collapse' }
+
+  const rowBg = (i: number) => (i % 2 === 1 ? '#F9FAFB' : '#ffffff')
+
+  if (!mounted) return null
+  return createPortal(
+    <div className="mi-print-root" aria-hidden="true">
+
+      {/* ── Report header ── */}
+      <div style={{ borderBottom: '2px solid #111827', paddingBottom: 12, marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+          <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0, color: '#111827' }}>
+            Material Impact Analysis
+          </h1>
+          <span style={{ fontSize: 10, color: '#6B7280' }}>{generated}</span>
+        </div>
+        <p style={{ fontSize: 11, color: '#6B7280', marginTop: 4, marginBottom: 0 }}>
+          {searchLabel}: <strong style={{ color: '#111827' }}>{query}</strong>
+        </p>
+      </div>
+
+      {/* ── Risk banner ── */}
+      <div style={{
+        border: `1px solid ${riskBorderMap[result.risk_level]}`, borderRadius: 8,
+        padding: '10px 14px', marginBottom: 16, background: riskBgMap[result.risk_level],
+        display: 'flex', alignItems: 'center', gap: 12,
+      }}>
+        <div style={{ flex: 1 }}>
+          <p style={{ fontWeight: 800, fontSize: 13, color: '#111827', margin: 0 }}>{risk.label}</p>
+          <p style={{ fontSize: 11, color: '#374151', marginTop: 2, marginBottom: 0 }}>
+            {result.total_batches} batch{result.total_batches !== 1 ? 'es' : ''} affected
+            {result.total_affected_units > 0 && ` · ${result.total_affected_units.toLocaleString()} units distributed`}
+            {result.total_distributors > 0 && ` · ${result.total_distributors} recipient${result.total_distributors !== 1 ? 's' : ''} · ${result.total_shipments} shipment${result.total_shipments !== 1 ? 's' : ''}`}
+            {result.has_open_recall && ' · ACTIVE RECALL IN PROGRESS'}
+          </p>
+        </div>
+        <span style={{
+          fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
+          padding: '3px 10px', borderRadius: 5, background: riskBorderMap[result.risk_level], color: '#111827',
+        }}>
+          {result.risk_level}
+        </span>
+      </div>
+
+      {/* ── Summary metrics ── */}
+      <table style={{ ...tblStyle, marginBottom: 16 }}>
+        <thead>
+          <tr>
+            <th style={{ ...th, width: '55%' }}>Metric</th>
+            <th style={{ ...th, textAlign: 'right' }}>Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {([
+            ['Risk Level',        risk.label],
+            ['Active Recall',     result.has_open_recall ? 'YES — Recall in progress' : 'No'],
+            ['Affected Products', String(result.total_products)],
+            ['Affected Batches',  String(result.total_batches)],
+            ['Units Distributed', result.total_affected_units.toLocaleString()],
+            ['Recipients',        String(result.total_distributors)],
+            ['Shipment Records',  String(result.total_shipments)],
+          ] as [string, string][]).map(([label, value], i) => (
+            <tr key={i}>
+              <td style={{ ...tdBase, background: rowBg(i), color: '#374151' }}>{label}</td>
+              <td style={{ ...tdBase, background: rowBg(i), textAlign: 'right', fontWeight: 600, color: '#111827' }}>{value}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* ── Impact Assessment ── */}
+      <div style={{ border: '1px solid #E5E7EB', borderRadius: 8, padding: '10px 14px', marginBottom: 20, background: '#F9FAFB' }}>
+        <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#6B7280', marginBottom: 6, marginTop: 0 }}>
+          Impact Assessment
+        </p>
+        <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.6, margin: 0 }}>
+          Analysis identified {scope} and {result.total_products} affected product{result.total_products !== 1 ? 's' : ''}. {distLine}
+        </p>
+        <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', lineHeight: 1.6, marginTop: 4, marginBottom: 0 }}>{actionLine}</p>
+        {needsRegulatory && (
+          <p style={{ fontSize: 10, fontWeight: 700, color: '#DC2626', marginTop: 6, marginBottom: 0 }}>
+            SFDA Notification Required
+          </p>
+        )}
+      </div>
+
+      {/* ── Affected Products ── */}
+      <h2 style={h2style}>Affected Products ({result.total_products})</h2>
+      {result.affected_products.length === 0
+        ? <p style={{ fontSize: 12, color: '#9CA3AF', fontStyle: 'italic', marginBottom: 20 }}>No affected products found.</p>
+        : (
+          <table style={{ ...tblStyle, marginBottom: 24 }}>
+            <thead>
+              <tr>
+                <th style={th}>Product Name</th>
+                <th style={th}>SKU</th>
+                <th style={{ ...th, textAlign: 'right' }}>Batch Count</th>
+                <th style={{ ...th, textAlign: 'right' }}>Produced</th>
+                <th style={{ ...th, textAlign: 'right' }}>In Field</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.affected_products.map((p, i) => (
+                <tr key={i}>
+                  <td style={{ ...tdBase, background: rowBg(i), fontWeight: 500, color: '#111827' }}>{p.product_name}</td>
+                  <td style={{ ...tdBase, background: rowBg(i), fontFamily: 'monospace', fontSize: 10, color: '#6B7280' }}>{p.sku}</td>
+                  <td style={{ ...tdBase, background: rowBg(i), textAlign: 'right' }}>{p.batch_count}</td>
+                  <td style={{ ...tdBase, background: rowBg(i), textAlign: 'right', color: '#6B7280' }}>{p.produced_units.toLocaleString()}</td>
+                  <td style={{ ...tdBase, background: rowBg(i), textAlign: 'right', fontWeight: 600, color: '#111827' }}>{p.distributed_units.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      }
+
+      {/* ── Affected Batches ── */}
+      <h2 style={h2style}>Affected Batches ({result.total_batches})</h2>
+      {result.affected_batches.length === 0
+        ? <p style={{ fontSize: 12, color: '#9CA3AF', fontStyle: 'italic', marginBottom: 20 }}>No affected batches found.</p>
+        : (
+          <table style={{ ...tblStyle, marginBottom: 24 }}>
+            <thead>
+              <tr>
+                <th style={th}>Batch ID</th>
+                <th style={th}>Product</th>
+                <th style={th}>SKU</th>
+                <th style={{ ...th, textAlign: 'right' }}>Quantity</th>
+                <th style={th}>Status</th>
+                <th style={{ ...th, textAlign: 'right' }}>Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.affected_batches.map((b, i) => (
+                <tr key={i}>
+                  <td style={{ ...tdBase, background: rowBg(i), fontFamily: 'monospace', fontSize: 10, color: '#6B7280' }}>···{b.batch_id.slice(-12)}</td>
+                  <td style={{ ...tdBase, background: rowBg(i), fontWeight: 500, color: '#111827' }}>{b.product_name}</td>
+                  <td style={{ ...tdBase, background: rowBg(i), fontFamily: 'monospace', fontSize: 10, color: '#6B7280' }}>{b.sku}</td>
+                  <td style={{ ...tdBase, background: rowBg(i), textAlign: 'right' }}>{b.quantity.toLocaleString()}</td>
+                  <td style={{ ...tdBase, background: rowBg(i) }}>
+                    <span style={{
+                      fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                      padding: '2px 6px', borderRadius: 3,
+                      background: b.status === 'completed' ? '#D1FAE5' : b.status === 'in_progress' ? '#DBEAFE' : '#F3F4F6',
+                      color:      b.status === 'completed' ? '#065F46' : b.status === 'in_progress' ? '#1E40AF' : '#374151',
+                    }}>
+                      {b.status.replace('_', ' ')}
+                    </span>
+                  </td>
+                  <td style={{ ...tdBase, background: rowBg(i), textAlign: 'right', fontSize: 10, color: '#6B7280' }}>{fmt(b.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      }
+
+      {/* ── Distribution Records ── */}
+      <h2 style={h2style}>Distribution Records ({result.affected_distributors.length})</h2>
+      {result.affected_distributors.length === 0
+        ? <p style={{ fontSize: 12, color: '#9CA3AF', fontStyle: 'italic' }}>No distribution records linked to affected batches.</p>
+        : (
+          <table style={tblStyle}>
+            <thead>
+              <tr>
+                <th style={th}>Recipient Name</th>
+                <th style={th}>Type</th>
+                <th style={{ ...th, textAlign: 'right' }}>Quantity</th>
+                <th style={{ ...th, textAlign: 'right' }}>Shipped At</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.affected_distributors.map((d, i) => (
+                <tr key={i}>
+                  <td style={{ ...tdBase, background: rowBg(i), fontWeight: 500, color: '#111827' }}>{d.recipient_name}</td>
+                  <td style={{ ...tdBase, background: rowBg(i) }}>
+                    <span style={{
+                      fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                      padding: '2px 6px', borderRadius: 3, background: '#F3F4F6', color: '#374151',
+                    }}>
+                      {d.recipient_type ?? 'distributor'}
+                    </span>
+                  </td>
+                  <td style={{ ...tdBase, background: rowBg(i), textAlign: 'right', fontWeight: 600, color: '#111827' }}>{d.quantity.toLocaleString()}</td>
+                  <td style={{ ...tdBase, background: rowBg(i), textAlign: 'right', fontSize: 10, color: '#6B7280' }}>{fmt(d.shipped_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      }
+
+      {/* ── Report footer ── */}
+      <div style={{ marginTop: 24, paddingTop: 12, borderTop: '1px solid #E5E7EB' }}>
+        <p style={{ fontSize: 10, color: '#9CA3AF', margin: 0 }}>
+          Generated by TraceFlow · Material Impact Analysis · {generated}
+        </p>
+      </div>
+    </div>,
+    document.body
+  )
 }
 
 // ── Create Recall Modal ───────────────────────────────────────────────────────
@@ -411,7 +689,7 @@ export default function RecallImpactClient() {
   const canCreate     = canEdit(role, 'recall')
   const urlParams     = useSearchParams()
 
-  const [searchType, setSearchType] = useState<SearchType>('lot')
+  const [searchType, setSearchType] = useState<SearchType>('material')
   const [query,      setQuery]      = useState('')
   const [loading,    setLoading]    = useState(false)
   const [result,     setResult]     = useState<ImpactResult | null>(null)
@@ -461,10 +739,10 @@ export default function RecallImpactClient() {
   const hasResults   = result && result.total_batches > 0
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 tf-material-impact-print mi-screen-root">
 
       {/* ── Search card ── */}
-      <div className="rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 shadow-sm p-5">
+      <div className="mi-search-panel rounded-xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 shadow-sm p-5">
         <div className="mb-4 flex w-fit gap-1 rounded-xl bg-gray-100 dark:bg-gray-900/50 p-1">
           {SEARCH_OPTIONS.map(opt => (
             <button
@@ -488,19 +766,33 @@ export default function RecallImpactClient() {
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder={activeOption.placeholder}
-              className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 pl-9 pr-4 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500/30 focus:border-red-400 dark:focus:border-red-500 transition-colors"
+              className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 pl-9 pr-4 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#3a6f8f]/30 focus:border-[#3a6f8f] dark:focus:border-[#4a7fa5] transition-colors"
             />
           </div>
           <button
             type="submit"
             disabled={loading || !query.trim()}
-            className="flex items-center gap-1.5 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 px-5 py-2.5 text-sm font-semibold text-white transition-colors"
+            className="flex items-center gap-1.5 rounded-xl bg-[#3a6f8f] hover:bg-[#2d5a74] disabled:opacity-50 px-5 py-2.5 text-sm font-semibold text-white transition-colors"
           >
             <Search size={14} />
             {loading ? 'Analyzing…' : 'Analyze Impact'}
           </button>
         </form>
       </div>
+
+      {/* ── Instructional pre-analysis state ── */}
+      {!searched && !loading && (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 py-16 px-6 text-center shadow-sm">
+          <Search size={32} className="mb-4 text-gray-300 dark:text-gray-600" />
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Analyze material impact</h3>
+          <p className="mt-2 max-w-xs text-xs text-gray-400 dark:text-gray-500 leading-relaxed">
+            Enter a raw material, lot, or production batch to trace everything it may have reached — affected products, batches, and downstream distribution.
+          </p>
+          <p className="mt-3 text-[10px] text-gray-300 dark:text-gray-600">
+            Affected products · Affected batches · Downstream distribution
+          </p>
+        </div>
+      )}
 
       {/* ── Skeleton loading state ── */}
       {loading && (
@@ -638,7 +930,7 @@ export default function RecallImpactClient() {
               <FileDown size={14} /> Export JSON
             </button>
             <button
-              onClick={() => window.print()}
+              onClick={handleExportPDF}
               className="flex items-center gap-1.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
             >
               <FileDown size={14} /> Export PDF
@@ -758,6 +1050,11 @@ export default function RecallImpactClient() {
             }
           </TableSection>
         </>
+      )}
+
+      {/* Print root — hidden on screen, made visible by body.printing-material-impact */}
+      {hasResults && result && (
+        <MaterialImpactPrintRoot result={result} query={query} searchType={searchType} />
       )}
 
       {/* Create Recall modal */}
