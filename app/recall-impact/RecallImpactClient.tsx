@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, type CSSProperties } from 'react'
+import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '../lib/supabase'
@@ -697,6 +697,83 @@ export default function RecallImpactClient() {
   const [showModal,  setShowModal]  = useState(false)
   const autoSearchFired = useRef(false)
 
+  // ── Material Name autocomplete state ──────────────────────────────
+  const [suggestions,      setSuggestions]      = useState<string[]>([])
+  const [suggestLoading,   setSuggestLoading]   = useState(false)
+  const [dropdownOpen,     setDropdownOpen]     = useState(false)
+  const [highlightedIdx,   setHighlightedIdx]   = useState(-1)
+  const [selectedMaterial, setSelectedMaterial] = useState<string | null>(null)
+  const [materialError,    setMaterialError]    = useState(false)
+  const debounceRef  = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const inputWrapRef = useRef<HTMLDivElement>(null)
+
+  // Close dropdown on click outside the input+suggestions area
+  useEffect(() => {
+    function onMouseDown(e: MouseEvent) {
+      if (inputWrapRef.current && !inputWrapRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false)
+        setHighlightedIdx(-1)
+      }
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [])
+
+  const fetchSuggestions = useCallback(async (q: string) => {
+    if (!companyId) return
+    setSuggestLoading(true)
+    const { data, error } = await supabase.rpc('get_material_name_suggestions', {
+      p_query: q,
+      p_limit: 20,
+    })
+    setSuggestLoading(false)
+    if (error || !data) {
+      setSuggestions([])
+      setDropdownOpen(false)
+      return
+    }
+    // Server returns distinct, alphabetically ordered names.
+    // Defensive trim guards against unexpected whitespace in the response.
+    const names = (data as { material_name: string }[])
+      .map(r => r.material_name?.trim())
+      .filter((n): n is string => Boolean(n))
+    setSuggestions(names)
+    setDropdownOpen(true)
+    setHighlightedIdx(-1)
+  }, [companyId])
+
+  function handleMaterialInput(value: string) {
+    setQuery(value)
+    setSelectedMaterial(null)
+    setMaterialError(false)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    const trimmed = value.trim()
+    if (trimmed.length < 2) {
+      setSuggestions([])
+      setDropdownOpen(false)
+      return
+    }
+    debounceRef.current = setTimeout(() => fetchSuggestions(trimmed), 250)
+  }
+
+  function selectSuggestion(name: string) {
+    setQuery(name)
+    setSelectedMaterial(name)
+    setMaterialError(false)
+    setSuggestions([])
+    setDropdownOpen(false)
+    setHighlightedIdx(-1)
+  }
+
+  function clearMaterialState() {
+    setSuggestions([])
+    setDropdownOpen(false)
+    setSelectedMaterial(null)
+    setMaterialError(false)
+    setHighlightedIdx(-1)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+  }
+
   async function runSearch(type: SearchType, q: string) {
     if (!q.trim()) return
     setLoading(true)
@@ -724,6 +801,8 @@ export default function RecallImpactClient() {
       autoSearchFired.current = true
       setSearchType(type)
       setQuery(q)
+      // URL-param searches carry trusted exact values — bypass selection gate
+      if (type === 'material') setSelectedMaterial(q)
       runSearch(type, q)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -731,12 +810,25 @@ export default function RecallImpactClient() {
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault()
+    if (searchType === 'material') {
+      const trimmed = query.trim()
+      // Accept a picked suggestion, or a typed value that exactly matches a resolved candidate
+      const isExact = selectedMaterial !== null ||
+        suggestions.some(s => s.toLowerCase() === trimmed.toLowerCase())
+      if (!isExact) {
+        setMaterialError(true)
+        setResult(null)
+        setSearched(false)
+        return
+      }
+    }
     runSearch(searchType, query)
   }
 
   const activeOption = SEARCH_OPTIONS.find(o => o.key === searchType)!
   const risk         = result ? RISK_CONFIG[result.risk_level] : null
   const hasResults   = result && result.total_batches > 0
+  const showDropdown = searchType === 'material' && (suggestLoading || dropdownOpen)
 
   return (
     <div className="space-y-5 tf-material-impact-print mi-screen-root">
@@ -747,7 +839,7 @@ export default function RecallImpactClient() {
           {SEARCH_OPTIONS.map(opt => (
             <button
               key={opt.key}
-              onClick={() => { setSearchType(opt.key); setQuery('') }}
+              onClick={() => { setSearchType(opt.key); setQuery(''); clearMaterialState() }}
               className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors ${
                 searchType === opt.key
                   ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
@@ -760,15 +852,83 @@ export default function RecallImpactClient() {
         </div>
 
         <form onSubmit={handleSearch} className="flex gap-2">
-          <div className="relative flex-1">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <div className="relative flex-1" ref={inputWrapRef}>
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none z-10" />
             <input
               value={query}
-              onChange={e => setQuery(e.target.value)}
+              onChange={e =>
+                searchType === 'material'
+                  ? handleMaterialInput(e.target.value)
+                  : setQuery(e.target.value)
+              }
+              onKeyDown={e => {
+                if (searchType !== 'material' || !showDropdown) return
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  setHighlightedIdx(i => Math.min(i + 1, suggestions.length - 1))
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setHighlightedIdx(i => Math.max(i - 1, 0))
+                } else if (e.key === 'Enter' && highlightedIdx >= 0) {
+                  e.preventDefault()
+                  selectSuggestion(suggestions[highlightedIdx])
+                } else if (e.key === 'Escape') {
+                  setDropdownOpen(false)
+                  setHighlightedIdx(-1)
+                }
+              }}
               placeholder={activeOption.placeholder}
+              autoComplete="off"
+              role={searchType === 'material' ? 'combobox' : undefined}
+              aria-expanded={searchType === 'material' ? showDropdown : undefined}
+              aria-controls={searchType === 'material' ? 'mi-material-listbox' : undefined}
+              aria-autocomplete={searchType === 'material' ? 'list' : undefined}
+              aria-activedescendant={
+                searchType === 'material' && highlightedIdx >= 0
+                  ? `mi-opt-${highlightedIdx}`
+                  : undefined
+              }
               className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 pl-9 pr-4 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#3a6f8f]/30 focus:border-[#3a6f8f] dark:focus:border-[#4a7fa5] transition-colors"
             />
+
+            {/* ── Material Name suggestion dropdown ── */}
+            {showDropdown && (
+              <ul
+                id="mi-material-listbox"
+                role="listbox"
+                aria-label="Material name suggestions"
+                className="absolute left-0 right-0 top-full z-50 mt-1 max-h-52 overflow-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg"
+              >
+                {suggestLoading ? (
+                  <li className="px-3 py-2.5 text-xs text-gray-400 dark:text-gray-500 select-none">
+                    Loading…
+                  </li>
+                ) : suggestions.length === 0 ? (
+                  <li className="px-3 py-2.5 text-xs text-gray-400 dark:text-gray-500 italic select-none">
+                    No materials matched.
+                  </li>
+                ) : (
+                  suggestions.map((s, i) => (
+                    <li
+                      key={s}
+                      id={`mi-opt-${i}`}
+                      role="option"
+                      aria-selected={i === highlightedIdx}
+                      onMouseDown={e => { e.preventDefault(); selectSuggestion(s) }}
+                      className={`cursor-pointer px-3 py-2 text-sm transition-colors ${
+                        i === highlightedIdx
+                          ? 'bg-[#3a6f8f] text-white'
+                          : 'text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/60'
+                      }`}
+                    >
+                      {s}
+                    </li>
+                  ))
+                )}
+              </ul>
+            )}
           </div>
+
           <button
             type="submit"
             disabled={loading || !query.trim()}
@@ -778,6 +938,13 @@ export default function RecallImpactClient() {
             {loading ? 'Analyzing…' : 'Analyze Impact'}
           </button>
         </form>
+
+        {/* Material Name selection required — shown when user submits without picking a suggestion */}
+        {searchType === 'material' && materialError && (
+          <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+            Select a material from the suggestions to analyze its impact.
+          </p>
+        )}
       </div>
 
       {/* ── Instructional pre-analysis state ── */}
