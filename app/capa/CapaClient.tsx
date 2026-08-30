@@ -4,14 +4,14 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   FileWarning, Plus, RefreshCw, Search, AlertTriangle,
-  X, ArrowRight, MoreHorizontal, Eye, Pencil, Trash2,
+  X, MoreHorizontal, Eye, Pencil, Trash2,
   FileDown, TrendingUp, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import {
   useCapas, useCapaAnalytics,
   NEXT_STATUS, ADVANCE_LABEL, SOURCE_LABELS,
   type CapaStatus, type CapaFormData, type Capa, type CapaSourceType,
-  type CapaFilterStatus,
+  type CapaFilterStatus, type CapaSourceFilter,
   PAGE_SIZE,
 } from '../hooks/useCapas'
 import { useAuth, useRole } from '../lib/auth-context'
@@ -23,18 +23,18 @@ import PaginationBar from '../components/PaginationBar'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const STATUS_META: Record<CapaStatus, { label: string; badgeCls: string }> = {
-  open:              { label: 'Open',              badgeCls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
-  investigation:     { label: 'Investigation',     badgeCls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
-  corrective_action: { label: 'Corrective Action', badgeCls: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' },
-  verification:      { label: 'Verification',      badgeCls: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400' },
-  closed:            { label: 'Closed',            badgeCls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
+const STATUS_META: Record<CapaStatus, { label: string; dotCls: string; textCls: string }> = {
+  open:              { label: 'Open',              dotCls: 'bg-gray-400 dark:bg-gray-500',       textCls: 'text-gray-500 dark:text-gray-400'       },
+  investigation:     { label: 'Investigation',     dotCls: 'bg-amber-500 dark:bg-amber-400',     textCls: 'text-amber-600 dark:text-amber-400'     },
+  corrective_action: { label: 'Corrective Action', dotCls: 'bg-blue-500 dark:bg-blue-400',       textCls: 'text-blue-600 dark:text-blue-400'       },
+  verification:      { label: 'Verification',      dotCls: 'bg-indigo-500 dark:bg-indigo-400',   textCls: 'text-indigo-600 dark:text-indigo-400'   },
+  closed:            { label: 'Closed',            dotCls: 'bg-emerald-500 dark:bg-emerald-400', textCls: 'text-emerald-600 dark:text-emerald-500' },
 }
 
 const PRIORITY_META = {
-  critical: { label: 'Critical', cls: 'bg-red-100    text-red-700    dark:bg-red-900/30    dark:text-red-400'    },
-  major:    { label: 'High',     cls: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' },
-  minor:    { label: 'Medium',   cls: 'bg-amber-100  text-amber-700  dark:bg-amber-900/30  dark:text-amber-400'  },
+  critical: { label: 'Critical', dotCls: 'bg-red-600    dark:bg-red-500',    textCls: 'text-red-700    dark:text-red-400'    },
+  major:    { label: 'High',     dotCls: 'bg-orange-500 dark:bg-orange-400', textCls: 'text-orange-600 dark:text-orange-400' },
+  minor:    { label: 'Medium',   dotCls: 'bg-gray-400   dark:bg-gray-500',   textCls: 'text-gray-500   dark:text-gray-400'   },
 } as const
 
 const SOURCE_BADGE: Record<string, string> = {
@@ -46,8 +46,9 @@ const SOURCE_BADGE: Record<string, string> = {
   other:         'bg-gray-100   text-gray-600   dark:bg-gray-700      dark:text-gray-400',
 }
 
-const SOURCE_OPTIONS: { value: CapaSourceType | ''; label: string }[] = [
+const SOURCE_OPTIONS: { value: CapaSourceFilter; label: string }[] = [
   { value: '',               label: 'All Sources'    },
+  { value: 'unspecified',    label: 'Unspecified'    },
   { value: 'quality_issue',  label: 'Quality Issue'  },
   { value: 'recall',         label: 'Recall'         },
   { value: 'audit',          label: 'Audit'          },
@@ -66,17 +67,23 @@ const PRIORITY_OPTIONS = [
 // ── Atom components ───────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: CapaStatus }) {
-  const { label, badgeCls } = STATUS_META[status]
+  const { label, dotCls, textCls } = STATUS_META[status]
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${badgeCls}`}>
+    <span className={`inline-flex items-center gap-1 text-xs font-medium ${textCls}`}>
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dotCls}`} />
       {label}
     </span>
   )
 }
 
 function PriorityBadge({ severity }: { severity: 'minor' | 'major' | 'critical' }) {
-  const { label, cls } = PRIORITY_META[severity]
-  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${cls}`}>{label}</span>
+  const { label, dotCls, textCls } = PRIORITY_META[severity]
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-medium ${textCls}`}>
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dotCls}`} />
+      {label}
+    </span>
+  )
 }
 
 function SourceBadge({ sourceType }: { sourceType: CapaSourceType | null }) {
@@ -224,7 +231,7 @@ function AnalyticsPanel() {
               {/* By priority */}
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2">
-                  Open by Priority
+                  CAPAs by Priority
                 </p>
                 <div className="space-y-1.5">
                   {data.by_priority.map(p => (
@@ -370,7 +377,7 @@ function CreateModal({ onClose, onSave, saving }: {
               <label className={labelCls}>Source Type</label>
               <select value={form.source_type ?? ''} onChange={f('source_type')} className={fieldCls}>
                 <option value="">Select source…</option>
-                {SOURCE_OPTIONS.slice(1).map(o => (
+                {SOURCE_OPTIONS.slice(2).map(o => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
@@ -488,7 +495,7 @@ function EditModal({ capa, onClose, onSave, saving }: {
               <label className={labelCls}>Source Type</label>
               <select value={form.source_type ?? ''} onChange={f('source_type')} className={fieldCls}>
                 <option value="">Unspecified</option>
-                {SOURCE_OPTIONS.slice(1).map(o => (
+                {SOURCE_OPTIONS.slice(2).map(o => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
@@ -592,7 +599,7 @@ export default function CapaClient() {
   const [search,      setSearch]      = useState('')
   const [filterTab,   setFilterTab]   = useState<FilterTab>('all')
   const [filterPri,   setFilterPri]   = useState<'critical' | 'major' | 'minor' | ''>('')
-  const [filterSrc,   setFilterSrc]   = useState<CapaSourceType | ''>('')
+  const [filterSrc,   setFilterSrc]   = useState<CapaSourceFilter>('')
   const [showCreate,  setShowCreate]  = useState(false)
   const [editCapa,    setEditCapa]    = useState<Capa | null>(null)
   const [saving,      setSaving]      = useState(false)
@@ -743,10 +750,6 @@ export default function CapaClient() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button onClick={refresh}
-            className="flex items-center gap-1.5 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 shadow-sm hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/45 transition">
-            <RefreshCw size={15} />Refresh
-          </button>
           {canEditCapa && (
             <button onClick={() => setShowCreate(true)}
               className="flex items-center gap-1.5 rounded-lg bg-[#3a6f8f] px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#2d5a74] transition">
@@ -862,18 +865,15 @@ export default function CapaClient() {
           <EmptyState message={hasActiveFilter ? 'No CAPAs match your filters.' : 'No CAPAs recorded yet.'} />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full table-fixed text-sm">
               <thead>
                 <tr className="border-b-2 border-gray-300 dark:border-gray-500 bg-gray-100 dark:bg-[#2e3c52] text-xs tracking-wide">
-                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold whitespace-nowrap">CAPA #</th>
-                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">Title</th>
-                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold whitespace-nowrap">Source</th>
-                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold whitespace-nowrap">Priority</th>
-                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold whitespace-nowrap">Owner</th>
-                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold whitespace-nowrap">Due Date</th>
-                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold whitespace-nowrap">Status</th>
-                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold whitespace-nowrap">Created</th>
-                  <th className="px-3 py-2" />
+                  <th className="px-3 py-2 text-left text-gray-800 dark:text-gray-100 font-bold">Identity</th>
+                  <th className="px-3 py-2 text-left text-gray-800 dark:text-gray-100 font-bold w-24">Priority</th>
+                  <th className="px-3 py-2 text-left text-gray-800 dark:text-gray-100 font-bold w-44">Owner</th>
+                  <th className="px-3 py-2 text-left text-gray-800 dark:text-gray-100 font-bold w-24">Due Date</th>
+                  <th className="px-3 py-2 text-left text-gray-800 dark:text-gray-100 font-bold w-40">Status</th>
+                  <th className="px-3 py-2 text-left text-gray-800 dark:text-gray-100 font-bold w-52">Next Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700/40 bg-white dark:bg-gray-800">
@@ -885,31 +885,31 @@ export default function CapaClient() {
                     <tr key={capa.id}
                       className="hover:bg-[rgba(58,111,143,0.07)] dark:hover:bg-[rgba(58,111,143,0.13)] transition-colors duration-150">
 
-                      <td className="px-3 py-1.5 whitespace-nowrap">
-                        <button
-                          onClick={() => router.push(`/capa/${capa.id}`)}
-                          className="font-mono text-xs font-semibold text-[#3a6f8f] dark:text-[#7ab3d0] hover:underline underline-offset-2"
-                        >
-                          {capa.capa_number ?? `#${capa.id.slice(0, 8)}`}
-                        </button>
-                      </td>
-
-                      <td className="px-3 py-1.5 max-w-[220px]">
-                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100 leading-tight truncate">
+                      <td className="px-3 py-1.5 overflow-hidden">
+                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100 leading-tight line-clamp-2" title={capa.title}>
                           {capa.title}
                         </p>
-                      </td>
-
-                      <td className="px-3 py-1.5 whitespace-nowrap">
-                        <SourceBadge sourceType={capa.source_type} />
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <button
+                            onClick={() => router.push(`/capa/${capa.id}`)}
+                            className="font-mono text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:underline underline-offset-2"
+                          >
+                            {capa.capa_number ?? `#${capa.id.slice(0, 8)}`}
+                          </button>
+                          <span className="text-[11px] text-gray-300 dark:text-gray-600">·</span>
+                          <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                            {new Date(capa.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </span>
+                          {capa.source_type && <SourceBadge sourceType={capa.source_type} />}
+                        </div>
                       </td>
 
                       <td className="px-3 py-1.5 whitespace-nowrap">
                         <PriorityBadge severity={capa.severity} />
                       </td>
 
-                      <td className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">
-                        {capa.owner_name ?? '—'}
+                      <td className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 overflow-hidden">
+                        <span className="block truncate" title={capa.owner_name ?? undefined}>{capa.owner_name ?? '—'}</span>
                       </td>
 
                       <td className="px-3 py-1.5 whitespace-nowrap">
@@ -924,21 +924,17 @@ export default function CapaClient() {
                         <StatusBadge status={capa.status} />
                       </td>
 
-                      <td className="px-3 py-1.5 whitespace-nowrap text-xs text-gray-500 dark:text-gray-400">
-                        {new Date(capa.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-                      </td>
-
                       <td className="px-3 py-1.5">
                         <div className="flex items-center justify-end gap-2">
                           {canEditCapa && nextStatus && advanceLabel && (
                             <button
                               disabled={advancing === capa.id}
                               onClick={() => handleAdvance(capa.id, capa.status)}
-                              className="flex items-center gap-1 rounded-md border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.15] bg-white/60 dark:bg-[#262E36]/30 px-2.5 py-1 text-xs font-medium text-gray-700 dark:text-gray-200 hover:border-[#3a6f8f]/50 hover:bg-[#3a6f8f]/10 hover:text-[#3a6f8f] dark:hover:text-[#7ab3d0] disabled:opacity-40 transition whitespace-nowrap"
+                              className="flex items-center gap-1 text-xs font-medium text-[#4a8fb9] dark:text-[#7ab3d0] hover:underline underline-offset-2 disabled:opacity-40 transition whitespace-nowrap"
                             >
                               {advancing === capa.id
                                 ? <><RefreshCw size={11} className="animate-spin" /><span>…</span></>
-                                : <><ArrowRight size={11} /><span>{advanceLabel}</span></>
+                                : <span>→ {advanceLabel}</span>
                               }
                             </button>
                           )}

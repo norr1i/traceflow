@@ -200,6 +200,7 @@ function extractMessage(err: unknown): string {
 // ── Filter types and shared query helper ─────────────────────────────────────
 
 export type CapaFilterStatus = 'all' | 'open' | 'in_progress' | 'overdue' | 'closed'
+export type CapaSourceFilter = CapaSourceType | '' | 'unspecified'
 
 // Minimal structural type covering the filter methods applyCapaFilters calls.
 // Using a structural interface avoids threading all 7 PostgrestFilterBuilder
@@ -211,6 +212,7 @@ type CapaFilterable<Q> = {
   not(col: string, op: string, val: unknown): Q
   lt(col: string, val: unknown): Q
   or(filters: string): Q
+  is(col: string, val: null | boolean): Q
 }
 
 // Applies all four CAPA list filters to a Supabase query builder.
@@ -226,7 +228,7 @@ function applyCapaFilters<Q extends CapaFilterable<Q>>(
   q:              Q,
   filterStatus:   CapaFilterStatus,
   filterSeverity: 'critical' | 'major' | 'minor' | '',
-  filterSource:   CapaSourceType | '',
+  filterSource:   CapaSourceFilter,
   filterSearch:   string,
   today:          string,
 ): Q {
@@ -236,7 +238,8 @@ function applyCapaFilters<Q extends CapaFilterable<Q>>(
   else if (filterStatus === 'closed')      q = q.eq('status', 'closed')
 
   if (filterSeverity !== '') q = q.eq('severity', filterSeverity)
-  if (filterSource   !== '') q = q.eq('source_type', filterSource)
+  if      (filterSource === 'unspecified') q = q.is('source_type', null)
+  else if (filterSource !== '')            q = q.eq('source_type', filterSource)
 
   const term = filterSearch.trim()
   if (term !== '') {
@@ -264,7 +267,7 @@ function applyCapaFilters<Q extends CapaFilterable<Q>>(
 export function useCapas(
   filterStatus:   CapaFilterStatus,
   filterSeverity: 'critical' | 'major' | 'minor' | '',
-  filterSource:   CapaSourceType | '',
+  filterSource:   CapaSourceFilter,
   filterSearch:   string,
 ) {
   const { companyId } = useAuth()
