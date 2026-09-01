@@ -1,0 +1,45 @@
+-- ============================================================
+-- TraceFlow — Team Member Soft-Detach Schema Fix
+-- File: supabase_team_member_soft_detach_fix_20260901.sql
+-- Created: 2026-09-01
+--
+-- PROBLEM
+-- -------
+-- remove_team_member() performs:
+--
+--   UPDATE user_profiles
+--   SET company_id = NULL, role = NULL
+--   WHERE user_id = p_user_id;
+--
+-- This fails with SQLSTATE 23502 (NOT NULL violation) because
+-- user_profiles.role was defined NOT NULL in the original schema.
+--
+-- DESIGN INTENT (from supabase_team_management.sql, section 1)
+-- -------------------------------------------------------------
+-- The team management migration explicitly documented the intent:
+--   "role can be NULL (users removed from a company keep their auth account)"
+-- It expanded the role CHECK constraint to permit NULL:
+--   CHECK (role IS NULL OR role IN ('admin', 'manager', ...))
+-- It implemented SET role = NULL in remove_team_member().
+-- The ALTER COLUMN DROP NOT NULL step was omitted, leaving the
+-- CHECK constraint and NOT NULL in contradiction.
+--
+-- FIX
+-- ---
+-- Drop the NOT NULL constraint on role. The CHECK constraint
+-- already governs valid values and already permits NULL.
+--
+-- SCOPE
+-- -----
+-- One DDL statement. No function changes. No data changes.
+-- No RLS changes. No grants. No other columns touched.
+--
+-- HOW TO RUN
+-- ----------
+-- Supabase Dashboard → SQL Editor → New Query → paste → Run
+-- Safe to re-run: DROP NOT NULL is idempotent if constraint
+-- is already absent.
+-- ============================================================
+
+ALTER TABLE public.user_profiles
+  ALTER COLUMN role DROP NOT NULL;

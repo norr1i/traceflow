@@ -622,7 +622,7 @@ export default function TeamClient() {
                             className="rounded-lg border border-gray-200 dark:border-white/[0.09] bg-white dark:bg-[#161B22] px-2.5 py-1 text-[12px] text-gray-700 dark:text-[#D3D1CE] focus:outline-none focus:ring-2 focus:ring-[#4a8fb9]/20"
                             autoFocus
                           >
-                            {ASSIGNABLE_ROLES.map(r => (
+                            {assignableRoles.map(r => (
                               <option key={r} value={r}>{t(`role.${r}`)}</option>
                             ))}
                           </select>
@@ -689,14 +689,16 @@ export default function TeamClient() {
                             </>
                           ) : (
                             <>
-                              <button
-                                onClick={() => startEdit(m)}
-                                title={t('team.edit_role_title')}
-                                className="rounded-lg p-1.5 text-gray-400 dark:text-[#525563] hover:bg-blue-50 dark:hover:bg-blue-500/10 hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
-                              >
-                                <Pencil size={13} />
-                              </button>
-                              {canManageTeam && (
+                              {canManageTeam && !(m.role === 'admin' && !hasPermission(role as Role | null, 'invite:admin')) && (
+                                <button
+                                  onClick={() => startEdit(m)}
+                                  title={t('team.edit_role_title')}
+                                  className="rounded-lg p-1.5 text-gray-400 dark:text-[#525563] hover:bg-blue-50 dark:hover:bg-blue-500/10 hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
+                                >
+                                  <Pencil size={13} />
+                                </button>
+                              )}
+                              {canManageTeam && !(m.role === 'admin' && !hasPermission(role as Role | null, 'invite:admin')) && (
                                 <button
                                   onClick={() => handleRemove(m)}
                                   title={t('team.remove_member_title')}
