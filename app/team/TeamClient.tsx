@@ -10,9 +10,9 @@ import { hasPermission, canManage } from '../lib/permissions'
 import { logActivity, actorName } from '../lib/activity'
 import { useT, fmtNum } from '../lib/i18n'
 import {
-  Users, Plus, Trash2, X, Check, AlertTriangle,
-  Mail, Clock, Pencil, ShieldAlert, Copy, UserCheck,
-  UserX, Shield,
+  Plus, Trash2, X, Check, AlertTriangle,
+  Mail, Pencil, ShieldAlert, Copy,
+  UserX,
 } from 'lucide-react'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -312,7 +312,6 @@ export default function TeamClient() {
 
   const activeCount  = members.filter(m => m.status === 'active').length
   const pendingCount = members.filter(m => m.status === 'pending').length
-  const roleCount    = new Set(members.filter(m => m.status === 'active').map(m => m.role)).size
 
   // ── Role description ──────────────────────────────────────────────────────
 
@@ -453,69 +452,28 @@ export default function TeamClient() {
         </div>
       )}
 
-      {/* ── Stats row ────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {/* Total members */}
-        <div className="glass-card rounded-xl p-4">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 dark:text-[#525563]">{t('team.members_label')}</p>
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#4a8fb9]/10">
-              <Users size={14} className="text-[#4a8fb9]" />
-            </span>
-          </div>
-          <p className="text-3xl font-bold tabular-nums text-gray-900 dark:text-[#E2E8F0]">{fmtNum(activeCount, lang)}</p>
-          <p className="mt-1 text-[11px] text-gray-400 dark:text-[#525563]">{t('team.active_accounts')}</p>
+      {/* ── Page header ──────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-[15px] font-semibold text-gray-900 dark:text-[#E2E8F0]">
+            {t('team.team_members_title')}
+          </h1>
+          {!loading && (
+            <p className="mt-0.5 text-[12px] text-gray-400 dark:text-[#525563]">
+              {t(pendingCount !== 1 ? 'team.active_pending_plural' : 'team.active_pending', { active: fmtNum(activeCount, lang), pending: fmtNum(pendingCount, lang) })}
+            </p>
+          )}
         </div>
-
-        {/* Pending invitations */}
-        <div className="glass-card rounded-xl p-4">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 dark:text-[#525563]">{t('team.pending_label')}</p>
-            <span className={`flex h-7 w-7 items-center justify-center rounded-lg ${pendingCount > 0 ? 'bg-amber-500/10' : 'bg-gray-100 dark:bg-white/[0.04]'}`}>
-              <Clock size={14} className={pendingCount > 0 ? 'text-amber-500' : 'text-gray-400 dark:text-[#525563]'} />
-            </span>
-          </div>
-          <p className={`text-3xl font-bold tabular-nums ${pendingCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-[#E2E8F0]'}`}>
-            {fmtNum(pendingCount, lang)}
-          </p>
-          <p className="mt-1 text-[11px] text-gray-400 dark:text-[#525563]">{t('team.awaiting_signup')}</p>
-        </div>
-
-        {/* Roles */}
-        <div className="glass-card rounded-xl p-4">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 dark:text-[#525563]">{t('team.roles_label')}</p>
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-500/10">
-              <Shield size={14} className="text-violet-500" />
-            </span>
-          </div>
-          <p className="text-3xl font-bold tabular-nums text-gray-900 dark:text-[#E2E8F0]">{fmtNum(roleCount, lang)}</p>
-          <p className="mt-1 text-[11px] text-gray-400 dark:text-[#525563]">{t('team.distinct_roles')}</p>
-        </div>
-
-        {/* Verified */}
-        <div className="glass-card rounded-xl p-4">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 dark:text-[#525563]">{t('team.verified_label')}</p>
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10">
-              <UserCheck size={14} className="text-emerald-600 dark:text-emerald-400" />
-            </span>
-          </div>
-          <p className="text-3xl font-bold tabular-nums text-gray-900 dark:text-[#E2E8F0]">{fmtNum(activeCount, lang)}</p>
-          <p className="mt-1 text-[11px] text-gray-400 dark:text-[#525563]">{t('team.confirmed_users')}</p>
-        </div>
+        {canManageTeam && (
+          <button
+            onClick={openInvite}
+            className="flex items-center gap-1.5 rounded-lg bg-[#3a6f8f] hover:bg-[#2d5a74] px-3.5 py-2 text-[12px] font-medium text-white transition-colors"
+          >
+            <Plus size={13} />
+            {t('team.invite')}
+          </button>
+        )}
       </div>
-
-      {/* ── Role distribution ─────────────────────────────────────────────── */}
-      {!loading && activeCount > 0 && (
-        <div className="glass-card rounded-xl px-5 py-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-[13px] font-semibold text-gray-800 dark:text-[#E2E8F0]">{t('team.role_distribution')}</p>
-            <p className="text-[11px] text-gray-400 dark:text-[#525563]">{t(activeCount !== 1 ? 'team.active_count_plural' : 'team.active_count', { n: fmtNum(activeCount, lang) })}</p>
-          </div>
-          <RoleDistribution members={members} />
-        </div>
-      )}
 
       {/* ── Error ────────────────────────────────────────────────────────── */}
       {error && (
@@ -527,24 +485,6 @@ export default function TeamClient() {
 
       {/* ── Members table ────────────────────────────────────────────────── */}
       <div className="rounded-xl border border-gray-200/60 dark:border-gray-700/40 overflow-hidden">
-        {/* Table header */}
-        <div className="flex items-center justify-between gap-3 border-b border-gray-100 dark:border-gray-700/40 px-5 py-3.5">
-          <div>
-            <h2 className="text-[13px] font-semibold text-gray-900 dark:text-[#E2E8F0]">{t('team.team_members_title')}</h2>
-            {!loading && (
-              <p className="mt-0.5 text-[11px] text-gray-400 dark:text-[#525563]">
-                {t(pendingCount !== 1 ? 'team.active_pending_plural' : 'team.active_pending', { active: fmtNum(activeCount, lang), pending: fmtNum(pendingCount, lang) })}
-              </p>
-            )}
-          </div>
-          <button
-            onClick={openInvite}
-            className="flex items-center gap-1.5 rounded-lg bg-[#3a6f8f] hover:bg-[#2d5a74] px-3.5 py-2 text-[12px] font-medium text-white transition-colors"
-          >
-            <Plus size={13} />
-            {t('team.invite')}
-          </button>
-        </div>
 
         {loading ? (
           <div className="space-y-0">
@@ -575,12 +515,12 @@ export default function TeamClient() {
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b-2 border-gray-300 dark:border-gray-500 bg-gray-100 dark:bg-[#2e3c52] text-xs tracking-wide">
-                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold">{t('team.member_col')}</th>
-                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold hidden sm:table-cell">{t('team.role_label')}</th>
-                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold hidden md:table-cell">{t('common.status')}</th>
-                  <th className="px-3 py-2 text-left text-gray-700 dark:text-gray-100 font-bold hidden lg:table-cell">{t('team.joined_col')}</th>
-                  <th className="px-3 py-2 text-right text-gray-700 dark:text-gray-100 font-bold">{t('team.actions_col')}</th>
+                <tr className="border-b border-gray-100 dark:border-white/[0.07] text-xs">
+                  <th className="px-3 py-2 text-left text-gray-500 dark:text-[#6B7280] font-medium">{t('team.member_col')}</th>
+                  <th className="px-3 py-2 text-left text-gray-500 dark:text-[#6B7280] font-medium hidden sm:table-cell">{t('team.role_label')}</th>
+                  <th className="px-3 py-2 text-left text-gray-500 dark:text-[#6B7280] font-medium hidden md:table-cell">{t('common.status')}</th>
+                  <th className="px-3 py-2 text-left text-gray-500 dark:text-[#6B7280] font-medium hidden lg:table-cell">{t('team.joined_col')}</th>
+                  <th className="px-3 py-2 text-right text-gray-500 dark:text-[#6B7280] font-medium">{t('team.actions_col')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700/40 bg-white dark:bg-gray-800">
@@ -606,9 +546,6 @@ export default function TeamClient() {
                             <p className={`truncate text-[12px] ${m.full_name ? 'text-gray-400 dark:text-[#525563]' : 'font-medium text-gray-700 dark:text-[#C9C7C4]'}`}>
                               {m.email}
                             </p>
-                            {isMe && (
-                              <span className="text-[10px] font-medium text-[#4a8fb9]">{t('common.you')}</span>
-                            )}
                           </div>
                         </div>
                       </td>
@@ -721,10 +658,10 @@ export default function TeamClient() {
 
         {/* Table footer */}
         {!loading && members.length > 0 && (
-          <div className="flex items-center justify-between border-t border-gray-100 dark:border-gray-700/40 bg-gray-50/50 dark:bg-white/[0.01] px-5 py-3">
-            <p className="text-[11px] text-gray-400 dark:text-[#525563]">
-              {t(pendingCount !== 1 ? 'team.active_pending_plural' : 'team.active_pending', { active: fmtNum(activeCount, lang), pending: fmtNum(pendingCount, lang) })}
-            </p>
+          <div className="flex items-center justify-between border-t border-gray-100 dark:border-gray-700/40 px-5 py-3">
+            <div className="flex-1 max-w-xs">
+              {activeCount > 1 && <RoleDistribution members={members} />}
+            </div>
             <button
               onClick={() => copySignupLink()}
               className="flex items-center gap-1.5 text-[11px] text-[#4a8fb9] hover:underline"
@@ -734,16 +671,6 @@ export default function TeamClient() {
           </div>
         )}
       </div>
-
-      {/* ── Pending invite guidance ───────────────────────────────────────── */}
-      {!loading && pendingCount > 0 && (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-200 dark:border-amber-500/20 bg-amber-50 dark:bg-amber-500/[0.06] px-4 py-3.5">
-          <Clock size={14} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
-          <p className="text-[12px] text-amber-800 dark:text-amber-400/90">
-            {t('team.pending_guidance')}
-          </p>
-        </div>
-      )}
 
     </div>
   )
