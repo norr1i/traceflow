@@ -5,7 +5,7 @@ import { useT, fmtDate } from '../lib/i18n'
 import { useAuth, useRole } from '../lib/auth-context'
 import { useToast } from '../components/Toast'
 import {
-  ShieldCheck, ShieldAlert, AlertTriangle, CheckCircle2, XCircle, Clock,
+  ShieldCheck, AlertTriangle, CheckCircle2, XCircle, Clock,
   FileText, Download, Archive, Activity, ClipboardList,
   Filter, Plus, RefreshCw, Package, Users, Calendar, ChevronRight,
   FileWarning, CheckSquare, Lock, TrendingUp,
@@ -268,113 +268,265 @@ type TabReportsProps = {
 
 // ── Tab: Overview ─────────────────────────────────────────────────────────────
 
+function reqDisplayLabel(req: RequirementRow, t: (k: string) => string): { label: string; dotCls: string; textCls: string } {
+  if (req.id === 'batch' && req.status === 'compliant') {
+    return { label: t('sfda.status_data_connected'), dotCls: 'bg-teal-400', textCls: 'text-teal-700 dark:text-teal-400' }
+  }
+  if (req.id === 'audit' && req.status === 'compliant') {
+    return { label: t('sfda.status_logs_available'), dotCls: 'bg-teal-400', textCls: 'text-teal-700 dark:text-teal-400' }
+  }
+  if (req.evidence === '—' && req.records === 0 && req.status === 'pending') {
+    return { label: t('sfda.status_not_assessed'), dotCls: 'bg-gray-300 dark:bg-gray-600', textCls: 'text-gray-400 dark:text-gray-500' }
+  }
+  const map: Record<ComplianceStatus, { label: string; dotCls: string; textCls: string }> = {
+    compliant:     { label: t('sfda.status_compliant'),     dotCls: 'bg-emerald-500', textCls: 'text-emerald-700 dark:text-emerald-400' },
+    non_compliant: { label: t('sfda.status_non_compliant'), dotCls: 'bg-red-500',     textCls: 'text-red-700 dark:text-red-400'         },
+    partial:       { label: t('sfda.status_partial'),       dotCls: 'bg-amber-400',   textCls: 'text-amber-700 dark:text-amber-400'     },
+    pending:       { label: t('sfda.status_pending'),       dotCls: 'bg-blue-300 dark:bg-blue-500', textCls: 'text-blue-600 dark:text-blue-400' },
+  }
+  return map[req.status]
+}
+
 function TabOverview({ liveRequirements, recallStats, complianceScore, qcFailed, complianceData, complianceLoading, recallLoading, capaList, setActiveTab, setExpandedReq }: TabOverviewProps) {
   const { t, lang } = useT()
-  const attention = liveRequirements.filter(r => r.status !== 'compliant' && r.status !== 'pending')
-  const reqCounts = {
-    compliant:     liveRequirements.filter(r => r.status === 'compliant').length,
-    non_compliant: liveRequirements.filter(r => r.status === 'non_compliant').length,
-    partial:       liveRequirements.filter(r => r.status === 'partial').length,
-    pending:       liveRequirements.filter(r => r.status === 'pending').length,
-  }
-  const readinessPct = recallStats.score
-  const riskKey = complianceScore === 0 ? 'sfda.risk_medium'
+
+  // ── Derived values ──────────────────────────────────────────────────────────
+  const hasQCData     = complianceData.qcTotal > 0
+  const openCAPAs     = capaList.filter(c => c.status !== 'closed').length
+  const overdueCAPAs  = capaList.filter(c => c.status === 'overdue').length
+  const criticalCAPAs = capaList.filter(c => c.severity === 'critical' && c.status !== 'closed').length
+  const activeRecalls = recallStats.affected
+  const hasReadiness  = !recallLoading && recallStats.downstream > 0
+  const lastInspectionLabel = complianceData.qcLastDate
+    ? new Date(complianceData.qcLastDate).toLocaleDateString(
+        lang === 'ar' ? 'ar-SA-u-nu-latn' : 'en-GB',
+        { day: 'numeric', month: 'short', year: 'numeric' }
+      )
+    : '—'
+
+  const riskKey = !hasQCData ? 'sfda.risk_unassessed'
     : complianceScore >= 80 ? 'sfda.risk_low'
     : complianceScore >= 60 ? 'sfda.risk_medium'
     : 'sfda.risk_high'
-  const riskCls = complianceScore === 0 ? 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
-    : complianceScore >= 80 ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
-    : complianceScore >= 60 ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
-    : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
-  const lastInspectionLabel = complianceData.qcLastDate ? fmtDate(complianceData.qcLastDate, lang) : '—'
+  const riskDotCls = !hasQCData ? 'bg-gray-300 dark:bg-gray-600'
+    : complianceScore >= 80 ? 'bg-emerald-500'
+    : complianceScore >= 60 ? 'bg-amber-400'
+    : 'bg-red-500'
+
+  // ── Requires Attention — 3 consolidated themes ──────────────────────────────
+  type AttnItem = { key: string; icon: React.ElementType; iconCls: string; label: string; sub: string; dest: string; onClick?: () => void; href?: string }
+  const attentionItems: AttnItem[] = []
+
+  if (overdueCAPAs > 0 || criticalCAPAs > 0) {
+    const parts: string[] = []
+    if (overdueCAPAs > 0)  parts.push(`${overdueCAPAs} overdue`)
+    if (criticalCAPAs > 0) parts.push(`${criticalCAPAs} critical`)
+    attentionItems.push({
+      key: 'capa-issues', icon: AlertTriangle, iconCls: 'text-red-500',
+      label: 'CAPA Issues', sub: parts.join(' · '), dest: 'CAPA Audit View',
+      onClick: () => setActiveTab('capa'),
+    })
+  }
+
+  const qcReq = liveRequirements.find(r => r.id === 'qc')
+  if (qcFailed > 0) {
+    attentionItems.push({
+      key: 'qc-issues', icon: AlertTriangle,
+      iconCls: qcReq?.status === 'non_compliant' ? 'text-red-500' : 'text-amber-500',
+      label: 'QC Issues',
+      sub:  `${qcFailed} non-passing inspection${qcFailed !== 1 ? 's' : ''}`,
+      dest: 'Quality',
+      href: '/quality',
+    })
+  }
+
+  if (activeRecalls > 0) {
+    attentionItems.push({
+      key: 'recall-exposure', icon: AlertTriangle, iconCls: 'text-amber-500',
+      label: 'Recall Exposure',
+      sub:  `${activeRecalls} affected batch${activeRecalls !== 1 ? 'es' : ''}`,
+      dest: 'Recall Readiness',
+      onClick: () => setActiveTab('recall'),
+    })
+  }
+
+  // ── Requirement display order: highest-signal first ─────────────────────────
+  const matrixOrder = ['qc', 'capa', 'batch', 'audit', 'gmp', 'ncr', 'equip', 'sop']
+  const matrixReqs  = matrixOrder
+    .map(id => liveRequirements.find(r => r.id === id))
+    .filter((r): r is RequirementRow => !!r)
+  const matrixRows: [RequirementRow | undefined, RequirementRow | undefined][] = [
+    [matrixReqs[0], matrixReqs[1]],
+    [matrixReqs[2], matrixReqs[3]],
+    [matrixReqs[4], matrixReqs[5]],
+    [matrixReqs[6], matrixReqs[7]],
+  ]
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6 flex flex-col items-center justify-center gap-2">
+    <div className="space-y-4">
+
+      {/* ── 1. Top Posture Cards ──────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+
+        {/* A: QC Pass Rate */}
+        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl py-3.5 px-4 flex flex-col gap-1">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--subtle)]">{t('sfda.score_label')}</p>
           {complianceLoading
-            ? <div className="w-[140px] h-[140px] flex items-center justify-center text-sm text-[var(--muted)]">Loading…</div>
-            : <ScoreRing score={complianceScore} size={140} />}
-          <p className="text-sm font-medium text-[var(--muted)]">{t('sfda.score_label')}</p>
+            ? <p className="text-3xl font-bold text-[var(--muted)]">…</p>
+            : <>
+                <p className={`text-3xl font-bold ${hasQCData ? 'text-[var(--text)]' : 'text-gray-400 dark:text-gray-500'}`}>
+                  {hasQCData ? `${complianceScore}%` : '—'}
+                </p>
+                <p className="text-sm text-[var(--muted)]">
+                  {hasQCData
+                    ? `${complianceData.qcPassed} of ${complianceData.qcTotal} passed`
+                    : 'No QC inspection records'}
+                </p>
+                <p className="inline-flex items-center gap-1 text-xs text-[var(--subtle)] mt-0.5">
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${riskDotCls}`} />
+                  {t('sfda.risk_label')}: {t(riskKey)}
+                </p>
+              </>
+          }
         </div>
 
-        <div className="md:col-span-2 bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6 flex flex-col justify-between gap-5">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-[var(--text)]">{t('sfda.readiness_label')}</span>
-              <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                {recallLoading ? '…' : `${readinessPct}%`}
-              </span>
-            </div>
-            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
-              <div className="bg-emerald-500 h-2.5 rounded-full" style={{ width: `${readinessPct}%` }} />
-            </div>
-          </div>
+        {/* B: Open CAPAs */}
+        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl py-3.5 px-4 flex flex-col gap-1">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--subtle)]">{t('sfda.open_capas')}</p>
+          <p className={`text-3xl font-bold ${openCAPAs > 0 ? 'text-[var(--text)]' : 'text-gray-400 dark:text-gray-500'}`}>
+            {openCAPAs > 0 ? openCAPAs : '—'}
+          </p>
+          <p className={`text-sm ${overdueCAPAs > 0 ? 'text-red-600 dark:text-red-400' : 'text-[var(--subtle)]'}`}>
+            {overdueCAPAs > 0 ? `${overdueCAPAs} overdue` : openCAPAs === 0 ? 'None recorded' : 'None overdue'}
+          </p>
+        </div>
 
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-[var(--muted)]">{t('sfda.risk_label')}</span>
-            <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold ${riskCls}`}>
-              <AlertTriangle size={14} />{t(riskKey)}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 pt-3 border-t border-[var(--border)]">
-            {[
-              { icon: CheckCircle2, cls: 'text-emerald-500', count: reqCounts.compliant,     key: 'sfda.status_compliant'     },
-              { icon: XCircle,      cls: 'text-red-500',     count: reqCounts.non_compliant, key: 'sfda.status_non_compliant' },
-              { icon: AlertTriangle,cls: 'text-amber-500',   count: reqCounts.partial,       key: 'sfda.status_partial'       },
-              { icon: Clock,        cls: 'text-gray-400',    count: reqCounts.pending,       key: 'sfda.status_pending'       },
-            ].map(({ icon: Icon, cls, count, key }) => (
-              <div key={key} className="flex items-center gap-2 text-sm">
-                <Icon size={14} className={`${cls} shrink-0`} />
-                <span className="text-[var(--muted)]">{count} {t(key)}</span>
-              </div>
-            ))}
-          </div>
+        {/* C: Affected Recall Batches */}
+        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl py-3.5 px-4 flex flex-col gap-1">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--subtle)]">{t('sfda.active_recalls')}</p>
+          {recallLoading
+            ? <p className="text-3xl font-bold text-[var(--muted)]">…</p>
+            : <>
+                <p className={`text-3xl font-bold ${activeRecalls > 0 ? 'text-[var(--text)]' : 'text-gray-400 dark:text-gray-500'}`}>
+                  {activeRecalls > 0 ? activeRecalls : '—'}
+                </p>
+                <p className="text-sm text-[var(--subtle)]">
+                  {activeRecalls === 0 ? 'None recorded' : 'Batches flagged under active recall'}
+                </p>
+              </>
+          }
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { icon: ShieldAlert,  label: 'sfda.open_capas',       value: String(capaList.filter(c => c.status === 'open' || c.status === 'overdue').length), cls: 'text-blue-600 dark:text-blue-400',   bg: 'bg-blue-50 dark:bg-blue-900/20'   },
-          { icon: AlertTriangle,label: 'sfda.critical_findings', value: String(capaList.filter(c => c.severity === 'critical').length),                     cls: 'text-red-600 dark:text-red-400',     bg: 'bg-red-50 dark:bg-red-900/20'     },
-          { icon: XCircle,      label: 'sfda.failed_qc',         value: complianceLoading ? '…' : String(qcFailed),   cls: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/20' },
-          { icon: Calendar,     label: 'sfda.last_inspection',   value: complianceLoading ? '…' : lastInspectionLabel, cls: 'text-[var(--muted)]',               bg: 'bg-[var(--bg)]'                   },
-        ].map(({ icon: Icon, label, value, cls, bg }) => (
-          <div key={label} className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-5 flex flex-col gap-3">
-            <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center`}>
-              <Icon size={16} className={cls} />
+      {/* ── 2. Requirement Coverage Matrix ───────────────────────────────────── */}
+      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border)]">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--subtle)]">Requirement Coverage</p>
+          <button onClick={() => setActiveTab('requirements')}
+            className="text-xs text-[var(--muted)] hover:text-[var(--text)] transition-colors">
+            View all
+          </button>
+        </div>
+        <div>
+          {matrixRows.map((pair, rowIdx) => (
+            <div key={rowIdx} className={`grid grid-cols-1 sm:grid-cols-2${rowIdx < matrixRows.length - 1 ? ' border-b border-[var(--border)]' : ''}`}>
+              {pair.filter((r): r is RequirementRow => !!r).map((req, col) => {
+                const dl = reqDisplayLabel(req, t)
+                return (
+                  <button key={req.id}
+                    onClick={() => { setActiveTab('requirements'); setExpandedReq(req.id) }}
+                    className={`flex items-center justify-between gap-3 px-5 py-2.5 hover:bg-[var(--bg)] transition-colors text-start w-full${col === 0 ? ' border-b sm:border-b-0 sm:border-r border-[var(--border)]' : ''}`}>
+                    <span className="text-sm text-[var(--text)] font-medium">{t(`sfda.${req.key}`)}</span>
+                    <span className="inline-flex items-center gap-1.5 shrink-0">
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dl.dotCls}`} />
+                      <span className={`text-xs ${dl.textCls}`}>{dl.label}</span>
+                    </span>
+                  </button>
+                )
+              })}
             </div>
-            <div>
-              <p className={`text-xl font-bold ${cls}`}>{value}</p>
-              <p className="text-xs text-[var(--muted)] mt-0.5">{t(label)}</p>
-            </div>
+          ))}
+        </div>
+        {hasReadiness && (
+          <div className="border-t border-[var(--border)] px-5 py-2.5">
+            <p className="text-[13px] text-[var(--muted)]">
+              Downstream customer identification coverage: {recallStats.coveragePct}% — based on available recorded sales.
+            </p>
           </div>
-        ))}
+        )}
       </div>
 
-      {attention.length > 0 && (
-        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-[var(--border)] flex items-center gap-2">
-            <AlertTriangle size={14} className="text-amber-500" />
-            <h3 className="text-sm font-semibold text-[var(--text)]">Corrective Actions Requiring Attention</h3>
-            <span className="ms-auto text-xs text-[var(--muted)]">{attention.length}</span>
-          </div>
-          <div className="divide-y divide-[var(--border)]">
-            {attention.map(req => (
-              <div key={req.id}
-                className="px-5 py-3 flex items-center justify-between gap-4 hover:bg-[var(--bg)] transition-colors cursor-pointer"
-                onClick={() => { setActiveTab('requirements'); setExpandedReq(req.id) }}>
-                <div className="flex items-center gap-3">
-                  <ChevronRight size={14} className="text-[var(--subtle)] shrink-0" />
-                  <span className="text-sm text-[var(--text)]">{t(`sfda.${req.key}`)}</span>
-                </div>
-                <StatusBadge status={req.status} />
-              </div>
-            ))}
-          </div>
+      {/* ── 3. Requires Attention ────────────────────────────────────────────── */}
+      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl overflow-hidden">
+        <div className="px-5 py-3 border-b border-[var(--border)] flex items-center gap-2">
+          <AlertTriangle size={13} className="text-amber-500 shrink-0" />
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--subtle)]">Requires Attention</p>
+        </div>
+        {attentionItems.length === 0
+          ? <p className="px-5 py-4 text-sm text-[var(--subtle)]">
+              No open actions based on currently connected compliance data.
+            </p>
+          : <div className="divide-y divide-[var(--border)]">
+              {attentionItems.map(item => {
+                const Icon = item.icon
+                const inner = (
+                  <>
+                    <Icon size={15} className={`${item.iconCls} shrink-0`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[15px] font-semibold text-[var(--text)] leading-snug">{item.label}</p>
+                      <p className="text-[13px] text-[var(--muted)] mt-0.5">{item.sub}</p>
+                    </div>
+                    <span className="shrink-0 inline-flex items-center gap-0.5 text-[13px] text-[var(--muted)]">
+                      {item.dest}
+                      <ChevronRight size={12} />
+                    </span>
+                  </>
+                )
+                const rowCls = 'w-full flex items-center gap-3 px-5 py-2.5 hover:bg-[var(--bg)] transition-colors text-start'
+                return item.href
+                  ? <a key={item.key} href={item.href} className={rowCls}>{inner}</a>
+                  : <button key={item.key} onClick={() => item.onClick?.()} className={rowCls}>{inner}</button>
+              })}
+            </div>
+        }
+      </div>
+
+      {/* ── Last QC Inspection strip ─────────────────────────────────────────── */}
+      {!complianceLoading && (
+        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-lg px-4 py-2.5 flex items-center gap-2">
+          <Calendar size={13} className="text-[var(--subtle)] shrink-0" />
+          <span className="text-sm text-[var(--muted)]">
+            {t('sfda.last_inspection')}: <span className="font-medium text-[var(--text)]">{lastInspectionLabel}</span>
+          </span>
         </div>
       )}
+
+      {/* ── Evidence & Audit ─────────────────────────────────────────────────── */}
+      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl overflow-hidden">
+        <div className="px-5 py-3 border-b border-[var(--border)]">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--subtle)]">Evidence & Audit</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-[var(--border)]">
+          {([
+            { tab: 'inspection' as TabId, icon: Archive,       label: 'Compile Inspection Dossier', sub: 'Compile inspection evidence package' },
+            { tab: 'reports'    as TabId, icon: FileText,      label: t('sfda.tab_reports'),        sub: 'Download individual reports'         },
+            { tab: 'audit'      as TabId, icon: ClipboardList, label: t('sfda.tab_audit'),          sub: 'View system activity history'        },
+          ] as const).map(({ tab, icon: Icon, label, sub }) => (
+            <button key={tab}
+              onClick={() => setActiveTab(tab)}
+              className="flex items-start gap-3 px-5 py-4 hover:bg-[var(--bg)] transition-colors text-start w-full">
+              <div className="w-8 h-8 rounded-lg bg-[var(--bg)] border border-[var(--border)] flex items-center justify-center shrink-0 mt-0.5">
+                <Icon size={14} className="text-[var(--muted)]" />
+              </div>
+              <div>
+                <p className="text-[15px] font-semibold text-[var(--text)]">{label}</p>
+                <p className="text-[13px] text-[var(--muted)] mt-0.5">{sub}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
     </div>
   )
 }
@@ -399,6 +551,7 @@ function TabRequirements({ liveRequirements, expandedReq, setExpandedReq }: TabR
             {liveRequirements.map((req) => {
               const description = REQ_DESCRIPTIONS[req.id]
               const isExpanded  = expandedReq === req.id
+              const dl          = reqDisplayLabel(req, t)
               return (
                 <>
                   <tr
@@ -409,7 +562,12 @@ function TabRequirements({ liveRequirements, expandedReq, setExpandedReq }: TabR
                     <td className="px-3 py-1.5 font-medium text-[var(--text)]">{t(`sfda.${req.key}`)}</td>
                     <td className="px-3 py-1.5 font-mono text-xs text-[var(--muted)]">{req.evidence}</td>
                     <td className="px-3 py-1.5 text-[var(--text)]">{req.records.toLocaleString()}</td>
-                    <td className="px-3 py-1.5"><StatusBadge status={req.status} /></td>
+                    <td className="px-3 py-1.5">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${dl.dotCls}`} />
+                        <span className={`text-xs font-medium ${dl.textCls}`}>{dl.label}</span>
+                      </span>
+                    </td>
                     <td className="px-3 py-1.5 text-[var(--muted)]">{req.updated ? fmtDate(req.updated, lang) : '—'}</td>
                     <td className="px-3 py-1.5 text-[var(--subtle)]">
                       {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -471,7 +629,7 @@ function TabInspection({ complianceData, recallStats, capaList, auditLog, genera
             <div>
               <h2 className="text-base font-semibold text-[var(--text)]">Compile Inspection Dossier</h2>
               <p className="text-sm text-[var(--muted)] mt-0.5">
-                Compile all GMP compliance records into an SFDA-ready inspection dossier.
+                Compile GMP compliance records into an inspection evidence dossier for internal audit readiness.
               </p>
             </div>
           </div>
@@ -721,6 +879,7 @@ function TabCAPA({ capaList, canEditSFDA, setShowCAPAModal }: TabCAPAProps) {
 function TabRecall({ recallStats, recallLoading, simLastRun, simulating, simDone, simResult, riskFactors, onSimulate }: TabRecallProps) {
   const { t } = useT()
   const dash = recallLoading ? '…' : '—'
+  const customersUnknown = !recallLoading && recallStats.affected > 0 && recallStats.customers === 0
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -729,16 +888,21 @@ function TabRecall({ recallStats, recallLoading, simLastRun, simulating, simDone
           <p className="text-xs font-medium text-[var(--muted)] text-center">{t('sfda.recall_score')}</p>
         </div>
         {[
-          { icon: Package,    label: 'sfda.recall_affected',   value: recallLoading ? dash : String(recallStats.affected),   cls: 'text-amber-600 dark:text-amber-400',   bg: 'bg-amber-50 dark:bg-amber-900/20'   },
-          { icon: TrendingUp, label: 'sfda.recall_downstream', value: recallLoading ? dash : String(recallStats.downstream), cls: 'text-blue-600 dark:text-blue-400',     bg: 'bg-blue-50 dark:bg-blue-900/20'     },
-          { icon: Users,      label: 'sfda.recall_customers',  value: recallLoading ? dash : String(recallStats.customers),  cls: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-50 dark:bg-violet-900/20' },
-        ].map(({ icon: Icon, label, value, cls, bg }) => (
+          { icon: Package,    label: 'sfda.recall_affected',   value: recallLoading ? dash : String(recallStats.affected),   cls: 'text-amber-600 dark:text-amber-400',   bg: 'bg-amber-50 dark:bg-amber-900/20',  sub: undefined },
+          { icon: TrendingUp, label: 'sfda.recall_downstream', value: recallLoading ? dash : String(recallStats.downstream), cls: 'text-blue-600 dark:text-blue-400',     bg: 'bg-blue-50 dark:bg-blue-900/20',    sub: undefined },
+          { icon: Users,      label: 'sfda.recall_customers',
+            value: recallLoading ? dash : customersUnknown ? 'Unknown' : String(recallStats.customers),
+            cls:   customersUnknown ? 'text-gray-400 dark:text-gray-500' : 'text-violet-600 dark:text-violet-400',
+            bg:    customersUnknown ? 'bg-gray-50 dark:bg-gray-800/30'   : 'bg-violet-50 dark:bg-violet-900/20',
+            sub:   customersUnknown ? t('sfda.recall_customers_note') : undefined },
+        ].map(({ icon: Icon, label, value, cls, bg, sub }) => (
           <div key={label} className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-5 flex flex-col gap-3">
             <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center`}>
               <Icon size={16} className={cls} />
             </div>
             <p className={`text-2xl font-bold ${cls}`}>{value}</p>
             <p className="text-xs text-[var(--muted)] -mt-2">{t(label)}</p>
+            {sub && <p className="text-xs text-[var(--subtle)] -mt-2">{sub}</p>}
           </div>
         ))}
       </div>
@@ -748,6 +912,7 @@ function TabRecall({ recallStats, recallLoading, simLastRun, simulating, simDone
           <div>
             <h3 className="text-sm font-semibold text-[var(--text)]">Recall Simulation</h3>
             <p className="text-xs text-[var(--muted)] mt-1">Last run: {simLastRun}</p>
+            <p className="text-xs text-[var(--subtle)] mt-0.5">This simulation is calculated locally and does not modify recall records.</p>
           </div>
           <button onClick={onSimulate} disabled={simulating}
             className="flex items-center gap-2 rounded-lg bg-[#3a6f8f] hover:bg-[#2e5a75] text-white px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60 shrink-0">
@@ -784,10 +949,12 @@ function TabRecall({ recallStats, recallLoading, simLastRun, simulating, simDone
           {riskFactors.length === 0
             ? <p className="text-sm text-[var(--muted)]">No risk factors recorded.</p>
             : riskFactors.map(item => (
-                <div key={item.label} className="flex items-center gap-3">
-                  <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${item.dot}`} />
-                  <span className="text-sm text-[var(--text)]">{item.label}</span>
-                  <span className="ms-auto text-xs text-[var(--muted)]">{item.level}</span>
+                <div key={item.label} className="grid grid-cols-[1fr_max-content] items-center gap-x-4 max-w-md">
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${item.dot}`} />
+                    <span className="text-sm text-[var(--text)]">{item.label}</span>
+                  </div>
+                  <span className="text-xs font-medium text-[var(--muted)]">{item.level}</span>
                 </div>
               ))
           }
@@ -1006,6 +1173,7 @@ export default function SFDAClient() {
         if (QI_RISK[t] && !seen.has(t)) { seen.add(t); acc.push(QI_RISK[t]) }
         return acc
       }, [])
+      factors.sort((a, b) => (a.level === 'High' ? 0 : 1) - (b.level === 'High' ? 0 : 1))
       setRecallStats({ affected, downstream, customers, score, coveragePct })
       setRiskFactors(factors)
       setRecallLoading(false)
@@ -1019,7 +1187,7 @@ export default function SFDAClient() {
     void Promise.all([
       supabase.from('quality_inspections').select('id', { count: 'exact', head: true }).eq('company_id', companyId),
       supabase.from('quality_inspections').select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('status', 'passed'),
-      supabase.from('quality_inspections').select('created_at').eq('company_id', companyId).order('created_at', { ascending: false }).limit(1),
+      supabase.from('quality_inspections').select('inspection_date, created_at').eq('company_id', companyId).order('created_at', { ascending: false }).limit(1),
       supabase.from('production_orders').select('id',  { count: 'exact', head: true }).eq('company_id', companyId),
       supabase.from('activity_logs').select('id',      { count: 'exact', head: true }).eq('company_id', companyId),
     ]).then(([{ count: qcTotal }, { count: qcPassed }, { data: qcLatest }, { count: batchCount }, { count: auditCount }]) => {
@@ -1027,7 +1195,9 @@ export default function SFDAClient() {
         qcTotal:    qcTotal    ?? 0,
         qcPassed:   qcPassed   ?? 0,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        qcLastDate: (qcLatest as any)?.[0]?.created_at?.split('T')[0] ?? null,
+        qcLastDate: (qcLatest as any)?.[0]?.inspection_date
+          ?? (qcLatest as any)?.[0]?.created_at?.split('T')[0]
+          ?? null,
         batchCount: batchCount ?? 0,
         auditCount: auditCount ?? 0,
       })
@@ -1045,7 +1215,17 @@ export default function SFDAClient() {
     { id: 'gmp',   key: 'req_gmp',   evidence: '—',                                              records: 0,                         status: 'pending',                                                                                                updated: null },
     { id: 'batch', key: 'req_batch', evidence: complianceData.batchCount > 0 ? 'PROD-TRACE-LOGS' : '—', records: complianceData.batchCount, status: complianceData.batchCount > 0 ? 'compliant' : 'pending',                                          updated: null },
     { id: 'ncr',   key: 'req_ncr',   evidence: '—',                                              records: 0,                         status: 'pending',                                                                                                updated: null },
-    { id: 'capa',  key: 'req_capa',  evidence: '—',                                              records: capaList.length,           status: capaList.length > 0 ? 'partial' : 'pending',                                                              updated: null },
+    { id: 'capa',  key: 'req_capa',  evidence: '—',
+      records: capaList.length,
+      status: (() => {
+        if (capaList.length === 0) return 'pending' as ComplianceStatus
+        if (capaList.some(c => c.status === 'overdue') ||
+            capaList.some(c => c.severity === 'critical' && c.status !== 'closed'))
+          return 'partial' as ComplianceStatus
+        if (capaList.every(c => c.status === 'closed')) return 'compliant' as ComplianceStatus
+        return 'pending' as ComplianceStatus
+      })(),
+      updated: null },
     { id: 'qc',    key: 'req_qc',    evidence: complianceData.qcTotal > 0 ? 'QC-INSP-DATA' : '—', records: complianceData.qcTotal,   status: complianceData.qcTotal === 0 ? 'pending' : qcPassRate >= 95 ? 'compliant' : qcPassRate >= 80 ? 'partial' : 'non_compliant', updated: complianceData.qcLastDate },
     { id: 'equip', key: 'req_equip', evidence: '—',                                              records: 0,                         status: 'pending',                                                                                                updated: null },
     { id: 'audit', key: 'req_audit', evidence: complianceData.auditCount > 0 ? 'SYS-AUDIT-LOG' : '—', records: complianceData.auditCount, status: complianceData.auditCount > 0 ? 'compliant' : 'pending',                                           updated: null },
@@ -1212,21 +1392,9 @@ export default function SFDAClient() {
   }
 
   async function handleSimulate() {
-    if (!companyId) { toast.error('Company profile not loaded — please refresh'); return }
     setSimulating(true); setSimDone(false)
-    const batchId = `SIM-${Date.now().toString(36).toUpperCase()}`
 
-    const { error: evErr } = await supabase.from('batch_events').insert([
-      { company_id: companyId, batch_id: batchId, event_type: 'simulation_start',        description: 'Recall simulation drill — batch identification initiated' },
-      { company_id: companyId, batch_id: batchId, event_type: 'simulation_notification', description: 'Simulated SFDA customer notification dispatched within 2 hours' },
-      { company_id: companyId, batch_id: batchId, event_type: 'simulation_coverage',     description: 'Full downstream coverage confirmed — 100 % of affected batches identified' },
-    ])
-    const { error: rabErr } = await supabase.from('recall_affected_batches').insert([
-      { company_id: companyId, batch_id: batchId, recall_reason: 'Automated recall simulation drill — not a live event', status: 'simulation', customers_affected: 0 },
-    ])
-
-    if (evErr)  console.error('[batch_events insert]', evErr.message)
-    if (rabErr) console.error('[recall_affected_batches insert]', rabErr.message)
+    await new Promise<void>(resolve => setTimeout(resolve, 900))
 
     setSimulating(false); setSimDone(true)
     setSimLastRun(nowSA())
