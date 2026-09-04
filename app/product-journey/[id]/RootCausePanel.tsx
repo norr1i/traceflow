@@ -86,30 +86,6 @@ function isTestRecord(title: string): boolean {
     (t.startsWith('test ') && t.length < 30)
 }
 
-// Demo fallback for supplier name when the DB field is null.
-function deriveDemoSupplierRca(materialName: string): string {
-  const n = materialName.toLowerCase()
-  if (n.includes('steel') || n.includes('metal') || n.includes('iron'))      return 'Gulf Steel Trading Co.'
-  if (n.includes('alum'))                                                     return 'Emirates Aluminum LLC'
-  if (n.includes('plastic') || n.includes('poly') || n.includes('resin'))    return 'Riyadh Polymers Ltd.'
-  if (n.includes('glass'))                                                    return 'Saudi Glass Industries'
-  if (n.includes('copper') || n.includes('wire'))                            return 'Arabian Copper Works'
-  if (n.includes('silicone') || n.includes('rubber') || n.includes('seal'))  return 'Gulf Elastomers Co.'
-  if (n.includes('chemical') || n.includes('acid') || n.includes('solvent')) return 'SABIC Supply Chain'
-  if (n.includes('oil') || n.includes('lubric'))                             return 'Petromin Arabia'
-  if (n.includes('carbon') || n.includes('composite'))                       return 'Advanced Composites KSA'
-  return 'Authorized Supplier Co.'
-}
-
-// Demo fallback for lot number when the DB field is null.
-function deriveDemoLotRca(mat: RcaMaterial): string {
-  if (mat.lot_number) return mat.lot_number
-  const year = mat.lot_received_at
-    ? new Date(mat.lot_received_at).getFullYear()
-    : new Date().getFullYear()
-  const tag = mat.bom_id.slice(0, 4).toUpperCase()
-  return `LOT-${year}-${tag}`
-}
 
 const LOT_STATUS_BADGE: Record<string, string> = {
   available:   'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
@@ -153,7 +129,7 @@ function buildChain(data: RcaData): ChainNode[] {
 
   if (primaryMat) {
     const isSuspect = primaryMat.lot_status === 'quarantine' || primaryMat.lot_status === 'rejected'
-    const lotLabel  = deriveDemoLotRca(primaryMat)
+    const lotLabel  = primaryMat.lot_number ?? '—'
     chain.push({
       id:       'material',
       icon:     <Layers size={14} />,
@@ -510,7 +486,7 @@ export default function RootCausePanel({ batchId }: { batchId: string }) {
                               }
                             >
                               <td className="px-3 py-2 font-medium text-gray-800 dark:text-gray-200">{mat.material_name}</td>
-                              <td className="px-3 py-2 font-mono text-gray-500 dark:text-gray-400">{deriveDemoLotRca(mat)}</td>
+                              <td className="px-3 py-2 font-mono text-gray-500 dark:text-gray-400">{mat.lot_number ?? '—'}</td>
                               <td className="px-3 py-2 tabular-nums text-gray-600 dark:text-gray-300">
                                 {mat.quantity.toLocaleString()} {mat.unit}
                               </td>
@@ -525,7 +501,7 @@ export default function RootCausePanel({ batchId }: { batchId: string }) {
                                 })()}
                               </td>
                               <td className="px-3 py-2 text-gray-600 dark:text-gray-300">
-                                {mat.supplier_name ?? deriveDemoSupplierRca(mat.material_name)}
+                                {mat.supplier_name ?? '—'}
                               </td>
                             </tr>
                           ))}

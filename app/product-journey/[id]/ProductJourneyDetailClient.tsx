@@ -194,8 +194,8 @@ function groupMaterialEvents(events: JourneyEvent[]): JourneyEvent[] {
 }
 
 // Synthesise one supplier.qualified event per unique supplier found in BOM data.
-// Falls back to a generic event when raw_material_lot_id is NULL (all existing data),
-// which means supplier_name is always null via the lot→supplier join.
+// When raw_material_lot_id is NULL the lot→supplier join yields no supplier_name.
+// Rows with a formal lot link populate supplier_name through the join.
 function synthesizeSupplierEvents(materials: EnrichedMaterial[]): JourneyEvent[] {
   const bySupplier = new Map<string, number>()
   for (const m of materials) {
@@ -1273,36 +1273,6 @@ function BatchHeader({ order, qcResults, materials, shipmentCount, recalls }: {
 
 // ── Materials used ────────────────────────────────────────────────────────────
 
-// Demo fallback helpers — provide realistic display values when the DB fields are null.
-// These are only used for presentation; they never mutate or infer real business data.
-function deriveDemoSupplier(materialName: string): string {
-  const n = materialName.toLowerCase()
-  if (n.includes('steel') || n.includes('metal') || n.includes('iron'))     return 'Gulf Steel Trading Co.'
-  if (n.includes('alum'))                                                    return 'Emirates Aluminum LLC'
-  if (n.includes('plastic') || n.includes('poly') || n.includes('resin'))   return 'Riyadh Polymers Ltd.'
-  if (n.includes('glass'))                                                   return 'Saudi Glass Industries'
-  if (n.includes('copper') || n.includes('wire') || n.includes('cable'))    return 'Arabian Copper Works'
-  if (n.includes('silicone') || n.includes('rubber') || n.includes('seal')) return 'Gulf Elastomers Co.'
-  if (n.includes('chemical') || n.includes('acid') || n.includes('solvent'))return 'SABIC Supply Chain'
-  if (n.includes('oil') || n.includes('lubric') || n.includes('fluid'))     return 'Petromin Arabia'
-  if (n.includes('fabric') || n.includes('textile') || n.includes('foam'))  return 'National Textiles KSA'
-  if (n.includes('paper') || n.includes('card') || n.includes('packag'))    return 'Riyadh Paper & Print'
-  if (n.includes('carbon') || n.includes('composite'))                      return 'Advanced Composites KSA'
-  if (n.includes('adhesive') || n.includes('glue') || n.includes('bond'))   return 'Sealmaster Gulf'
-  return 'Authorized Supplier Co.'
-}
-
-function deriveDemoLot(m: EnrichedMaterial): string {
-  if (m.lot_number) return m.lot_number
-  if (m.bom_created_at) {
-    const d   = new Date(m.bom_created_at)
-    const yr  = d.getFullYear()
-    const mo  = String(d.getMonth() + 1).padStart(2, '0')
-    const tag = m.id.slice(0, 4).toUpperCase()
-    return `LOT-${yr}-${mo}-${tag}`
-  }
-  return '—'
-}
 
 const LOT_STATUS_LABEL: Record<string, string> = {
   received:    'Received',
@@ -1333,8 +1303,8 @@ function MaterialsUsed({ materials, compact = false }: { materials: EnrichedMate
           </thead>
           <tbody>
             {materials.map((m, i) => {
-              const lotDisplay      = deriveDemoLot(m)
-              const supplierDisplay = m.supplier_name ?? deriveDemoSupplier(m.material_name)
+              const lotDisplay      = m.lot_number ?? '—'
+              const supplierDisplay = m.supplier_name ?? '—'
               const receivedIso     = m.received_at ?? m.bom_created_at
               const receivedDisplay = receivedIso ? fmtDate(receivedIso) : '—'
               const rawStatus       = (m.lot_status ?? 'consumed').toLowerCase()
@@ -2171,9 +2141,7 @@ function InlineRcaBlock({ batchId, showMaterialTrace = false }: { batchId: strin
                 {data.material_trace.map(mat => {
                   const s = mat.lot_status ?? 'consumed'
                   const isSuspect = s === 'quarantine' || s === 'quarantined' || s === 'rejected'
-                  const lot = mat.lot_number ?? (mat.lot_received_at
-                    ? `LOT-${new Date(mat.lot_received_at).getFullYear()}-${mat.bom_id.slice(0, 4).toUpperCase()}`
-                    : '—')
+                  const lot = mat.lot_number ?? '—'
                   return (
                     <tr key={mat.bom_id} className={isSuspect ? 'bg-red-500/[0.03]' : ''}>
                       <td className={`px-2.5 py-2 font-medium truncate max-w-[120px] ${isSuspect ? 'text-red-600 dark:text-red-400' : 'text-[var(--text)]'}`}>
@@ -2186,7 +2154,7 @@ function InlineRcaBlock({ batchId, showMaterialTrace = false }: { batchId: strin
                         </span>
                       </td>
                       <td className="px-2.5 py-2 text-[var(--subtle)] truncate max-w-[120px]">
-                        {mat.supplier_name ?? deriveDemoSupplier(mat.material_name)}
+                        {mat.supplier_name ?? '—'}
                       </td>
                     </tr>
                   )
@@ -2252,8 +2220,8 @@ function EventEvidence({
           Raw Materials · {materials.length} {materials.length === 1 ? 'material' : 'materials'}
         </p>
         {materials.map((m, i) => {
-          const lot       = deriveDemoLot(m)
-          const supplier  = m.supplier_name ?? deriveDemoSupplier(m.material_name)
+          const lot       = m.lot_number ?? '—'
+          const supplier  = m.supplier_name ?? '—'
           const rawStatus = (m.lot_status ?? 'consumed').toLowerCase()
           const lbl       = LOT_STATUS_LABEL[rawStatus] ?? 'Consumed'
           const sCls      = rawStatus === 'quarantined' || rawStatus === 'quarantine' || rawStatus === 'rejected'
@@ -2434,8 +2402,8 @@ function EventEvidence({
               Material Trace · {materials.length} {materials.length === 1 ? 'material' : 'materials'}
             </p>
             {materials.map((m, i) => {
-              const lot      = deriveDemoLot(m)
-              const supplier = m.supplier_name ?? deriveDemoSupplier(m.material_name)
+              const lot      = m.lot_number ?? '—'
+              const supplier = m.supplier_name ?? '—'
               const rs       = (m.lot_status ?? 'consumed').toLowerCase()
               const suspect  = rs === 'quarantined' || rs === 'quarantine' || rs === 'rejected'
               return (
