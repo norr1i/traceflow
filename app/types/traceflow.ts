@@ -53,6 +53,7 @@ export type BomEntry = {
   production_order_id: string
   material_name: string
   lot_number?: string | null
+  raw_material_lot_id?: string | null
   quantity: number
   unit: string
   created_at: string

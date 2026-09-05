@@ -27,9 +27,20 @@ type SimpleProduct    = { id: string; name: string }
 type SortColProd     = 'urgency' | 'order_number' | 'quantity' | 'due_date'
 type StatusFilter    = 'all' | ProductionOrder['status']
 
+type BomRawMat = { id: string; name: string; unit: string; suppliers: { name: string } | { name: string }[] | null }
+type BomLot = {
+  id: string
+  lot_number: string
+  status: string
+  quantity: number | null
+  unit: string | null
+  received_at: string | null
+  suppliers: { name: string } | { name: string }[] | null
+}
+
 const emptyOrder = { product_id: '', quantity: 1, status: 'pending' as ProductionOrder['status'], due_date: '' }
 const statuses: ProductionOrder['status'][] = ['pending', 'in_progress', 'completed', 'cancelled']
-const emptyBom = { material_name: '', lot_number: '', quantity: '', unit: '' }
+const emptyBom = { quantity: '', unit: '' }
 
 type QcStatus = 'pass' | 'fail' | 'hold'
 const qcStatusConfig: Record<QcStatus, string> = {
@@ -210,6 +221,12 @@ export default function ProductionClient() {
   const [bomLoading, setBomLoading]         = useState(false)
   const [bomSaving, setBomSaving]           = useState(false)
   const [bomForm, setBomForm]               = useState(emptyBom)
+  const [rawMats,        setRawMats]        = useState<BomRawMat[]>([])
+  const [rawMatsLoading, setRawMatsLoading] = useState(false)
+  const [selectedRawMat, setSelectedRawMat] = useState<BomRawMat | null>(null)
+  const [availableLots,  setAvailableLots]  = useState<BomLot[]>([])
+  const [lotsLoading,    setLotsLoading]    = useState(false)
+  const [selectedLot,    setSelectedLot]    = useState<BomLot | null>(null)
 
   const [qcOrder,   setQcOrder]   = useState<OrderWithProduct | null>(null)
   const [qcEntries, setQcEntries] = useState<BatchQcResult[]>([])
@@ -254,6 +271,44 @@ export default function ProductionClient() {
       .order('created_at', { ascending: true })
       .then(({ data }) => { setBomEntries(data ?? []); setBomLoading(false) })
   }, [materialsOrder])
+
+  useEffect(() => {
+    if (!materialsOrder || !companyId) { setRawMats([]); return }
+    let cancelled = false
+    setRawMatsLoading(true)
+    supabase
+      .from('raw_materials')
+      .select('id, name, unit, supplier_id, suppliers(name)')
+      .eq('company_id', companyId)
+      .order('name', { ascending: true })
+      .then(({ data }) => {
+        if (cancelled) return
+        setRawMats((data ?? []) as BomRawMat[])
+        setRawMatsLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [materialsOrder, companyId])
+
+  useEffect(() => {
+    setSelectedLot(null)
+    setAvailableLots([])
+    if (!selectedRawMat || !companyId) return
+    let cancelled = false
+    setLotsLoading(true)
+    supabase
+      .from('raw_material_lots')
+      .select('id, lot_number, status, quantity, unit, received_at, suppliers(name)')
+      .eq('company_id', companyId)
+      .eq('raw_material_id', selectedRawMat.id)
+      .eq('status', 'available')
+      .order('received_at', { ascending: false })
+      .then(({ data }) => {
+        if (cancelled) return
+        setAvailableLots((data ?? []) as BomLot[])
+        setLotsLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [selectedRawMat, companyId])
 
   useEffect(() => {
     if (!qcOrder) return
@@ -430,22 +485,27 @@ export default function ProductionClient() {
 
   async function addMaterial(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
-    if (!materialsOrder) return
+    if (!materialsOrder || !selectedRawMat || !selectedLot) return
+    const qty = Number(bomForm.quantity)
+    if (!qty || qty <= 0) { toast.error('Enter a valid quantity'); return }
+    if (!bomForm.unit.trim()) { toast.error('Enter a unit'); return }
     setBomSaving(true)
     const { data, error: err } = await supabase
       .from('bill_of_materials')
       .insert([{
         production_order_id: materialsOrder.id,
-        material_name: bomForm.material_name.trim(),
-        lot_number: bomForm.lot_number.trim() || null,
-        quantity: Number(bomForm.quantity),
-        unit: bomForm.unit.trim(),
+        material_name:       selectedRawMat.name,
+        lot_number:          selectedLot.lot_number,
+        raw_material_lot_id: selectedLot.id,
+        quantity:            Number(bomForm.quantity),
+        unit:                bomForm.unit.trim(),
       }])
       .select('*').single()
     setBomSaving(false)
     if (err) { toast.error(err.message); return }
     setBomEntries((prev) => [...prev, data as BomEntry])
     setBomForm(emptyBom)
+    setSelectedLot(null)
     toast.success(t('production.material_added'))
   }
 
@@ -503,6 +563,25 @@ export default function ProductionClient() {
 
   // Suppress unused-var warning — handleDelete is kept but not exposed in UI per product decision
   void handleDelete
+
+  const _rawMatNameCounts = new Map<string, number>()
+  rawMats.forEach((m) => _rawMatNameCounts.set(m.name, (_rawMatNameCounts.get(m.name) ?? 0) + 1))
+  const _rawMatBaseLabelCounts = new Map<string, number>()
+  rawMats.forEach((m) => {
+    if ((_rawMatNameCounts.get(m.name) ?? 0) > 1) {
+      const sup = m.suppliers
+      const sn = !sup ? '—' : Array.isArray(sup) ? (sup.length > 0 ? (sup as { name: string }[])[0].name : '—') : sup.name
+      const base = `${m.name} · ${sn}`
+      _rawMatBaseLabelCounts.set(base, (_rawMatBaseLabelCounts.get(base) ?? 0) + 1)
+    }
+  })
+  const rawMatLabel = (m: BomRawMat): string => {
+    if ((_rawMatNameCounts.get(m.name) ?? 0) <= 1) return m.name
+    const sup = m.suppliers
+    const sn = !sup ? '—' : Array.isArray(sup) ? (sup.length > 0 ? (sup as { name: string }[])[0].name : '—') : sup.name
+    const base = `${m.name} · ${sn}`
+    return (_rawMatBaseLabelCounts.get(base) ?? 0) > 1 ? `${base} · Ref ${m.id.slice(0, 8)}` : base
+  }
 
   return (
     <>
@@ -729,7 +808,7 @@ export default function ProductionClient() {
                 <h2 className="text-base font-semibold text-gray-900 dark:text-white">{t('production.bom_title')}</h2>
                 <p className="mt-0.5 text-xs text-gray-400">{materialsOrder.products?.name} · {new Date(materialsOrder.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</p>
               </div>
-              <button onClick={() => { setMaterialsOrder(null); setBomEntries([]) }} className="ml-4 mt-0.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+              <button onClick={() => { setMaterialsOrder(null); setBomEntries([]); setSelectedRawMat(null); setSelectedLot(null); setAvailableLots([]); setRawMats([]); setBomForm(emptyBom) }} className="ml-4 mt-0.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
                 <X size={20} />
               </button>
             </div>
@@ -779,13 +858,61 @@ export default function ProductionClient() {
             <div className="border-t border-gray-100 dark:border-[#B3B7BA]/[0.10] px-6 py-4">
               <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-400">{t('production.add_material')}</p>
               <form onSubmit={addMaterial} className="space-y-2">
-                <input required placeholder={t('production.material_name')} value={bomForm.material_name}
-                  onChange={(e) => setBomForm({ ...bomForm, material_name: e.target.value })}
-                  className="w-full rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC] dark:bg-[#262E36]/55 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]" />
+                {rawMatsLoading ? (
+                  <div className="h-9 animate-pulse rounded-lg bg-gray-100 dark:bg-[#262E36]/55" />
+                ) : (
+                  <select
+                    required
+                    value={selectedRawMat?.id ?? ''}
+                    onChange={(e) => {
+                      const mat = rawMats.find((m) => m.id === e.target.value) ?? null
+                      setSelectedRawMat(mat)
+                      setBomForm((f) => ({ ...f, unit: mat?.unit ?? '' }))
+                    }}
+                    className="w-full rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC] dark:bg-[#262E36]/55 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]"
+                  >
+                    <option value="">Select raw material…</option>
+                    {rawMats.map((m) => <option key={m.id} value={m.id}>{rawMatLabel(m)}</option>)}
+                  </select>
+                )}
+                {lotsLoading ? (
+                  <div className="h-9 animate-pulse rounded-lg bg-gray-100 dark:bg-[#262E36]/55" />
+                ) : (
+                  <select
+                    required
+                    disabled={!selectedRawMat}
+                    value={selectedLot?.id ?? ''}
+                    onChange={(e) => {
+                      setSelectedLot(availableLots.find((l) => l.id === e.target.value) ?? null)
+                    }}
+                    className="w-full rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC] dark:bg-[#262E36]/55 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#4a7fa5] disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {!selectedRawMat ? (
+                      <option value="">Select a material first</option>
+                    ) : availableLots.length === 0 ? (
+                      <option value="">No available lots for this material</option>
+                    ) : (
+                      <>
+                        <option value="">Select a lot…</option>
+                        {availableLots.map((lot) => {
+                          const sup = lot.suppliers
+                          const supplierName = !sup ? '—'
+                            : Array.isArray(sup) ? (sup.length > 0 ? (sup as { name: string }[])[0].name : '—')
+                            : sup.name
+                          const received = lot.received_at
+                            ? new Date(lot.received_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+                            : null
+                          return (
+                            <option key={lot.id} value={lot.id}>
+                              {lot.lot_number} · {supplierName} · {lot.status}{received ? ` · received ${received}` : ''}
+                            </option>
+                          )
+                        })}
+                      </>
+                    )}
+                  </select>
+                )}
                 <div className="flex gap-2">
-                  <input placeholder={t('production.lot_optional')} value={bomForm.lot_number}
-                    onChange={(e) => setBomForm({ ...bomForm, lot_number: e.target.value })}
-                    className="flex-1 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC] dark:bg-[#262E36]/55 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]" />
                   <input required type="number" min="0.001" step="any" placeholder={t('production.qty_placeholder')} value={bomForm.quantity}
                     onChange={(e) => setBomForm({ ...bomForm, quantity: e.target.value })}
                     className="w-24 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC] dark:bg-[#262E36]/55 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]" />
@@ -797,7 +924,7 @@ export default function ProductionClient() {
                   </datalist>
                 </div>
                 <div className="flex justify-end">
-                  <button type="submit" disabled={bomSaving}
+                  <button type="submit" disabled={bomSaving || !selectedRawMat || !selectedLot}
                     className="flex items-center gap-2 rounded-lg bg-[#3a6f8f] px-4 py-2 text-sm font-medium text-white hover:bg-[#2d5a74] disabled:opacity-60 transition-colors">
                     <Plus size={14} /> {bomSaving ? t('production.adding') : t('production.add_material')}
                   </button>
