@@ -37,10 +37,12 @@ type BomLot = {
   received_at: string | null
   suppliers: { name: string } | { name: string }[] | null
 }
+type BomSupplier = { id: string; name: string }
 
 const emptyOrder = { product_id: '', quantity: 1, status: 'pending' as ProductionOrder['status'], due_date: '' }
 const statuses: ProductionOrder['status'][] = ['pending', 'in_progress', 'completed', 'cancelled']
 const emptyBom = { quantity: '', unit: '' }
+const emptyCreateLot = { lot_number: '', supplier_id: '', quantity: '', unit: '', received_at: '' }
 
 type QcStatus = 'pass' | 'fail' | 'hold'
 const qcStatusConfig: Record<QcStatus, string> = {
@@ -215,6 +217,8 @@ export default function ProductionClient() {
   const [qrOrder,    setQrOrder]    = useState<OrderWithProduct | null>(null)
   const [labelSize,  setLabelSize]  = useState<LabelSize>('standard')
   const qrDlRef                     = useRef<HTMLDivElement>(null)
+  const currentSelectedRawMatIdRef  = useRef<string | null>(null)
+  const currentMaterialsOrderIdRef  = useRef<string | null>(null)
 
   const [materialsOrder, setMaterialsOrder] = useState<OrderWithProduct | null>(null)
   const [bomEntries, setBomEntries]         = useState<BomEntry[]>([])
@@ -227,6 +231,13 @@ export default function ProductionClient() {
   const [availableLots,  setAvailableLots]  = useState<BomLot[]>([])
   const [lotsLoading,    setLotsLoading]    = useState(false)
   const [selectedLot,    setSelectedLot]    = useState<BomLot | null>(null)
+
+  const [showCreateLot,    setShowCreateLot]    = useState(false)
+  const [createLotSaving,  setCreateLotSaving]  = useState(false)
+  const [createLotForm,    setCreateLotForm]    = useState(emptyCreateLot)
+  const [suppliers,        setSuppliers]        = useState<BomSupplier[]>([])
+  const [suppliersLoading, setSuppliersLoading] = useState(false)
+  const [createLotMatId,   setCreateLotMatId]   = useState<string | null>(null)
 
   const [qcOrder,   setQcOrder]   = useState<OrderWithProduct | null>(null)
   const [qcEntries, setQcEntries] = useState<BatchQcResult[]>([])
@@ -309,6 +320,35 @@ export default function ProductionClient() {
       })
     return () => { cancelled = true }
   }, [selectedRawMat, companyId])
+
+  useEffect(() => {
+    if (!showCreateLot || !companyId) { setSuppliers([]); setSuppliersLoading(false); return }
+    let cancelled = false
+    setSuppliersLoading(true)
+    supabase
+      .from('suppliers')
+      .select('id, name')
+      .eq('company_id', companyId)
+      .order('name', { ascending: true })
+      .then(({ data }) => {
+        if (cancelled) return
+        setSuppliers((data ?? []) as BomSupplier[])
+        setSuppliersLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [showCreateLot, companyId])
+
+  useEffect(() => {
+    if (!showCreateLot || !createLotMatId) return
+    if ((selectedRawMat?.id ?? null) !== createLotMatId) {
+      setShowCreateLot(false)
+      setCreateLotForm(emptyCreateLot)
+      setCreateLotMatId(null)
+    }
+  }, [showCreateLot, createLotMatId, selectedRawMat?.id])
+
+  useEffect(() => { currentSelectedRawMatIdRef.current = selectedRawMat?.id ?? null }, [selectedRawMat])
+  useEffect(() => { currentMaterialsOrderIdRef.current  = materialsOrder?.id  ?? null }, [materialsOrder])
 
   useEffect(() => {
     if (!qcOrder) return
@@ -517,6 +557,67 @@ export default function ProductionClient() {
       actionType: 'bill_of_materials.deleted', entityType: 'bill_of_materials', entityId: id,
       message: `${actorName(user?.email)} deleted a bill of materials entry`,
     }).catch(err => console.error('[logActivity] bill_of_materials.deleted failed:', err))
+  }
+
+  async function createLot() {
+    if (!materialsOrder || !selectedRawMat || !companyId || !createLotMatId) return
+    if (selectedRawMat.id !== createLotMatId) return
+    if (!createLotForm.lot_number.trim())  { toast.error('Enter a lot number'); return }
+    const qty = Number(createLotForm.quantity)
+    if (!qty || qty <= 0)                  { toast.error('Enter a valid quantity'); return }
+    if (!createLotForm.unit.trim())        { toast.error('Enter a unit'); return }
+    if (!createLotForm.received_at)        { toast.error('Enter a date received'); return }
+    const targetMaterialId = createLotMatId
+    const targetOrderId    = materialsOrder.id
+    const supId            = createLotForm.supplier_id
+    setCreateLotSaving(true)
+    try {
+      const { data, error: err } = await supabase
+        .from('raw_material_lots')
+        .insert([{
+          company_id:      companyId,
+          raw_material_id: createLotMatId,
+          lot_number:      createLotForm.lot_number.trim(),
+          quantity:        qty,
+          unit:            createLotForm.unit.trim(),
+          supplier_id:     supId || null,
+          received_at:     createLotForm.received_at,
+          status:          'available',
+        }])
+        .select('*')
+        .single()
+      if (err) {
+        if (err.code === '23505') {
+          toast.error('A lot with this number already exists for this material')
+        } else {
+          toast.error(err.message)
+        }
+        return
+      }
+      if (
+        currentSelectedRawMatIdRef.current === targetMaterialId &&
+        currentMaterialsOrderIdRef.current  === targetOrderId
+      ) {
+        const supObj = suppliers.find((s) => s.id === supId)
+        const syntheticLot: BomLot = {
+          id:          data.id,
+          lot_number:  data.lot_number,
+          status:      data.status,
+          quantity:    data.quantity,
+          unit:        data.unit,
+          received_at: data.received_at,
+          suppliers:   supObj ? { name: supObj.name } : null,
+        }
+        setAvailableLots((prev) => [syntheticLot, ...prev])
+        setSelectedLot(syntheticLot)
+      }
+      setShowCreateLot(false)
+      setCreateLotForm(emptyCreateLot)
+      setCreateLotMatId(null)
+      toast.success('Lot created')
+    } finally {
+      setCreateLotSaving(false)
+    }
   }
 
   function openQc(o: OrderWithProduct) {
@@ -808,7 +909,7 @@ export default function ProductionClient() {
                 <h2 className="text-base font-semibold text-gray-900 dark:text-white">{t('production.bom_title')}</h2>
                 <p className="mt-0.5 text-xs text-gray-400">{materialsOrder.products?.name} · {new Date(materialsOrder.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</p>
               </div>
-              <button onClick={() => { setMaterialsOrder(null); setBomEntries([]); setSelectedRawMat(null); setSelectedLot(null); setAvailableLots([]); setRawMats([]); setBomForm(emptyBom) }} className="ml-4 mt-0.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+              <button onClick={() => { setMaterialsOrder(null); setBomEntries([]); setSelectedRawMat(null); setSelectedLot(null); setAvailableLots([]); setRawMats([]); setBomForm(emptyBom); setShowCreateLot(false); setCreateLotForm(emptyCreateLot); setCreateLotMatId(null); setSuppliers([]) }} className="ml-4 mt-0.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
                 <X size={20} />
               </button>
             </div>
@@ -912,6 +1013,29 @@ export default function ProductionClient() {
                     )}
                   </select>
                 )}
+                {selectedRawMat && canWrite && (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const d = new Date()
+                        const localDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+                        setCreateLotMatId(selectedRawMat.id)
+                        setCreateLotForm({
+                          lot_number:  '',
+                          supplier_id: '',
+                          quantity:    '',
+                          unit:        selectedRawMat.unit,
+                          received_at: localDate,
+                        })
+                        setShowCreateLot(true)
+                      }}
+                      className="text-xs text-[#4a7fa5] hover:text-[#3a6f8f] dark:text-[#6a9fc5] dark:hover:text-[#5a8fb5] transition-colors"
+                    >
+                      + Create lot
+                    </button>
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <input required type="number" min="0.001" step="any" placeholder={t('production.qty_placeholder')} value={bomForm.quantity}
                     onChange={(e) => setBomForm({ ...bomForm, quantity: e.target.value })}
@@ -930,6 +1054,107 @@ export default function ProductionClient() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Create Lot modal ─────────────────────────────────────────────── */}
+      {showCreateLot && materialsOrder && selectedRawMat && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-white/[0.08] bg-[#F1EFEC] dark:bg-[#141e28] shadow-2xl">
+            <div className="flex items-start justify-between border-b border-gray-100 dark:border-[#B3B7BA]/[0.10] px-6 py-4">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white">Create lot</h2>
+                <p className="mt-0.5 max-w-[220px] truncate text-xs text-gray-400" title={selectedRawMat.name}>{selectedRawMat.name}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setShowCreateLot(false); setCreateLotForm(emptyCreateLot); setCreateLotMatId(null) }}
+                className="ml-4 mt-0.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="space-y-3 px-6 py-4">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Lot number *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. LOT-2026-SS316-0001"
+                  value={createLotForm.lot_number}
+                  onChange={(e) => setCreateLotForm((f) => ({ ...f, lot_number: e.target.value }))}
+                  className="w-full rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC] dark:bg-[#262E36]/55 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Supplier</label>
+                {suppliersLoading ? (
+                  <div className="h-9 animate-pulse rounded-lg bg-gray-100 dark:bg-[#262E36]/55" />
+                ) : (
+                  <select
+                    value={createLotForm.supplier_id}
+                    onChange={(e) => setCreateLotForm((f) => ({ ...f, supplier_id: e.target.value }))}
+                    className="w-full rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC] dark:bg-[#262E36]/55 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]"
+                  >
+                    <option value="">— No supplier</option>
+                    {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Quantity received *</label>
+                  <input
+                    type="number"
+                    min="0.001"
+                    step="any"
+                    placeholder="0"
+                    value={createLotForm.quantity}
+                    onChange={(e) => setCreateLotForm((f) => ({ ...f, quantity: e.target.value }))}
+                    className="w-full rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC] dark:bg-[#262E36]/55 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]"
+                  />
+                </div>
+                <div className="w-24">
+                  <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Unit *</label>
+                  <input
+                    list="create-lot-units"
+                    placeholder="kg"
+                    value={createLotForm.unit}
+                    onChange={(e) => setCreateLotForm((f) => ({ ...f, unit: e.target.value }))}
+                    className="w-full rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC] dark:bg-[#262E36]/55 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]"
+                  />
+                  <datalist id="create-lot-units">
+                    {['kg', 'g', 'mg', 'L', 'mL', 'pcs', 'units', 'm', 'cm', 'mm'].map((u) => <option key={u} value={u} />)}
+                  </datalist>
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Date received *</label>
+                <input
+                  type="date"
+                  value={createLotForm.received_at}
+                  onChange={(e) => setCreateLotForm((f) => ({ ...f, received_at: e.target.value }))}
+                  className="w-full rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#F1EFEC] dark:bg-[#262E36]/55 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-gray-100 dark:border-[#B3B7BA]/[0.10] px-6 py-4">
+              <button
+                type="button"
+                onClick={() => { setShowCreateLot(false); setCreateLotForm(emptyCreateLot); setCreateLotMatId(null) }}
+                className="rounded-lg px-4 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={createLot}
+                disabled={createLotSaving || !createLotForm.lot_number.trim() || !createLotForm.quantity || !createLotForm.unit.trim() || !createLotForm.received_at}
+                className="flex items-center gap-2 rounded-lg bg-[#3a6f8f] px-4 py-2 text-sm font-medium text-white hover:bg-[#2d5a74] disabled:opacity-60 transition-colors"
+              >
+                <Plus size={14} /> {createLotSaving ? 'Creating…' : 'Create lot'}
+              </button>
             </div>
           </div>
         </div>
