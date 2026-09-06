@@ -31,6 +31,7 @@ type AffectedBatch = {
   status:       string
   created_at:   string
   completed_at: string | null
+  match_source?: 'exact_fk' | 'text_match' | null
 }
 
 type AffectedDistributor = {
@@ -53,6 +54,9 @@ type ImpactResult = {
   total_shipments:       number
   risk_level:            'none' | 'low' | 'medium' | 'high' | 'critical'
   has_open_recall:       boolean
+  scope_quality?:        'exact_uuid_lot' | 'batch_exact' | 'text_lot_unambiguous' | 'text_lot_ambiguous' | 'material_scope' | null
+  ambiguity_detected?:   boolean
+  ambiguous_materials?:  string[]
 }
 
 type SearchType = 'lot' | 'material' | 'batch'
@@ -109,6 +113,51 @@ const STATUS_BADGE: Record<string, string> = {
   in_progress: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
   pending:     'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
   cancelled:   'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+}
+
+const SCOPE_CONFIG: Record<NonNullable<ImpactResult['scope_quality']>, {
+  label: string; subtext: string; bg: string; border: string; labelCls: string; subtextCls: string
+}> = {
+  exact_uuid_lot: {
+    label:      'Verified lot link',
+    subtext:    'This analysis uses the recorded lot relationship.',
+    bg:         'bg-emerald-50 dark:bg-emerald-950/15',
+    border:     'border-emerald-200 dark:border-emerald-800/40',
+    labelCls:   'text-emerald-700 dark:text-emerald-400',
+    subtextCls: 'text-emerald-600/80 dark:text-emerald-500/80',
+  },
+  batch_exact: {
+    label:      'Exact batch',
+    subtext:    'This analysis is limited to the selected production batch.',
+    bg:         'bg-gray-50 dark:bg-gray-800/30',
+    border:     'border-gray-200 dark:border-gray-700/50',
+    labelCls:   'text-gray-600 dark:text-gray-400',
+    subtextCls: 'text-gray-500 dark:text-gray-500',
+  },
+  text_lot_unambiguous: {
+    label:      'Lot number match — verification recommended',
+    subtext:    'These results were found using the lot number text. Confirm the lot relationship before using this as a final recall boundary.',
+    bg:         'bg-amber-50 dark:bg-amber-950/15',
+    border:     'border-amber-200 dark:border-amber-700/40',
+    labelCls:   'text-amber-700 dark:text-amber-400',
+    subtextCls: 'text-amber-600/80 dark:text-amber-500/80',
+  },
+  text_lot_ambiguous: {
+    label:      'Lot number matches multiple materials',
+    subtext:    'This lot number appears under more than one material. Review the candidate batches before defining the recall boundary.',
+    bg:         'bg-orange-50 dark:bg-orange-950/15',
+    border:     'border-orange-200 dark:border-orange-700/40',
+    labelCls:   'text-orange-700 dark:text-orange-400',
+    subtextCls: 'text-orange-600/80 dark:text-orange-500/80',
+  },
+  material_scope: {
+    label:      'Material-level analysis',
+    subtext:    'These results cover the material across batches and are not limited to one lot.',
+    bg:         'bg-sky-50 dark:bg-sky-950/15',
+    border:     'border-sky-200 dark:border-sky-700/40',
+    labelCls:   'text-sky-700 dark:text-sky-400',
+    subtextCls: 'text-sky-600/80 dark:text-sky-500/80',
+  },
 }
 
 const SEARCH_OPTIONS: { key: SearchType; label: string; placeholder: string }[] = [
@@ -316,6 +365,43 @@ function Empty({ text }: { text: string }) {
   return <p className="text-sm text-gray-400 dark:text-gray-500 italic">{text}</p>
 }
 
+function ScopeNotice({ result }: { result: ImpactResult }) {
+  const sq = result.scope_quality ?? null
+  if (!sq) return null
+  const cfg = SCOPE_CONFIG[sq]
+
+  const isTextLot = sq === 'text_lot_unambiguous' || sq === 'text_lot_ambiguous'
+  let exactCount = 0
+  let textCount  = 0
+  if (isTextLot) {
+    for (const b of result.affected_batches) {
+      if      (b.match_source === 'exact_fk')  exactCount++
+      else if (b.match_source === 'text_match') textCount++
+    }
+  }
+
+  const parts: string[] = []
+  if (exactCount > 0) parts.push(`${exactCount} linked batch${exactCount !== 1 ? 'es' : ''}`)
+  if (textCount  > 0) parts.push(`${textCount} text-matched batch${textCount !== 1 ? 'es' : ''}`)
+
+  return (
+    <div className={`rounded-xl border ${cfg.border} ${cfg.bg} px-4 py-3 print:hidden`}>
+      <p className={`text-xs font-semibold ${cfg.labelCls}`}>{cfg.label}</p>
+      <p className={`mt-0.5 text-xs leading-relaxed ${cfg.subtextCls}`}>{cfg.subtext}</p>
+      {isTextLot && parts.length > 0 && (
+        <p className={`mt-1.5 text-[11px] ${cfg.subtextCls}`}>{parts.join(' · ')}</p>
+      )}
+      {sq === 'text_lot_ambiguous' &&
+       result.ambiguous_materials &&
+       result.ambiguous_materials.length > 0 && (
+        <p className={`mt-1 text-[11px] ${cfg.subtextCls}`}>
+          Matching materials: {result.ambiguous_materials.join(', ')}
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ── Print-only report root ────────────────────────────────────────────────────
 // Hidden on screen (display:none via .mi-print-root CSS).
 // Made visible via body.printing-material-impact @media print rules.
@@ -371,6 +457,27 @@ function MaterialImpactPrintRoot({ result, query, searchType }: {
 
   const rowBg = (i: number) => (i % 2 === 1 ? '#F9FAFB' : '#ffffff')
 
+  const sq          = result.scope_quality ?? null
+  const isTextLot   = sq === 'text_lot_unambiguous' || sq === 'text_lot_ambiguous'
+  let printExactCount = 0
+  let printTextCount  = 0
+  if (isTextLot) {
+    for (const b of result.affected_batches) {
+      if      (b.match_source === 'exact_fk')  printExactCount++
+      else if (b.match_source === 'text_match') printTextCount++
+    }
+  }
+  const printParts: string[] = []
+  if (printExactCount > 0) printParts.push(`${printExactCount} linked batch${printExactCount !== 1 ? 'es' : ''}`)
+  if (printTextCount  > 0) printParts.push(`${printTextCount} text-matched batch${printTextCount !== 1 ? 'es' : ''}`)
+  const printScopeStyle: Record<NonNullable<ImpactResult['scope_quality']>, { bg: string; border: string; labelColor: string }> = {
+    exact_uuid_lot:       { bg: '#F0FDF4', border: '#BBF7D0', labelColor: '#065F46' },
+    batch_exact:          { bg: '#F9FAFB', border: '#E5E7EB', labelColor: '#374151' },
+    text_lot_unambiguous: { bg: '#FFFBEB', border: '#FDE68A', labelColor: '#92400E' },
+    text_lot_ambiguous:   { bg: '#FFF7ED', border: '#FDBA74', labelColor: '#9A3412' },
+    material_scope:       { bg: '#F0F9FF', border: '#BAE6FD', labelColor: '#0C4A6E' },
+  }
+
   if (!mounted) return null
   return createPortal(
     <div className="mi-print-root" aria-hidden="true">
@@ -410,6 +517,33 @@ function MaterialImpactPrintRoot({ result, query, searchType }: {
           {result.risk_level}
         </span>
       </div>
+
+      {/* ── Search scope qualifier ── */}
+      {sq && (
+        <div style={{
+          border: `1px solid ${printScopeStyle[sq].border}`, borderRadius: 8,
+          padding: '8px 14px', marginBottom: 16, background: printScopeStyle[sq].bg,
+        }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: printScopeStyle[sq].labelColor, margin: '0 0 2px 0' }}>
+            {SCOPE_CONFIG[sq].label}
+          </p>
+          <p style={{ fontSize: 11, color: '#374151', margin: 0, lineHeight: 1.5 }}>
+            {SCOPE_CONFIG[sq].subtext}
+          </p>
+          {isTextLot && printParts.length > 0 && (
+            <p style={{ fontSize: 10, color: '#6B7280', marginTop: 4, marginBottom: 0 }}>
+              {printParts.join(' · ')}
+            </p>
+          )}
+          {sq === 'text_lot_ambiguous' &&
+           result.ambiguous_materials &&
+           result.ambiguous_materials.length > 0 && (
+            <p style={{ fontSize: 10, color: '#6B7280', marginTop: 2, marginBottom: 0 }}>
+              Matching materials: {result.ambiguous_materials.join(', ')}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* ── Summary metrics ── */}
       <table style={{ ...tblStyle, marginBottom: 16 }}>
@@ -497,6 +631,7 @@ function MaterialImpactPrintRoot({ result, query, searchType }: {
                 <th style={{ ...th, textAlign: 'right' }}>Quantity</th>
                 <th style={th}>Status</th>
                 <th style={{ ...th, textAlign: 'right' }}>Created</th>
+                <th style={th}>Trace link</th>
               </tr>
             </thead>
             <tbody>
@@ -517,6 +652,10 @@ function MaterialImpactPrintRoot({ result, query, searchType }: {
                     </span>
                   </td>
                   <td style={{ ...tdBase, background: rowBg(i), textAlign: 'right', fontSize: 10, color: '#6B7280' }}>{fmt(b.created_at)}</td>
+                  <td style={{ ...tdBase, background: rowBg(i) }}>
+                    {b.match_source === 'exact_fk'  ? 'Linked lot' :
+                     b.match_source === 'text_match' ? 'Text match'  : '—'}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1006,6 +1145,8 @@ export default function RecallImpactClient() {
             </span>
           </div>
 
+          <ScopeNotice result={result} />
+
           {/* Impact Assessment executive summary */}
           {(() => {
             const scope = `${result.total_batches} production batch${result.total_batches !== 1 ? 'es' : ''}`
@@ -1161,9 +1302,21 @@ export default function RecallImpactClient() {
                           <span className="text-[10px] text-gray-400">{b.quantity.toLocaleString()} units</span>
                         </div>
                       </div>
-                      <span className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${STATUS_BADGE[b.status] ?? 'bg-gray-100 text-gray-600'}`}>
-                        {b.status.replace('_', ' ')}
-                      </span>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${STATUS_BADGE[b.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                          {b.status.replace('_', ' ')}
+                        </span>
+                        {b.match_source === 'exact_fk' && (
+                          <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                            Linked lot
+                          </span>
+                        )}
+                        {b.match_source === 'text_match' && (
+                          <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                            Text match
+                          </span>
+                        )}
+                      </div>
                     </a>
                   ))}
                 </div>
