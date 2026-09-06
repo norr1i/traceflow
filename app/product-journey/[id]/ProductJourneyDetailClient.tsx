@@ -1363,23 +1363,42 @@ function MaterialsUsed({ materials, compact = false }: { materials: EnrichedMate
 // ── Impact analysis ───────────────────────────────────────────────────────────
 
 function ImpactAnalysis({
-  impacts, loading, truncated, matchMode,
+  impacts, loading, truncated, matchMode, lotScopeQuality = null, ambiguousMaterials = [],
 }: {
-  impacts:   MaterialImpact[]
-  loading:   boolean
-  truncated: boolean
-  matchMode: 'lot_id' | 'lot_number' | 'material_name'
+  impacts:             MaterialImpact[]
+  loading:             boolean
+  truncated:           boolean
+  matchMode:           'lot_id' | 'lot_number' | 'material_name'
+  lotScopeQuality?:    'text_lot_unambiguous' | 'text_lot_ambiguous' | null
+  ambiguousMaterials?: string[]
 }) {
   return (
     <div className="px-4 py-4">
-      {/* Scope note */}
-      <p className="mb-3 text-[10.5px] text-[var(--subtle)]">
-        {matchMode === 'lot_id'
-          ? 'Scope: exact lot ID — precise recall boundary'
-          : matchMode === 'lot_number'
-          ? 'Scope: lot number match — verify across suppliers'
-          : 'Scope: material name — lot IDs unavailable, result may be over-inclusive'}
-      </p>
+      {/* Scope notice */}
+      {matchMode === 'lot_id' ? (
+        <p className="mb-3 text-[10.5px] text-[var(--subtle)]">Scope: exact lot ID — precise recall boundary</p>
+      ) : matchMode === 'lot_number' && lotScopeQuality === 'text_lot_ambiguous' ? (
+        <div className="mb-3 rounded-xl border border-amber-200 dark:border-amber-700/40 bg-amber-50 dark:bg-amber-950/15 px-4 py-3">
+          <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">Lot-number scope — verification required</p>
+          <p className="mt-0.5 text-xs text-amber-600/80 dark:text-amber-500/80 leading-relaxed">
+            This lot number appears under multiple materials. Results are investigative and should be verified before defining the final impact boundary.
+          </p>
+          {ambiguousMaterials.length > 0 && (
+            <p className="mt-1.5 text-[11px] text-amber-600/80 dark:text-amber-500/80">
+              Matching materials: {ambiguousMaterials.join(', ')}
+            </p>
+          )}
+        </div>
+      ) : matchMode === 'lot_number' ? (
+        <div className="mb-3 rounded-xl border border-amber-200/60 dark:border-amber-700/30 bg-amber-50/60 dark:bg-amber-950/10 px-4 py-3">
+          <p className="text-xs font-semibold text-amber-700/80 dark:text-amber-400/80">Lot-number match — verification recommended</p>
+          <p className="mt-0.5 text-xs text-amber-600/70 dark:text-amber-500/70 leading-relaxed">
+            These results were found using the lot number. Confirm the lot relationship before using this as a final recall boundary.
+          </p>
+        </div>
+      ) : matchMode === 'material_name' ? (
+        <p className="mb-3 text-[10.5px] text-[var(--subtle)]">Scope: material name — lot IDs unavailable, result may be over-inclusive</p>
+      ) : null}
         {truncated && !loading && (
           <div className="mb-3 flex items-center gap-2 rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
             <AlertTriangle size={12} className="shrink-0" />
@@ -1966,6 +1985,7 @@ type RcaMaterialInline = {
   lot_received_at: string | null
   lot_status:      string | null
   supplier_name:   string | null
+  lot_id?:         string
 }
 
 type RcaCapaInline = {
@@ -2132,14 +2152,14 @@ function InlineRcaBlock({ batchId, showMaterialTrace = false }: { batchId: strin
             <table className="w-full text-[11px]">
               <thead>
                 <tr className="border-b border-[var(--border)]/40 bg-[var(--bg)]/60">
-                  {['Material', 'Lot', 'Status', 'Supplier'].map(h => (
+                  {['Material', 'Lot', 'Status', 'Supplier', 'Trace'].map(h => (
                     <th key={h} className="px-2.5 py-1.5 text-left font-semibold text-[var(--subtle)]">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)]/25">
                 {data.material_trace.map(mat => {
-                  const s = mat.lot_status ?? 'consumed'
+                  const s = mat.lot_status ?? null
                   const isSuspect = s === 'quarantine' || s === 'quarantined' || s === 'rejected'
                   const lot = mat.lot_number ?? '—'
                   return (
@@ -2149,12 +2169,20 @@ function InlineRcaBlock({ batchId, showMaterialTrace = false }: { batchId: strin
                       </td>
                       <td className="px-2.5 py-2 font-mono text-[var(--subtle)] text-[10px]">{lot}</td>
                       <td className="px-2.5 py-2">
-                        <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${RCA_LOT_BADGE[s] ?? 'bg-gray-100 text-gray-600'}`}>
-                          {s}
-                        </span>
+                        {s && (
+                          <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${RCA_LOT_BADGE[s] ?? 'bg-gray-100 text-gray-600'}`}>
+                            {s}
+                          </span>
+                        )}
                       </td>
                       <td className="px-2.5 py-2 text-[var(--subtle)] truncate max-w-[120px]">
                         {mat.supplier_name ?? '—'}
+                      </td>
+                      <td className="px-2.5 py-2">
+                        {mat.lot_id != null
+                          ? <span className="text-[8.5px] font-bold uppercase rounded px-1.5 py-px bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">Linked lot</span>
+                          : <span className="text-[8.5px] font-bold uppercase rounded px-1.5 py-px bg-gray-100 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400">Unlinked record</span>
+                        }
                       </td>
                     </tr>
                   )
@@ -2171,22 +2199,25 @@ function InlineRcaBlock({ batchId, showMaterialTrace = false }: { batchId: strin
 // ── Inline evidence panel — attached to each timeline event ──────────────────
 
 type EventEvidenceProps = {
-  event:           JourneyEvent
-  label:           string
-  order:           TraceOrder
-  materials:       EnrichedMaterial[]
-  distRecords:     DistributionRecord[]
-  qcResults:       TraceQc[]
-  recallRecords:   RecallRecord[]
-  capaRecords:     CapaRecord[]
-  impactData:      MaterialImpact[]
-  impactLoading:   boolean
-  impactMatchMode: 'lot_id' | 'lot_number' | 'material_name'
+  event:                    JourneyEvent
+  label:                    string
+  order:                    TraceOrder
+  materials:                EnrichedMaterial[]
+  distRecords:              DistributionRecord[]
+  qcResults:                TraceQc[]
+  recallRecords:            RecallRecord[]
+  capaRecords:              CapaRecord[]
+  impactData:               MaterialImpact[]
+  impactLoading:            boolean
+  impactMatchMode:          'lot_id' | 'lot_number' | 'material_name'
+  impactLotScopeQuality:    'text_lot_unambiguous' | 'text_lot_ambiguous' | null
+  impactAmbiguousMaterials: string[]
 }
 
 function EventEvidence({
   event, label, order, materials, distRecords, qcResults,
   recallRecords, capaRecords, impactData, impactLoading, impactMatchMode,
+  impactLotScopeQuality, impactAmbiguousMaterials,
 }: EventEvidenceProps) {
   const et = event.event_type
 
@@ -2222,8 +2253,8 @@ function EventEvidence({
         {materials.map((m, i) => {
           const lot       = m.lot_number ?? '—'
           const supplier  = m.supplier_name ?? '—'
-          const rawStatus = (m.lot_status ?? 'consumed').toLowerCase()
-          const lbl       = LOT_STATUS_LABEL[rawStatus] ?? 'Consumed'
+          const rawStatus = m.lot_status ? m.lot_status.toLowerCase() : null
+          const lbl       = rawStatus ? (LOT_STATUS_LABEL[rawStatus] ?? rawStatus) : null
           const sCls      = rawStatus === 'quarantined' || rawStatus === 'quarantine' || rawStatus === 'rejected'
             ? 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400'
             : rawStatus === 'received' || rawStatus === 'in_use'
@@ -2238,8 +2269,14 @@ function EventEvidence({
                 </p>
               </div>
               <div className="shrink-0 text-right">
-                <span className={`text-[8.5px] font-bold uppercase rounded px-1.5 py-px ${sCls}`}>{lbl}</span>
-                <p className="text-[10px] text-[var(--subtle)] mt-0.5 tabular-nums">{m.quantity.toLocaleString()} {m.unit}</p>
+                <div className="flex items-center justify-end gap-1 mb-0.5">
+                  {lbl && <span className={`text-[8.5px] font-bold uppercase rounded px-1.5 py-px ${sCls}`}>{lbl}</span>}
+                  {m.raw_material_lot_id != null
+                    ? <span className="text-[8.5px] font-bold uppercase rounded px-1.5 py-px bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">Linked lot</span>
+                    : <span className="text-[8.5px] font-bold uppercase rounded px-1.5 py-px bg-gray-100 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400">Unlinked record</span>
+                  }
+                </div>
+                <p className="text-[10px] text-[var(--subtle)] tabular-nums">{m.quantity.toLocaleString()} {m.unit}</p>
               </div>
             </div>
           )
@@ -2404,7 +2441,7 @@ function EventEvidence({
             {materials.map((m, i) => {
               const lot      = m.lot_number ?? '—'
               const supplier = m.supplier_name ?? '—'
-              const rs       = (m.lot_status ?? 'consumed').toLowerCase()
+              const rs       = m.lot_status ? m.lot_status.toLowerCase() : null
               const suspect  = rs === 'quarantined' || rs === 'quarantine' || rs === 'rejected'
               return (
                 <div key={m.id} className={`px-3 py-1.5 flex items-center justify-between gap-3 ${i < materials.length - 1 ? 'border-b border-[var(--border)]/15' : ''}`}>
@@ -2414,11 +2451,19 @@ function EventEvidence({
                       <span className="font-mono">{lot}</span> · {supplier}
                     </p>
                   </div>
-                  <span className={`shrink-0 text-[8.5px] font-bold uppercase rounded px-1.5 py-px ${
-                    suspect
-                      ? 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400'
-                      : 'bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400'
-                  }`}>{LOT_STATUS_LABEL[rs] ?? 'Consumed'}</span>
+                  <div className="shrink-0 flex items-center gap-1">
+                    {rs && (
+                      <span className={`text-[8.5px] font-bold uppercase rounded px-1.5 py-px ${
+                        suspect
+                          ? 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400'
+                          : 'bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400'
+                      }`}>{LOT_STATUS_LABEL[rs] ?? rs}</span>
+                    )}
+                    {m.raw_material_lot_id != null
+                      ? <span className="text-[8.5px] font-bold uppercase rounded px-1.5 py-px bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">Linked lot</span>
+                      : <span className="text-[8.5px] font-bold uppercase rounded px-1.5 py-px bg-gray-100 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400">Unlinked record</span>
+                    }
+                  </div>
                 </div>
               )
             })}
@@ -2451,6 +2496,27 @@ function EventEvidence({
         {/* ④ Cross-batch exposure */}
         <div className="border-b border-[var(--border)]/30">
           <p className="px-3 pt-2 pb-1 text-[9px] font-bold uppercase tracking-widest text-[var(--subtle)] opacity-60">Cross-Batch Exposure</p>
+          {!impactLoading && impactMatchMode === 'lot_number' && impactLotScopeQuality === 'text_lot_ambiguous' && (
+            <div className="mx-3 mb-2 rounded-lg border border-amber-200 dark:border-amber-700/40 bg-amber-50 dark:bg-amber-950/15 px-3 py-2">
+              <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-400">Lot-number scope — verification required</p>
+              <p className="mt-0.5 text-[10px] text-amber-600/80 dark:text-amber-500/80 leading-relaxed">
+                This lot number appears under multiple materials. Results are investigative and should be verified before defining the final impact boundary.
+              </p>
+              {impactAmbiguousMaterials.length > 0 && (
+                <p className="mt-1 text-[10px] text-amber-600/80 dark:text-amber-500/80">
+                  Matching materials: {impactAmbiguousMaterials.join(', ')}
+                </p>
+              )}
+            </div>
+          )}
+          {!impactLoading && impactMatchMode === 'lot_number' && impactLotScopeQuality !== 'text_lot_ambiguous' && (
+            <div className="mx-3 mb-2 rounded-lg border border-amber-200/60 dark:border-amber-700/30 bg-amber-50/60 dark:bg-amber-950/10 px-3 py-2">
+              <p className="text-[10px] font-semibold text-amber-700/80 dark:text-amber-400/80">Lot-number match — verification recommended</p>
+              <p className="mt-0.5 text-[10px] text-amber-600/70 dark:text-amber-500/70 leading-relaxed">
+                These results were found using the lot number. Confirm the lot relationship before using this as a final recall boundary.
+              </p>
+            </div>
+          )}
           {impactLoading ? (
             <div className="px-3 pb-2"><div className="h-4 rounded bg-[var(--border)]/20 animate-pulse" /></div>
           ) : totalOther === 0 ? (
@@ -2546,15 +2612,18 @@ function EventEvidence({
 
 function SidebarTimeline({
   events, order, distRecords, materials, qcResults, impactData, impactLoading, impactMatchMode,
+  impactLotScopeQuality, impactAmbiguousMaterials,
 }: {
-  events:          JourneyEvent[]
-  order:           TraceOrder
-  distRecords:     DistributionRecord[]
-  materials:       EnrichedMaterial[]
-  qcResults:       TraceQc[]
-  impactData:      MaterialImpact[]
-  impactLoading:   boolean
-  impactMatchMode: 'lot_id' | 'lot_number' | 'material_name'
+  events:                   JourneyEvent[]
+  order:                    TraceOrder
+  distRecords:              DistributionRecord[]
+  materials:                EnrichedMaterial[]
+  qcResults:                TraceQc[]
+  impactData:               MaterialImpact[]
+  impactLoading:            boolean
+  impactMatchMode:          'lot_id' | 'lot_number' | 'material_name'
+  impactLotScopeQuality:    'text_lot_unambiguous' | 'text_lot_ambiguous' | null
+  impactAmbiguousMaterials: string[]
 }) {
   const { recalls: recallRecords, capas: capaRecords } = useContext(JourneyCtx)
   // Single expansion — opening a new event collapses the previous one.
@@ -2865,6 +2934,8 @@ function SidebarTimeline({
                               impactData={impactData}
                               impactLoading={impactLoading}
                               impactMatchMode={impactMatchMode}
+                              impactLotScopeQuality={impactLotScopeQuality}
+                              impactAmbiguousMaterials={impactAmbiguousMaterials}
                             />
                           </div>
                         )}
@@ -3135,13 +3206,22 @@ export default function ProductJourneyDetailClient() {
   const [impactLoading,     setImpactLoading]     = useState(true)
   const [showSysEvents,     setShowSysEvents]     = useState(false)
   const [distRecords,       setDistRecords]       = useState<DistributionRecord[]>([])
-  const [impactTruncated,   setImpactTruncated]   = useState(false)
-  const [impactMatchMode,   setImpactMatchMode]   = useState<'lot_id' | 'lot_number' | 'material_name'>('material_name')
+  const [impactTruncated,          setImpactTruncated]          = useState(false)
+  const [impactMatchMode,          setImpactMatchMode]          = useState<'lot_id' | 'lot_number' | 'material_name'>('material_name')
+  const [impactLotScopeQuality,    setImpactLotScopeQuality]    = useState<'text_lot_unambiguous' | 'text_lot_ambiguous' | null>(null)
+  const [impactAmbiguousMaterials, setImpactAmbiguousMaterials] = useState<string[]>([])
 
   useEffect(() => {
     if (!id) return
+    let cancelled = false
+
     setLoading(true)
     setImpactLoading(true)
+    setImpactData([])
+    setImpactMatchMode('material_name')
+    setImpactLotScopeQuality(null)
+    setImpactAmbiguousMaterials([])
+    setImpactTruncated(false)
 
     Promise.all([
       supabase.rpc('get_batch_trace',   { p_batch_id: id }).single(),
@@ -3156,6 +3236,7 @@ export default function ProductJourneyDetailClient() {
       // because distribution_records.batch_id FK → batches.id, not production_orders.id.
       supabase.from('batches').select('id').eq('production_order_id', id),
     ]).then(async ([traceRes, journeyRes, capaRes, recallRes, bomRes, batchesRes]) => {
+      if (cancelled) return
       if (traceRes.error || !traceRes.data) {
         setNotFound(true)
         setLoading(false)
@@ -3226,6 +3307,7 @@ export default function ProductJourneyDetailClient() {
           .in('batch_id', allBatchTextIds)
           .order('created_at', { ascending: true }),
       ])
+      if (cancelled) return
 
       const distributionRecords = (distResult.data ?? []) as DistributionRecord[]
       const batchEventRows      = (batchEvResult.data ?? []) as BatchEventRow[]
@@ -3264,6 +3346,11 @@ export default function ProductJourneyDetailClient() {
       setLoading(false)
 
       if (materials.length === 0) {
+        setImpactData([])
+        setImpactMatchMode('material_name')
+        setImpactLotScopeQuality(null)
+        setImpactAmbiguousMaterials([])
+        setImpactTruncated(false)
         setImpactLoading(false)
         return
       }
@@ -3306,16 +3393,34 @@ export default function ProductJourneyDetailClient() {
 
       const calls   = Array.from(callsByKey.values())
       const results = await Promise.all(calls.map(c => supabase.rpc('get_recall_impact', c.param)))
+      if (cancelled) return
 
       const modePriority = { lot_id: 0, lot_number: 1, material_name: 2 } as const
       let worstMode: 'lot_id' | 'lot_number' | 'material_name' = 'lot_id'
       const byMaterial: Record<string, AffectedBatch[]> = {}
+      let lotScopeQuality: 'text_lot_unambiguous' | 'text_lot_ambiguous' | null = null
+      const ambiguousMatSet = new Set<string>()
 
       for (let i = 0; i < calls.length; i++) {
         const call   = calls[i]
-        const impact = results[i].data as { affected_batches?: Array<{ batch_id: string; product_name: string; status: string; created_at: string }> } | null
+        const impact = results[i].data as {
+          affected_batches?:    Array<{ batch_id: string; product_name: string; status: string; created_at: string }>
+          scope_quality?:       'exact_uuid_lot' | 'batch_exact' | 'text_lot_unambiguous' | 'text_lot_ambiguous' | 'material_scope' | null
+          ambiguity_detected?:  boolean
+          ambiguous_materials?: string[]
+        } | null
         if (!impact) continue
         if (modePriority[call.mode] > modePriority[worstMode]) worstMode = call.mode
+
+        if (call.mode === 'lot_number') {
+          const sq = impact.scope_quality ?? null
+          if (sq === 'text_lot_ambiguous') {
+            lotScopeQuality = 'text_lot_ambiguous'
+            for (const mat of impact.ambiguous_materials ?? []) ambiguousMatSet.add(mat)
+          } else if (sq === 'text_lot_unambiguous' && lotScopeQuality !== 'text_lot_ambiguous') {
+            lotScopeQuality = 'text_lot_unambiguous'
+          }
+        }
 
         for (const b of impact.affected_batches ?? []) {
           if (b.batch_id === id) continue  // exclude the batch we're viewing
@@ -3335,6 +3440,8 @@ export default function ProductJourneyDetailClient() {
 
       const uniqueCount = new Set(Object.values(byMaterial).flat().map(b => b.production_order_id)).size
       setImpactMatchMode(worstMode)
+      setImpactLotScopeQuality(lotScopeQuality)
+      setImpactAmbiguousMaterials([...ambiguousMatSet])
       setImpactTruncated(uniqueCount > 200)
       setImpactData(
         Object.entries(byMaterial).map(([material_name, affected_batches]) => ({
@@ -3347,6 +3454,8 @@ export default function ProductJourneyDetailClient() {
 
       setImpactLoading(false)
     })
+
+    return () => { cancelled = true }
   }, [id])
 
   if (loading) {
@@ -3509,6 +3618,8 @@ export default function ProductJourneyDetailClient() {
         impactData={impactData}
         impactLoading={impactLoading}
         impactMatchMode={impactMatchMode}
+        impactLotScopeQuality={impactLotScopeQuality}
+        impactAmbiguousMaterials={impactAmbiguousMaterials}
       />
 
       {/* QR Trace & Public Product Story link */}
