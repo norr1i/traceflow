@@ -494,6 +494,11 @@ export default function ProductionClient() {
     if (err) { toast.error(err.message); return }
     setAllOrders((prev) => prev.map((ord) => ord.id === o.id ? { ...ord, status: 'cancelled' as const } : ord))
     toast.success(t('production.cancelled_toast'))
+    if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
+      actionType: 'production_order.updated', entityType: 'production_order', entityId: o.id,
+      message: `${actorName(user?.email)} cancelled production order`,
+      metadata: { status: 'cancelled' },
+    }).catch(err => console.error('[logActivity] production_order.cancelled failed:', err))
   }
 
   async function handleStartProduction(o: OrderWithProduct) {
@@ -547,6 +552,19 @@ export default function ProductionClient() {
     setBomForm(emptyBom)
     setSelectedLot(null)
     toast.success(t('production.material_added'))
+    if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
+      actionType: 'bill_of_materials.created', entityType: 'bill_of_materials', entityId: (data as BomEntry).id,
+      message: `${actorName(user?.email)} added material to production order`,
+      metadata: {
+        production_order_id:  (data as BomEntry).production_order_id,
+        raw_material_id:      selectedRawMat.id,
+        material_name:        (data as BomEntry).material_name,
+        lot_number:           (data as BomEntry).lot_number           ?? null,
+        raw_material_lot_id:  (data as BomEntry).raw_material_lot_id  ?? null,
+        quantity:             (data as BomEntry).quantity,
+        unit:                 (data as BomEntry).unit,
+      },
+    }).catch(err => console.error('[logActivity] bill_of_materials.created failed:', err))
   }
 
   async function deleteMaterial(id: string) {
@@ -615,6 +633,18 @@ export default function ProductionClient() {
       setCreateLotForm(emptyCreateLot)
       setCreateLotMatId(null)
       toast.success('Lot created')
+      if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
+        actionType: 'raw_material_lot.created', entityType: 'raw_material_lot', entityId: data.id,
+        message: `${actorName(user?.email)} created lot ${data.lot_number} for ${selectedRawMat.name}`,
+        metadata: {
+          lot_number:      data.lot_number,
+          raw_material_id: data.raw_material_id,
+          material_name:   selectedRawMat.name,
+          ...(data.supplier_id ? { supplier_id: data.supplier_id } : {}),
+          quantity:        data.quantity,
+          unit:            data.unit,
+        },
+      }).catch(err => console.error('[logActivity] raw_material_lot.created failed:', err))
     } finally {
       setCreateLotSaving(false)
     }

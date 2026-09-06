@@ -637,7 +637,15 @@ function RecallRegistry({
     const next: RecallStatus = current === 'open' ? 'in_progress' : 'closed'
     const ok = await updateStatus(id, next)
     if (!ok) toast.error('Failed to update status')
-    else toast.success(next === 'closed' ? 'Recall closed' : 'Recall status updated')
+    else {
+      toast.success(next === 'closed' ? 'Recall closed' : 'Recall status updated')
+      if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
+        actionType: next === 'closed' ? 'recall.closed' : 'recall.updated',
+        entityType: 'recall', entityId: id,
+        message: `${actorName(user?.email)} ${next === 'closed' ? 'closed' : 'updated status of'} recall`,
+        metadata: { previous_status: current, new_status: next },
+      }).catch(err => console.error('[logActivity] recall status change failed:', err))
+    }
   }
 
   async function handleDelete(id: string, num: string | null) {
@@ -647,8 +655,15 @@ function RecallRegistry({
     })
     if (!ok) return
     const deleted = await deleteRecall(id)
-    if (deleted) toast.success('Recall deleted')
-    else         toast.error('Failed to delete recall')
+    if (deleted) {
+      toast.success('Recall deleted')
+      if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
+        actionType: 'recall.deleted', entityType: 'recall', entityId: id,
+        message: `${actorName(user?.email)} deleted recall${num ? ` ${num}` : ''}`,
+      }).catch(err => console.error('[logActivity] recall.deleted failed:', err))
+    } else {
+      toast.error('Failed to delete recall')
+    }
   }
 
   return (

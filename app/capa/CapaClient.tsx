@@ -695,8 +695,15 @@ export default function CapaClient() {
     })
     if (!ok2) return
     const deleted = await deleteCapa(id)
-    if (deleted) toast.success('CAPA deleted')
-    else         toast.error('Failed to delete CAPA')
+    if (deleted) {
+      toast.success('CAPA deleted')
+      if (companyId) logActivity({ companyId, actorUserId: user?.id, actorEmail: user?.email,
+        actionType: 'capa.deleted', entityType: 'capa', entityId: id,
+        message: `${actorName(user?.email)} deleted CAPA${capaNumber ? ` ${capaNumber}` : ''}`,
+      }).catch(err => console.error('[logActivity] capa.deleted failed:', err))
+    } else {
+      toast.error('Failed to delete CAPA')
+    }
   }
 
   async function handleExportCSV() {
