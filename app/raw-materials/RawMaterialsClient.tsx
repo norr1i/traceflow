@@ -124,6 +124,16 @@ function isValidDate(s: string): boolean {
   return d <= daysInMonth
 }
 
+function normContact(v: string | null | undefined): string {
+  return (v ?? '').trim()
+}
+function contactsIdentical(
+  emailA: string | null | undefined, phoneA: string | null | undefined,
+  emailB: string | null | undefined, phoneB: string | null | undefined,
+): boolean {
+  return normContact(emailA) === normContact(emailB) && normContact(phoneA) === normContact(phoneB)
+}
+
 const empty = { name: '', unit: '', quantity_in_stock: 0, reorder_level: 0 }
 
 const LOT_FIELDS: CsvFieldDef[] = [
@@ -155,6 +165,18 @@ const MATERIAL_SAMPLE_ROWS = [
   { name: 'Copper Wire', unit: 'pcs', in_stock: '200', reorder_at: '20' },
 ]
 
+const SUPPLIER_FIELDS: CsvFieldDef[] = [
+  { key: 'name',          label: 'Name',          required: true,  type: 'string' },
+  { key: 'contact_email', label: 'Contact Email', required: false, type: 'string' },
+  { key: 'contact_phone', label: 'Contact Phone', required: false, type: 'string' },
+]
+
+const SUPPLIER_SAMPLE_ROWS = [
+  { name: 'Example Supplier — Replace Before Import', contact_email: 'supplier@example.com', contact_phone: '' },
+]
+
+const ALLOWED_SUPPLIER_HEADERS = new Set(['name', 'contact_email', 'contact_phone'])
+
 export default function RawMaterialsClient() {
   const toast     = useToast()
   const confirm   = useConfirm()
@@ -169,9 +191,10 @@ export default function RawMaterialsClient() {
   const [totalCount, setTotalCount] = useState(0)
   const [totalAll,   setTotalAll]   = useState(0)
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
-  const [showForm,       setShowForm]       = useState(false)
-  const [showImport,     setShowImport]     = useState(false)
-  const [showImportLots, setShowImportLots] = useState(false)
+  const [showForm,            setShowForm]            = useState(false)
+  const [showImport,          setShowImport]          = useState(false)
+  const [showImportLots,      setShowImportLots]      = useState(false)
+  const [showImportSuppliers, setShowImportSuppliers] = useState(false)
   const [editing,    setEditing]    = useState<RawMaterial | null>(null)
   const [form,       setForm]       = useState(empty)
   const [saving,     setSaving]     = useState(false)
@@ -554,6 +577,145 @@ export default function RawMaterialsClient() {
     return { inserted, skipped, errors, skippedMessages }
   }
 
+  async function handleSupplierImport(rows: Record<string, string>[], context: ImportContext): Promise<ImportResult> {
+    if (!companyId || !user?.id) {
+      return {
+        inserted: 0, skipped: 0, skippedMessages: [],
+        errors: ['Company or user context is missing. Please reload and try again.'],
+      }
+    }
+
+    // Header validation
+    const headerCounts = new Map<string, number>()
+    for (const h of context.headers) headerCounts.set(h, (headerCounts.get(h) ?? 0) + 1)
+    const unsupported = context.headers.filter(h => !ALLOWED_SUPPLIER_HEADERS.has(h))
+    const duplicated  = [...headerCounts.entries()].filter(([, n]) => n > 1).map(([h]) => h)
+    if (unsupported.length > 0 || duplicated.length > 0) {
+      const parts: string[] = []
+      if (unsupported.length > 0) parts.push(`Unsupported column(s): ${unsupported.join(', ')}.`)
+      if (duplicated.length  > 0) parts.push(`Duplicate column(s): ${duplicated.join(', ')}.`)
+      return {
+        inserted: 0, skipped: 0, skippedMessages: [],
+        errors: [`${parts.join(' ')} Supplier import accepts only: name, contact_email, contact_phone.`],
+      }
+    }
+
+    // Completeness-guarded prefetch
+    const { data: existingData, count: existCount, error: existErr } = await supabase
+      .from('suppliers')
+      .select('id, name, contact_email, contact_phone', { count: 'exact' })
+      .eq('company_id', companyId)
+    if (existErr) return { inserted: 0, skipped: 0, skippedMessages: [], errors: [`Failed to load suppliers: ${existErr.message}`] }
+    if (!Array.isArray(existingData) || typeof existCount !== 'number' || !Number.isSafeInteger(existCount) || existCount < 0 || existingData.length !== existCount) {
+      return { inserted: 0, skipped: 0, skippedMessages: [], errors: ['Could not load the complete suppliers list. No suppliers were imported.'] }
+    }
+
+    // DB lookup map: normalizedName → existing supplier rows
+    type SupplierRec = { id: string; name: string; contact_email: string | null; contact_phone: string | null }
+    const dbMap = new Map<string, SupplierRec[]>()
+    for (const s of existingData as SupplierRec[]) {
+      const key = s.name.toLowerCase().trim()
+      if (!dbMap.has(key)) dbMap.set(key, [])
+      dbMap.get(key)!.push(s)
+    }
+
+    // Parse rows
+    type ParsedRow = { rowNum: number; name: string; normName: string; email: string | null; phone: string | null }
+    const parsed: ParsedRow[] = rows.map((row, i) => {
+      const name = (row.name ?? '').trim()
+      return {
+        rowNum:   context.rowNumbers[i],
+        name,
+        normName: name.toLowerCase(),
+        email:    (row.contact_email ?? '').trim() || null,
+        phone:    (row.contact_phone ?? '').trim() || null,
+      }
+    })
+
+    // Pre-analysis: detect same-file name groups with conflicting contact details.
+    // Every row in a conflict group gets its own error entry (one per row, using original row number).
+    // Groups where all rows are identical fall through to normal processing.
+    const batchGroups = new Map<string, ParsedRow[]>()
+    for (const p of parsed) {
+      if (!p.name) continue
+      if (!batchGroups.has(p.normName)) batchGroups.set(p.normName, [])
+      batchGroups.get(p.normName)!.push(p)
+    }
+
+    const errors:          string[] = []
+    const skippedMessages: string[] = []
+    let inserted = 0
+    let skipped  = 0
+
+    const batchConflictRows = new Set<number>()
+    for (const [, group] of batchGroups) {
+      if (group.length <= 1) continue
+      const { email: e0, phone: p0 } = group[0]
+      const hasConflict = group.slice(1).some(r => !contactsIdentical(e0, p0, r.email, r.phone))
+      if (hasConflict) {
+        for (const r of group) {
+          batchConflictRows.add(r.rowNum)
+          errors.push(`Row ${r.rowNum}: Supplier "${r.name}" appears with conflicting contact details in this import. Resolve before importing.`)
+        }
+      }
+    }
+
+    // Row loop: sequential inserts; successful inserts are reflected in dbMap so that
+    // subsequent identical rows in the same batch are treated as duplicates.
+    // If an insert fails, later identical rows are processed independently — not skipped.
+    // 23505 on suppliers has no unique-name constraint meaning; treat as unexpected error.
+    for (const { rowNum, name, normName, email, phone } of parsed) {
+      if (!name) { errors.push(`Row ${rowNum}: name is required`); continue }
+      if (batchConflictRows.has(rowNum)) continue   // error already registered above
+
+      const dbMatches = dbMap.get(normName) ?? []
+
+      if (dbMatches.length === 0) {
+        const { error: insErr } = await supabase.from('suppliers').insert({
+          company_id:    companyId,
+          user_id:       user!.id,
+          created_by:    user!.id,
+          name,
+          contact_email: email,
+          contact_phone: phone,
+          country:       null,
+          status:        'pending_approval',
+        })
+        if (insErr) {
+          errors.push(`Row ${rowNum}: ${insErr.message}`)
+        } else {
+          // Reflect the new record so subsequent identical rows are caught as duplicates
+          dbMap.set(normName, [{ id: '', name, contact_email: email, contact_phone: phone }])
+          inserted++
+        }
+      } else if (dbMatches.length === 1) {
+        const m = dbMatches[0]
+        if (contactsIdentical(email, phone, m.contact_email, m.contact_phone)) {
+          skippedMessages.push(`Row ${rowNum}: Supplier "${name}" already exists with matching name and contact details (skipped). Name matching alone does not verify real-world supplier identity.`)
+          skipped++
+        } else {
+          errors.push(`Row ${rowNum}: Supplier "${name}" already exists with different contact details. Review the supplier details before importing.`)
+        }
+      } else {
+        errors.push(`Row ${rowNum}: Supplier "${name}" matches ${dbMatches.length} existing records. Resolve duplicates before importing.`)
+      }
+    }
+
+    logActivity({
+      companyId, actorUserId: user?.id, actorEmail: user?.email,
+      actionType: 'supplier.imported', entityType: 'supplier', entityId: null,
+      message: `${actorName(user?.email)} imported ${inserted} supplier${inserted !== 1 ? 's' : ''}`,
+      metadata: {
+        total_rows:   context.totalRows,
+        inserted,
+        skipped,
+        errors_count: context.validationErrorRows + errors.length,
+      },
+    }).catch(err => console.error('[logActivity] supplier.imported failed:', err))
+
+    return { inserted, skipped, errors, skippedMessages }
+  }
+
   const lowStock   = materials.filter((m) => m.quantity_in_stock <= m.reorder_level)
   const isFiltered = stockFilter !== 'all' || searchInput.trim() !== ''
 
@@ -587,6 +749,18 @@ export default function RawMaterialsClient() {
           sampleRows={LOT_SAMPLE_ROWS}
           onClose={() => setShowImportLots(false)}
           onImport={handleLotImport}
+        />
+      )}
+
+      {/* Import modal — suppliers */}
+      {showImportSuppliers && (
+        <CsvImportModal
+          title="Import Suppliers"
+          fields={SUPPLIER_FIELDS}
+          sampleFilename="suppliers_template.csv"
+          sampleRows={SUPPLIER_SAMPLE_ROWS}
+          onClose={() => setShowImportSuppliers(false)}
+          onImport={handleSupplierImport}
         />
       )}
 
@@ -691,6 +865,12 @@ export default function RawMaterialsClient() {
               className="flex items-center gap-2 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/55 transition-colors"
             >
               <Upload size={15} /> Import Lots
+            </button>
+            <button
+              onClick={() => setShowImportSuppliers(true)}
+              className="flex items-center gap-2 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/55 transition-colors"
+            >
+              <Upload size={15} /> Import Suppliers
             </button>
             <button
               onClick={openCreate}

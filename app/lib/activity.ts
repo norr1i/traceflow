@@ -19,6 +19,7 @@ export type ActivityActionType =
   | 'raw_material.deleted'
   | 'raw_material_lot.created'
   | 'raw_material_lot.imported'
+  | 'supplier.imported'
   | 'qc_inspection.created'
   | 'qc_inspection.passed'
   | 'qc_inspection.failed'
@@ -65,6 +66,7 @@ export const ACTION_TYPES_BY_SECTION = {
     'raw_material.created',
     'raw_material.imported',
     'raw_material.deleted',
+    'supplier.imported',
   ] as ActivityActionType[],
   sales: [
     'sale.created',
