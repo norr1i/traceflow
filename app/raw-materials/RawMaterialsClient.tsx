@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 import { RawMaterial } from '../types/traceflow'
 import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
-import CsvImportModal, { type CsvFieldDef, type ImportResult } from '../components/CsvImportModal'
+import CsvImportModal, { type CsvFieldDef, type ImportResult, type ImportContext } from '../components/CsvImportModal'
 import {
   Plus, Pencil, Trash2, X, Check, AlertTriangle, FlaskConical, Upload,
   MoreHorizontal, ChevronsUpDown, ChevronUp, ChevronDown, ChevronRight, Search,
@@ -116,7 +116,32 @@ function RowMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => voi
   )
 }
 
+function isValidDate(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
+  const [y, m, d] = s.split('-').map(Number)
+  if (m < 1 || m > 12 || d < 1) return false
+  const daysInMonth = new Date(y, m, 0).getDate()
+  return d <= daysInMonth
+}
+
 const empty = { name: '', unit: '', quantity_in_stock: 0, reorder_level: 0 }
+
+const LOT_FIELDS: CsvFieldDef[] = [
+  { key: 'material_name', label: 'Material Name', required: true,  type: 'string' },
+  { key: 'lot_number',    label: 'Lot Number',    required: true,  type: 'string' },
+  { key: 'quantity',      label: 'Quantity',      required: true,  type: 'number' },
+  { key: 'unit',          label: 'Unit',          required: true,  type: 'string' },
+  { key: 'received_at',   label: 'Received At',   required: true,  type: 'string' },
+  { key: 'supplier_name', label: 'Supplier Name', required: false, type: 'string' },
+]
+
+const LOT_SAMPLE_ROWS = [
+  { material_name: 'Steel Rod', lot_number: 'LOT-2024-001', quantity: '500', unit: 'kg', received_at: '2024-03-15', supplier_name: 'Acme Metals' },
+]
+
+const ALLOWED_LOT_HEADERS = new Set([
+  'material_name', 'lot_number', 'quantity', 'unit', 'received_at', 'supplier_name',
+])
 
 const MATERIAL_FIELDS: CsvFieldDef[] = [
   { key: 'name',       label: 'Name',              required: true,  type: 'string' },
@@ -144,8 +169,9 @@ export default function RawMaterialsClient() {
   const [totalCount, setTotalCount] = useState(0)
   const [totalAll,   setTotalAll]   = useState(0)
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
-  const [showForm,   setShowForm]   = useState(false)
-  const [showImport, setShowImport] = useState(false)
+  const [showForm,       setShowForm]       = useState(false)
+  const [showImport,     setShowImport]     = useState(false)
+  const [showImportLots, setShowImportLots] = useState(false)
   const [editing,    setEditing]    = useState<RawMaterial | null>(null)
   const [form,       setForm]       = useState(empty)
   const [saving,     setSaving]     = useState(false)
@@ -357,6 +383,177 @@ export default function RawMaterialsClient() {
     return { inserted, skipped: 0, errors }
   }
 
+  async function handleLotImport(rows: Record<string, string>[], context: ImportContext): Promise<ImportResult> {
+    if (!companyId) return { inserted: 0, skipped: 0, errors: ['Company context is missing. Please reload and try again.'], skippedMessages: [] }
+
+    // Issue 2: reject unsupported or duplicate CSV headers before any DB access
+    const headerCounts = new Map<string, number>()
+    for (const h of context.headers) headerCounts.set(h, (headerCounts.get(h) ?? 0) + 1)
+    const unsupported = context.headers.filter(h => !ALLOWED_LOT_HEADERS.has(h))
+    const duplicated  = [...headerCounts.entries()].filter(([, n]) => n > 1).map(([h]) => h)
+    if (unsupported.length > 0 || duplicated.length > 0) {
+      const parts: string[] = []
+      if (unsupported.length > 0) parts.push(`Unsupported column(s): ${unsupported.join(', ')}.`)
+      if (duplicated.length  > 0) parts.push(`Duplicate column(s): ${duplicated.join(', ')}.`)
+      return {
+        inserted: 0, skipped: 0, skippedMessages: [],
+        errors: [`${parts.join(' ')} Raw material lot import accepts only: material_name, lot_number, quantity, unit, received_at, supplier_name.`],
+      }
+    }
+
+    const { data: rmData, count: rmCount, error: rmErr } = await supabase
+      .from('raw_materials')
+      .select('id, name', { count: 'exact' })
+      .eq('company_id', companyId)
+    if (rmErr) return { inserted: 0, skipped: 0, errors: [`Failed to load raw materials: ${rmErr.message}`], skippedMessages: [] }
+    if (!Array.isArray(rmData) || typeof rmCount !== 'number' || !Number.isSafeInteger(rmCount) || rmCount < 0 || rmData.length !== rmCount) {
+      return { inserted: 0, skipped: 0, skippedMessages: [], errors: ['Could not load the complete raw materials list. No lots were imported.'] }
+    }
+
+    const { data: suppData, count: suppCount, error: suppErr } = await supabase
+      .from('suppliers')
+      .select('id, name', { count: 'exact' })
+      .eq('company_id', companyId)
+    if (suppErr) return { inserted: 0, skipped: 0, errors: [`Failed to load suppliers: ${suppErr.message}`], skippedMessages: [] }
+    if (!Array.isArray(suppData) || typeof suppCount !== 'number' || !Number.isSafeInteger(suppCount) || suppCount < 0 || suppData.length !== suppCount) {
+      return { inserted: 0, skipped: 0, skippedMessages: [], errors: ['Could not load the complete suppliers list. No lots were imported.'] }
+    }
+
+    const { data: existingData, count: existCount, error: existErr } = await supabase
+      .from('raw_material_lots')
+      .select('raw_material_id, lot_number', { count: 'exact' })
+      .eq('company_id', companyId)
+    if (existErr) return { inserted: 0, skipped: 0, errors: [`Failed to load existing lots: ${existErr.message}`], skippedMessages: [] }
+    if (!Array.isArray(existingData) || typeof existCount !== 'number' || !Number.isSafeInteger(existCount) || existCount < 0 || existingData.length !== existCount) {
+      return { inserted: 0, skipped: 0, skippedMessages: [], errors: ['Could not load the complete existing lots list. No lots were imported.'] }
+    }
+
+    const materialMap = new Map<string, { id: string; name: string }[]>()
+    for (const rm of rmData ?? []) {
+      const key = rm.name.toLowerCase().trim()
+      if (!materialMap.has(key)) materialMap.set(key, [])
+      materialMap.get(key)!.push(rm)
+    }
+
+    const supplierMap = new Map<string, { id: string; name: string }[]>()
+    for (const s of suppData ?? []) {
+      const key = s.name.toLowerCase().trim()
+      if (!supplierMap.has(key)) supplierMap.set(key, [])
+      supplierMap.get(key)!.push(s)
+    }
+
+    const existingKeys = new Set<string>()
+    for (const lot of existingData ?? []) {
+      existingKeys.add(`${lot.raw_material_id}::${lot.lot_number}`)
+    }
+
+    const seenInThisBatch  = new Set<string>()
+    const errors:           string[] = []
+    const skippedMessages:  string[] = []
+    let inserted = 0
+    let skipped  = 0
+
+    for (const [i, row] of rows.entries()) {
+      const rowNum = context.rowNumbers[i]  // original CSV row number
+
+      const materialName = (row.material_name ?? '').trim()
+      if (!materialName) { errors.push(`Row ${rowNum}: material_name is required`); continue }
+      const materialMatches = materialMap.get(materialName.toLowerCase()) ?? []
+      if (materialMatches.length === 0) {
+        errors.push(`Row ${rowNum}: Material "${materialName}" not found in this company's raw materials`)
+        continue
+      }
+      if (materialMatches.length > 1) {
+        errors.push(`Row ${rowNum}: Material "${materialName}" matches multiple records. Deduplicate Raw Materials before importing this lot.`)
+        continue
+      }
+      const rawMaterialId = materialMatches[0].id
+
+      const lotNumber = (row.lot_number ?? '').trim()
+      if (!lotNumber) { errors.push(`Row ${rowNum}: lot_number is required`); continue }
+
+      const quantity = Number(row.quantity ?? '')
+      if (!isFinite(quantity) || quantity <= 0) {
+        errors.push(`Row ${rowNum}: quantity must be a number greater than 0`)
+        continue
+      }
+
+      const unit = (row.unit ?? '').trim()
+      if (!unit) { errors.push(`Row ${rowNum}: unit is required`); continue }
+
+      const receivedAt = (row.received_at ?? '').trim()
+      if (!isValidDate(receivedAt)) {
+        errors.push(`Row ${rowNum}: received_at must be a valid date in YYYY-MM-DD format (e.g. 2024-03-15)`)
+        continue
+      }
+
+      const supplierNameRaw = (row.supplier_name ?? '').trim()
+      let supplierId: string | null = null
+      if (supplierNameRaw) {
+        const supplierMatches = supplierMap.get(supplierNameRaw.toLowerCase()) ?? []
+        if (supplierMatches.length === 0) {
+          errors.push(`Row ${rowNum}: Supplier "${supplierNameRaw}" not found in this company's suppliers`)
+          continue
+        }
+        if (supplierMatches.length > 1) {
+          errors.push(`Row ${rowNum}: Supplier "${supplierNameRaw}" matches multiple records. Deduplicate Suppliers before importing this lot.`)
+          continue
+        }
+        supplierId = supplierMatches[0].id
+      }
+
+      const lotKey = `${rawMaterialId}::${lotNumber}`
+      if (existingKeys.has(lotKey)) {
+        skippedMessages.push(`Row ${rowNum}: Lot "${lotNumber}" for "${materialName}" already exists in the database (skipped)`)
+        skipped++
+        continue
+      }
+      if (seenInThisBatch.has(lotKey)) {
+        skippedMessages.push(`Row ${rowNum}: Lot "${lotNumber}" for "${materialName}" is a duplicate within this import file (skipped)`)
+        skipped++
+        continue
+      }
+
+      const { error: insErr } = await supabase.from('raw_material_lots').insert({
+        company_id:      companyId,
+        raw_material_id: rawMaterialId,
+        lot_number:      lotNumber,
+        quantity,
+        unit,
+        received_at:     receivedAt,
+        supplier_id:     supplierId,
+        status:          'available',
+      })
+
+      if (insErr) {
+        if (insErr.code === '23505') {
+          skippedMessages.push(`Row ${rowNum}: Lot "${lotNumber}" for "${materialName}" already exists (skipped)`)
+          skipped++
+        } else {
+          errors.push(`Row ${rowNum}: ${insErr.message}`)
+        }
+        continue
+      }
+
+      seenInThisBatch.add(lotKey)
+      inserted++
+    }
+
+    logActivity({
+      companyId, actorUserId: user?.id, actorEmail: user?.email,
+      actionType: 'raw_material_lot.imported', entityType: 'raw_material_lot', entityId: null,
+      message: `${actorName(user?.email)} imported ${inserted} raw material lot${inserted !== 1 ? 's' : ''}`,
+      metadata: {
+        total_rows:   context.totalRows,
+        inserted,
+        skipped,
+        errors_count: context.validationErrorRows + errors.length,
+      },
+    }).catch(err => console.error('[logActivity] raw_material_lot.imported failed:', err))
+
+    return { inserted, skipped, errors, skippedMessages }
+  }
+
   const lowStock   = materials.filter((m) => m.quantity_in_stock <= m.reorder_level)
   const isFiltered = stockFilter !== 'all' || searchInput.trim() !== ''
 
@@ -369,7 +566,7 @@ export default function RawMaterialsClient() {
 
   return (
     <>
-      {/* Import modal */}
+      {/* Import modal — raw materials */}
       {showImport && (
         <CsvImportModal
           title={t('materials.import_title')}
@@ -378,6 +575,18 @@ export default function RawMaterialsClient() {
           sampleRows={MATERIAL_SAMPLE_ROWS}
           onClose={() => setShowImport(false)}
           onImport={handleMaterialImport}
+        />
+      )}
+
+      {/* Import modal — raw material lots */}
+      {showImportLots && (
+        <CsvImportModal
+          title="Import Raw Material Lots"
+          fields={LOT_FIELDS}
+          sampleFilename="raw_material_lots_template.csv"
+          sampleRows={LOT_SAMPLE_ROWS}
+          onClose={() => setShowImportLots(false)}
+          onImport={handleLotImport}
         />
       )}
 
@@ -476,6 +685,12 @@ export default function RawMaterialsClient() {
               className="flex items-center gap-2 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/55 transition-colors"
             >
               <Upload size={15} /> {t('common.import_csv')}
+            </button>
+            <button
+              onClick={() => setShowImportLots(true)}
+              className="flex items-center gap-2 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/55 transition-colors"
+            >
+              <Upload size={15} /> Import Lots
             </button>
             <button
               onClick={openCreate}

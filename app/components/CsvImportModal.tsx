@@ -16,9 +16,17 @@ export type CsvFieldDef = {
 }
 
 export type ImportResult = {
-  inserted: number
-  skipped:  number   // duplicates / rows the caller chose not to insert
-  errors:   string[] // per-row messages for invalid/failed rows
+  inserted:         number
+  skipped:          number    // duplicates / rows the caller chose not to insert
+  errors:           string[]  // per-row messages for invalid/failed rows
+  skippedMessages?: string[]  // optional row-level detail for skipped duplicates
+}
+
+export type ImportContext = {
+  totalRows:           number    // nonblank data rows in CSV before structural validation
+  rowNumbers:          number[]  // original CSV row number for each row passed to onImport
+  validationErrorRows: number    // rows rejected by structural validation
+  headers:             string[]  // normalized parsed CSV headers
 }
 
 type Props = {
@@ -28,8 +36,9 @@ type Props = {
   sampleRows:     Record<string, string>[] // rows used for the template download
   onClose:        () => void
   /** Receives only structurally-valid rows (required fields present + correct types).
+   *  Context provides original row numbers, total counts, and parsed headers.
    *  Caller does deduplication/insertion and returns counts. */
-  onImport:       (rows: Record<string, string>[]) => Promise<ImportResult>
+  onImport: (rows: Record<string, string>[], context: ImportContext) => Promise<ImportResult>
 }
 
 type Stage = 'pick' | 'preview' | 'importing' | 'done'
@@ -67,7 +76,7 @@ function parseCsv(text: string): { headers: string[]; rows: Record<string, strin
 
 // ── Validation ─────────────────────────────────────────────────────────────
 
-type RowValidation = { row: Record<string, string>; errors: string[] }
+type RowValidation = { row: Record<string, string>; errors: string[]; rowNumber: number }
 
 function validateRows(
   rows: Record<string, string>[],
@@ -75,16 +84,17 @@ function validateRows(
 ): RowValidation[] {
   return rows.map((row, idx) => {
     const errors: string[] = []
+    const rowNumber = idx + 2
     for (const f of fields) {
       const val = row[f.key] ?? ''
       if (f.required && !val) {
-        errors.push(`Row ${idx + 2}: "${f.label}" is required`)
+        errors.push(`Row ${rowNumber}: "${f.label}" is required`)
       }
       if (val && f.type === 'number' && isNaN(Number(val))) {
-        errors.push(`Row ${idx + 2}: "${f.label}" must be a number (got "${val}")`)
+        errors.push(`Row ${rowNumber}: "${f.label}" must be a number (got "${val}")`)
       }
     }
-    return { row, errors }
+    return { row, errors, rowNumber }
   })
 }
 
@@ -124,7 +134,8 @@ export default function CsvImportModal({
   const [filename,  setFilename]  = useState('')
   const [validated, setValidated] = useState<RowValidation[]>([])
   const [result,    setResult]    = useState<ImportResult | null>(null)
-  const [dragOver,  setDragOver]  = useState(false)
+  const [dragOver,      setDragOver]      = useState(false)
+  const [parsedHeaders, setParsedHeaders] = useState<string[]>([])
 
   const errorRows  = validated.filter(v => v.errors.length > 0)
   const validRows  = validated.filter(v => v.errors.length === 0)
@@ -141,8 +152,9 @@ export default function CsvImportModal({
     const reader = new FileReader()
     reader.onload = (e) => {
       const text = e.target?.result as string
-      const { rows } = parseCsv(text)
+      const { headers, rows } = parseCsv(text)
       const vr = validateRows(rows, fields)
+      setParsedHeaders(headers)
       setValidated(vr)
       setStage('preview')
     }
@@ -167,8 +179,14 @@ export default function CsvImportModal({
   async function handleImport() {
     setStage('importing')
     const rows = validRows.map(v => v.row)
+    const context: ImportContext = {
+      totalRows:           validated.length,
+      rowNumbers:          validRows.map(v => v.rowNumber),
+      validationErrorRows: errorRows.length,
+      headers:             parsedHeaders,
+    }
     try {
-      const res = await onImport(rows)
+      const res = await onImport(rows, context)
       setResult(res)
       setStage('done')
     } catch (err) {
@@ -383,6 +401,24 @@ export default function CsvImportModal({
                       </p>
                     )}
                   </div>
+                </div>
+              )}
+
+              {/* Skipped duplicates detail */}
+              {result.skippedMessages && result.skippedMessages.length > 0 && (
+                <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+                  <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-amber-400">
+                    <AlertTriangle size={13} />
+                    {result.skippedMessages.length} duplicate{result.skippedMessages.length !== 1 ? 's' : ''} skipped
+                  </div>
+                  <ul className="space-y-0.5">
+                    {result.skippedMessages.slice(0, 8).map((m, i) => (
+                      <li key={i} className="text-xs text-amber-300/80">{m}</li>
+                    ))}
+                    {result.skippedMessages.length > 8 && (
+                      <li className="text-xs text-amber-400/60">…and {result.skippedMessages.length - 8} more</li>
+                    )}
+                  </ul>
                 </div>
               )}
 

@@ -18,6 +18,7 @@ export type ActivityActionType =
   | 'raw_material.imported'
   | 'raw_material.deleted'
   | 'raw_material_lot.created'
+  | 'raw_material_lot.imported'
   | 'qc_inspection.created'
   | 'qc_inspection.passed'
   | 'qc_inspection.failed'
