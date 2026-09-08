@@ -7,6 +7,7 @@ export type ActivityActionType =
   | 'production_order.created'
   | 'production_order.updated'
   | 'production_order.deleted'
+  | 'production_order.imported'
   | 'bill_of_materials.created'
   | 'bill_of_materials.deleted'
   | 'qc_result.added'
@@ -50,6 +51,7 @@ export const ACTION_TYPES_BY_SECTION = {
     'production_order.created',
     'production_order.updated',
     'production_order.deleted',
+    'production_order.imported',
     'bill_of_materials.deleted',
     'qc_result.added',
     'qc_result.deleted',

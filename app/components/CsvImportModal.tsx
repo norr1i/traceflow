@@ -27,6 +27,7 @@ export type ImportContext = {
   rowNumbers:          number[]  // original CSV row number for each row passed to onImport
   validationErrorRows: number    // rows rejected by structural validation
   headers:             string[]  // normalized parsed CSV headers
+  allParsedRows?:      Array<{ rowNumber: number; row: Record<string, string> }>
 }
 
 type Props = {
@@ -184,6 +185,7 @@ export default function CsvImportModal({
       rowNumbers:          validRows.map(v => v.rowNumber),
       validationErrorRows: errorRows.length,
       headers:             parsedHeaders,
+      allParsedRows:       validated.map(v => ({ rowNumber: v.rowNumber, row: v.row })),
     }
     try {
       const res = await onImport(rows, context)

@@ -35,6 +35,8 @@ export type ProductionOrder = {
   status: 'pending' | 'in_progress' | 'completed' | 'cancelled'
   started_at?: string
   completed_at?: string
+  order_number?: string | null
+  unit?: string | null
   due_date?: string | null
   created_at: string
 }

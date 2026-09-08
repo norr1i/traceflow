@@ -16,8 +16,9 @@ import {
   Plus, Pencil, Trash2, X, Check, AlertTriangle, ClipboardList,
   QrCode, Copy, Download, ExternalLink, Layers, FlaskConical, GitBranch, Printer,
   MoreHorizontal, XCircle, ChevronsUpDown, ChevronUp, ChevronDown, Search,
-  Play, Package,
+  Play, Package, Upload,
 } from 'lucide-react'
+import CsvImportModal, { type CsvFieldDef, type ImportResult, type ImportContext } from '../components/CsvImportModal'
 import PaginationBar from '../components/PaginationBar'
 
 const PAGE_SIZE = 50
@@ -43,6 +44,28 @@ const emptyOrder = { product_id: '', quantity: 1, status: 'pending' as Productio
 const statuses: ProductionOrder['status'][] = ['pending', 'in_progress', 'completed', 'cancelled']
 const emptyBom = { quantity: '', unit: '' }
 const emptyCreateLot = { lot_number: '', supplier_id: '', quantity: '', unit: '', received_at: '' }
+
+const ORDER_FIELDS: CsvFieldDef[] = [
+  { key: 'order_reference', label: 'Order Reference', required: true,  type: 'string' },
+  { key: 'product_sku',     label: 'Product SKU',     required: false, type: 'string' },
+  { key: 'product_name',    label: 'Product Name',    required: false, type: 'string' },
+  { key: 'quantity',        label: 'Quantity',        required: true,  type: 'string' },
+  { key: 'unit',            label: 'Unit',            required: true,  type: 'string' },
+  { key: 'due_date',        label: 'Due Date',        required: false, type: 'string' },
+]
+const ORDER_SAMPLE_ROWS = [
+  {
+    order_reference: 'EXAMPLE-ORDER-001 — Replace Before Import',
+    product_sku:     'EXAMPLE-SKU-001',
+    product_name:    '',
+    quantity:        '100',
+    unit:            'pcs',
+    due_date:        '2026-10-01',
+  },
+]
+const ALLOWED_ORDER_HEADERS = new Set([
+  'order_reference', 'product_sku', 'product_name', 'quantity', 'unit', 'due_date',
+])
 
 type QcStatus = 'pass' | 'fail' | 'hold'
 const qcStatusConfig: Record<QcStatus, string> = {
@@ -208,6 +231,8 @@ export default function ProductionClient() {
   const [sortCol,       setSortCol]       = useState<SortColProd>('urgency')
   const [sortAsc,       setSortAsc]       = useState(true)
 
+  const [showImportOrders, setShowImportOrders] = useState(false)
+
   const [showForm, setShowForm]   = useState(false)
   const [editing, setEditing]     = useState<OrderWithProduct | null>(null)
   const [form, setForm]           = useState(emptyOrder)
@@ -370,7 +395,8 @@ export default function ProductionClient() {
   if (searchLower) {
     filteredOrders = filteredOrders.filter((o) =>
       formatOrderNumber(o.id, o.created_at).toLowerCase().includes(searchLower) ||
-      (o.products?.name ?? '').toLowerCase().includes(searchLower)
+      (o.products?.name ?? '').toLowerCase().includes(searchLower) ||
+      (o.order_number ?? '').toLowerCase().includes(searchLower)
     )
   }
 
@@ -511,6 +537,287 @@ export default function ProductionClient() {
       actionType: 'production_order.updated', entityType: 'production_order', entityId: o.id,
       message: `${actorName(user?.email)} started production for order`,
     }).catch(err => console.error('[logActivity] production_order.started failed:', err))
+  }
+
+  async function handleProductionOrderImport(
+    rows: Record<string, string>[],
+    context: ImportContext,
+  ): Promise<ImportResult> {
+    if (!companyId || !user?.id) {
+      return { inserted: 0, skipped: 0, errors: ['Not authenticated.'] }
+    }
+    if (!canEdit(role, 'production')) {
+      return { inserted: 0, skipped: 0, errors: ['You do not have permission to import production orders.'] }
+    }
+
+    // ── Header validation (before any DB access) ──────────────────────────
+    const hdrs = context.headers
+
+    if (new Set(hdrs).size !== hdrs.length) {
+      const seen = new Set<string>()
+      for (const h of hdrs) {
+        if (seen.has(h)) return { inserted: 0, skipped: 0, errors: [`Duplicate column "${h}". Fix the CSV and re-upload.`] }
+        seen.add(h)
+      }
+    }
+    for (const h of hdrs) {
+      if (!ALLOWED_ORDER_HEADERS.has(h)) {
+        return { inserted: 0, skipped: 0, errors: [`Unsupported column "${h}". Allowed columns: ${[...ALLOWED_ORDER_HEADERS].join(', ')}.`] }
+      }
+    }
+    if (!hdrs.includes('order_reference')) return { inserted: 0, skipped: 0, errors: ['Missing required column "order_reference".'] }
+    if (!hdrs.includes('quantity'))        return { inserted: 0, skipped: 0, errors: ['Missing required column "quantity".'] }
+    if (!hdrs.includes('unit'))            return { inserted: 0, skipped: 0, errors: ['Missing required column "unit".'] }
+    const hasSku  = hdrs.includes('product_sku')
+    const hasName = hdrs.includes('product_name')
+    if (!hasSku && !hasName) {
+      return { inserted: 0, skipped: 0, errors: ['Include at least "product_sku" or "product_name" in the CSV.'] }
+    }
+
+    // ── Repeated-reference detection across ALL parsed rows ───────────────
+    if (!context.allParsedRows) {
+      return { inserted: 0, skipped: 0, errors: ['Source row context is unavailable. Re-upload the file.'] }
+    }
+    const allRefCounts = new Map<string, number>()
+    for (const { row } of context.allParsedRows) {
+      const ref = (row['order_reference'] ?? '').trim()
+      if (ref) allRefCounts.set(ref, (allRefCounts.get(ref) ?? 0) + 1)
+    }
+    const repeatedRefs = new Set<string>()
+    for (const [ref, count] of allRefCounts) {
+      if (count >= 2) repeatedRefs.add(ref)
+    }
+
+    // ── Per-row local validation (before prefetch) ────────────────────────
+    type ParsedRow = {
+      rowNum:  number
+      ref:     string
+      sku:     string | null
+      name:    string | null
+      qty:     number
+      unit:    string
+      dueDate: string | null
+    }
+
+    const validParsed: ParsedRow[] = []
+    const errors: string[] = []
+
+    for (let i = 0; i < rows.length; i++) {
+      const row    = rows[i]
+      const rowNum = context.rowNumbers[i]
+
+      const ref = (row['order_reference'] ?? '').trim()
+      if (!ref) { errors.push(`Row ${rowNum}: order_reference cannot be blank.`); continue }
+
+      if (repeatedRefs.has(ref)) {
+        const count = allRefCounts.get(ref) ?? 2
+        errors.push(`Row ${rowNum}: order_reference "${ref}" appears ${count} times in this file. Each reference must be unique per file.`)
+        continue
+      }
+
+      const rawQty = (row['quantity'] ?? '').trim()
+      if (!rawQty || !/^\d+$/.test(rawQty)) {
+        errors.push(`Row ${rowNum}: quantity must be a whole number with no decimal point or exponent (got "${row['quantity'] ?? ''}").`); continue
+      }
+      const qty = parseInt(rawQty, 10)
+      if (qty <= 0)         { errors.push(`Row ${rowNum}: quantity must be at least 1.`); continue }
+      if (qty > 2147483647) { errors.push(`Row ${rowNum}: quantity exceeds the maximum allowed value (2,147,483,647).`); continue }
+
+      const unit = (row['unit'] ?? '').trim()
+      if (!unit) { errors.push(`Row ${rowNum}: unit cannot be blank.`); continue }
+
+      const sku  = hasSku  ? ((row['product_sku']  ?? '').trim() || null) : null
+      const name = hasName ? ((row['product_name'] ?? '').trim() || null) : null
+      if (!sku && !name) { errors.push(`Row ${rowNum}: Either product_sku or product_name is required.`); continue }
+
+      const rawDate = (row['due_date'] ?? '').trim()
+      let dueDate: string | null = null
+      if (rawDate) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+          errors.push(`Row ${rowNum}: due_date must be YYYY-MM-DD format (got "${rawDate}").`); continue
+        }
+        const [y, m, d] = rawDate.split('-').map(Number)
+        if (y < 1 || y > 9999) { errors.push(`Row ${rowNum}: due_date year must be 0001–9999.`); continue }
+        const isLeap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0
+        const daysInMonth = [31, isLeap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        if (m < 1 || m > 12 || d < 1 || d > daysInMonth[m - 1]) {
+          errors.push(`Row ${rowNum}: due_date "${rawDate}" is not a valid calendar date.`); continue
+        }
+        dueDate = rawDate
+      }
+
+      validParsed.push({ rowNum, ref, sku, name, qty, unit, dueDate })
+    }
+
+    // ── Prefetch: products ────────────────────────────────────────────────
+    const { data: prodData, count: prodCount, error: prodErr } = await supabase
+      .from('products')
+      .select('id, name, sku', { count: 'exact' })
+      .eq('company_id', companyId)
+
+    if (
+      prodErr ||
+      !Array.isArray(prodData) ||
+      typeof prodCount !== 'number' ||
+      !Number.isSafeInteger(prodCount) ||
+      prodCount < 0 ||
+      prodData.length !== prodCount
+    ) {
+      return { inserted: 0, skipped: 0, errors: ['Could not load the complete products list. No orders were imported.'] }
+    }
+
+    // ── Prefetch: existing production orders ──────────────────────────────
+    const { data: existData, count: existCount, error: existErr } = await supabase
+      .from('production_orders')
+      .select('id, order_number, product_id, quantity, unit, status, due_date', { count: 'exact' })
+      .eq('company_id', companyId)
+
+    if (
+      existErr ||
+      !Array.isArray(existData) ||
+      typeof existCount !== 'number' ||
+      !Number.isSafeInteger(existCount) ||
+      existCount < 0 ||
+      existData.length !== existCount
+    ) {
+      return { inserted: 0, skipped: 0, errors: ['Could not load the complete existing orders list. No orders were imported.'] }
+    }
+
+    // ── Build lookup maps ─────────────────────────────────────────────────
+    type ProductRec = { id: string; name: string; sku: string | null }
+    const skuMap  = new Map<string, ProductRec[]>()
+    const nameMap = new Map<string, ProductRec[]>()
+    for (const p of prodData as ProductRec[]) {
+      if (p.sku) {
+        const sl = skuMap.get(p.sku) ?? []
+        sl.push(p)
+        skuMap.set(p.sku, sl)
+      }
+      const normName = p.name.trim().toLowerCase()
+      const nl = nameMap.get(normName) ?? []
+      nl.push(p)
+      nameMap.set(normName, nl)
+    }
+
+    type ExistRec = {
+      id: string; order_number: string | null
+      product_id: string; quantity: number
+      unit: string | null; status: string; due_date: string | null
+    }
+    const existMap = new Map<string, ExistRec[]>()
+    for (const o of existData as ExistRec[]) {
+      const storedRef = (o.order_number ?? '').trim()
+      if (!storedRef) continue
+      const el = existMap.get(storedRef) ?? []
+      el.push(o)
+      existMap.set(storedRef, el)
+    }
+
+    // ── Row loop ──────────────────────────────────────────────────────────
+    let insertedCount = 0
+    let skippedCount  = 0
+    const skippedMessages: string[] = []
+
+    for (const r of validParsed) {
+      // Product resolution
+      let resolved: ProductRec | null = null
+
+      if (r.sku !== null) {
+        const skuMatches = skuMap.get(r.sku) ?? []
+        if (skuMatches.length === 0) {
+          errors.push(`Row ${r.rowNum}: No product found with SKU "${r.sku}".`); continue
+        }
+        if (skuMatches.length > 1) {
+          errors.push(`Row ${r.rowNum}: Multiple products share SKU "${r.sku}". Contact support.`); continue
+        }
+        const bySku = skuMatches[0]
+        if (r.name !== null) {
+          if (bySku.name.trim().toLowerCase() !== r.name.toLowerCase()) {
+            errors.push(`Row ${r.rowNum}: product_sku "${r.sku}" resolves to "${bySku.name}" but product_name is "${r.name}".`); continue
+          }
+        }
+        resolved = bySku
+      } else {
+        const normName = (r.name ?? '').toLowerCase()
+        const matches  = nameMap.get(normName) ?? []
+        if (matches.length === 0) {
+          errors.push(`Row ${r.rowNum}: No product found with name "${r.name}".`); continue
+        }
+        if (matches.length > 1) {
+          errors.push(`Row ${r.rowNum}: Multiple products share the name "${r.name}". Use product_sku to disambiguate.`); continue
+        }
+        resolved = matches[0]
+      }
+
+      // Existing reference check
+      const existing = existMap.get(r.ref) ?? []
+      if (existing.length > 1) {
+        errors.push(`Row ${r.rowNum}: Multiple existing orders share reference "${r.ref}". Resolve manually before reimporting.`); continue
+      }
+      if (existing.length === 1) {
+        const ex = existing[0]
+        if (ex.status !== 'pending') {
+          errors.push(`Row ${r.rowNum}: Order "${r.ref}" has status "${ex.status}" and cannot be reimported.`); continue
+        }
+        const same =
+          ex.product_id         === resolved!.id &&
+          ex.quantity           === r.qty         &&
+          (ex.unit ?? '').trim() === r.unit       &&
+          ex.due_date           === r.dueDate
+        if (same) {
+          skippedCount++
+          skippedMessages.push(`Row ${r.rowNum}: Order "${r.ref}" already exists with identical details.`)
+          continue
+        }
+        errors.push(`Row ${r.rowNum}: Order "${r.ref}" already exists with different details. Review before reimporting.`); continue
+      }
+
+      // Insert
+      const { data: newOrder, error: insertErr } = await supabase
+        .from('production_orders')
+        .insert([{
+          company_id:   companyId,
+          product_id:   resolved!.id,
+          quantity:     r.qty,
+          unit:         r.unit,
+          status:       'pending',
+          order_number: r.ref,
+          due_date:     r.dueDate ?? null,
+        }])
+        .select('id, order_number, product_id, quantity, unit, status, due_date')
+        .single()
+
+      if (insertErr || !newOrder) {
+        errors.push(`Row ${r.rowNum}: Failed to import order "${r.ref}" — ${insertErr?.message ?? 'unexpected error'}.`); continue
+      }
+
+      const refList = existMap.get(r.ref) ?? []
+      refList.push(newOrder as ExistRec)
+      existMap.set(r.ref, refList)
+
+      insertedCount++
+    }
+
+    // ── Audit ─────────────────────────────────────────────────────────────
+    logActivity({
+      companyId,
+      actorUserId: user!.id,
+      actorEmail:  user?.email,
+      actionType:  'production_order.imported',
+      entityType:  'production_order',
+      entityId:    null,
+      message:     `${actorName(user?.email)} imported production orders`,
+      metadata: {
+        total_rows:   context.totalRows,
+        inserted:     insertedCount,
+        skipped:      skippedCount,
+        errors_count: context.validationErrorRows + errors.length,
+      },
+    }).catch(err => console.error('[logActivity] production_order.imported failed:', err))
+
+    if (insertedCount > 0) loadOrders()
+
+    return { inserted: insertedCount, skipped: skippedCount, errors, skippedMessages }
   }
 
   function handleDownloadQR() {
@@ -738,6 +1045,13 @@ export default function ProductionClient() {
         </div>
         {canWrite && (
           <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={() => setShowImportOrders(true)}
+              title="Import new planned orders from CSV. Duplicate references within a file are rejected. Running imports simultaneously may create duplicate references."
+              className="flex items-center gap-1.5 rounded-lg border border-[#B3B7BA]/50 dark:border-[#B3B7BA]/[0.10] bg-[#E6E4E0] dark:bg-[#262E36]/38 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-[#D1CFC9]/30 dark:hover:bg-[#262E36]/45 transition-colors"
+            >
+              <Upload size={15} /> Import Orders
+            </button>
             <button onClick={openCreate}
               className="flex items-center gap-1.5 rounded-lg bg-[#3a6f8f] px-4 py-2 text-sm font-medium text-white hover:bg-[#2d5a74] transition-colors">
               <Plus size={15} /> {t('production.new_order')}
@@ -775,6 +1089,18 @@ export default function ProductionClient() {
           </button>
         ))}
       </div>
+
+      {/* ── Import Orders modal ───────────────────────────────────────────── */}
+      {showImportOrders && (
+        <CsvImportModal
+          title="Import Production Orders"
+          fields={ORDER_FIELDS}
+          sampleFilename="production_orders_template.csv"
+          sampleRows={ORDER_SAMPLE_ROWS}
+          onClose={() => setShowImportOrders(false)}
+          onImport={handleProductionOrderImport}
+        />
+      )}
 
       {/* ── Order create / edit modal ─────────────────────────────────────── */}
       {showForm && (
@@ -1326,10 +1652,15 @@ export default function ProductionClient() {
                 return (
                   <tr key={o.id} className="hover:bg-[rgba(58,111,143,0.07)] dark:hover:bg-[rgba(58,111,143,0.13)] transition-colors duration-150">
                     <td className="px-3 py-1.5 font-mono text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
-                      {formatOrderNumber(o.id, o.created_at)}
+                      {o.order_number?.trim() || formatOrderNumber(o.id, o.created_at)}
                     </td>
                     <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">{o.products?.name ?? '—'}</td>
-                    <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">{fmtNum(o.quantity, lang)}</td>
+                    <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">
+                      {fmtNum(o.quantity, lang)}
+                      {o.order_number?.trim() && o.unit?.trim() ? (
+                        <span className="ms-1 text-xs text-gray-400 dark:text-gray-500">{o.unit}</span>
+                      ) : null}
+                    </td>
                     <td className="px-3 py-1.5"><StatusBadge status={o.status} /></td>
                     <td className="px-3 py-1.5 hidden sm:table-cell">
                       {o.due_date ? (
