@@ -222,13 +222,30 @@ function exportCSV(result: ImpactResult, query: string, searchType: SearchType) 
 }
 
 function exportJSON(result: ImpactResult, query: string, searchType: SearchType) {
+  const sq = result.scope_quality ?? null
+  const isLotSearch = searchType === 'lot'
+  const scopeWarning = isLotSearch
+    ? 'Results were matched by lot-number text and may include multiple raw-material lot IDs.' +
+      ' This is not a verified single-lot recall boundary.' +
+      ' Verify the exact lot identity before use.' +
+      (sq === 'text_lot_ambiguous'
+        ? ' Multiple material-name contexts matched this lot number — results may span unrelated materials.'
+        : '')
+    : undefined
   const payload = {
     meta: {
       query,
-      search_type: searchType,
-      generated_at: new Date().toISOString(),
-      risk_level: result.risk_level,
-      has_open_recall: result.has_open_recall,
+      search_type:         searchType,
+      generated_at:        new Date().toISOString(),
+      risk_level:          result.risk_level,
+      has_open_recall:     result.has_open_recall,
+      scope_quality:       result.scope_quality      ?? null,
+      ambiguity_detected:  result.ambiguity_detected ?? null,
+      ambiguous_materials: result.ambiguous_materials ?? null,
+      ...(scopeWarning !== undefined ? { scope_warning: scopeWarning } : {}),
+      ...(isLotSearch ? {
+        ambiguity_note: 'ambiguity_detected reflects distinct normalized material-name contexts, not the count of raw_material_lots UUIDs. A value of false does not mean a single raw-lot UUID was identified.',
+      } : {}),
     },
     summary: {
       total_products:        result.total_products,
@@ -246,6 +263,10 @@ function exportJSON(result: ImpactResult, query: string, searchType: SearchType)
       quantity:       d.quantity,
       shipped_at:     d.shipped_at,
     })),
+    _schema: {
+      'affected_batches[].batch_id':      'production_orders.id',
+      'affected_distributors[].batch_id': 'batches.id — intermediate batch record; production_order_id mapping not included in this export',
+    },
   }
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
   const url  = URL.createObjectURL(blob)
@@ -832,6 +853,7 @@ export default function RecallImpactClient() {
   const [query,      setQuery]      = useState('')
   const [loading,    setLoading]    = useState(false)
   const [result,     setResult]     = useState<ImpactResult | null>(null)
+  const [resultCtx,  setResultCtx]  = useState<{ query: string; searchType: SearchType } | null>(null)
   const [searched,   setSearched]   = useState(false)
   const [showModal,  setShowModal]  = useState(false)
   const autoSearchFired = useRef(false)
@@ -917,6 +939,7 @@ export default function RecallImpactClient() {
     if (!q.trim()) return
     setLoading(true)
     setResult(null)
+    setResultCtx(null)
     setSearched(false)
 
     const params: Record<string, unknown> = {}
@@ -929,6 +952,7 @@ export default function RecallImpactClient() {
     setSearched(true)
     if (error) { toast.error('Search failed'); return }
     setResult(data as ImpactResult)
+    setResultCtx({ query: q.trim(), searchType: type })
   }
 
   useEffect(() => {
@@ -1232,7 +1256,7 @@ export default function RecallImpactClient() {
               <FileDown size={14} /> Export CSV
             </button>
             <button
-              onClick={() => exportJSON(result, query, searchType)}
+              onClick={() => exportJSON(result, resultCtx!.query, resultCtx!.searchType)}
               className="flex items-center gap-1.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
             >
               <FileDown size={14} /> Export JSON
