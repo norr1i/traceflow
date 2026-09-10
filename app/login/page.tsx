@@ -104,7 +104,15 @@ function LoginContent() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">{t('login.password')}</label>
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <label className="block text-sm font-medium text-[#B3B7BA]">{t('login.password')}</label>
+                <Link
+                  href="/forgot-password"
+                  className="text-xs font-medium text-[#4a8fb9] hover:text-[#6aafd9] transition-colors"
+                >
+                  {t('login.forgot_password')}
+                </Link>
+              </div>
               <div className="relative">
                 <input
                   type={showPw ? 'text' : 'password'}
@@ -123,6 +131,7 @@ function LoginContent() {
                 <button
                   type="button"
                   onClick={() => setShowPw(!showPw)}
+                  aria-label={showPw ? t('common.hide_password') : t('common.show_password')}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6C6D74] hover:text-[#B3B7BA] transition-colors"
                 >
                   {showPw ? <EyeOff size={16} /> : <Eye size={16} />}

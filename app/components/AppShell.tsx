@@ -35,9 +35,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const isVerifyPage    = pathname === '/verify-email'
   const isTracePage     = pathname.startsWith('/trace/')
   const isOnboardingPage = pathname === '/onboarding'
+  // Password recovery pages. /reset-password is anon (not isAuthPage) on
+  // purpose: a Supabase recovery link auto-establishes a session via
+  // detectSessionInUrl, and treating it as an auth page would bounce the
+  // recovering user to home before they can set a new password.
+  const isRecoveryPage  = pathname === '/forgot-password' || pathname === '/reset-password'
 
   // Pages that require no auth at all (anon-accessible)
-  const isAnonPage = isAuthPage || isVerifyPage || isTracePage
+  const isAnonPage = isAuthPage || isVerifyPage || isTracePage || isRecoveryPage
 
   useEffect(() => {
     if (loading) return
