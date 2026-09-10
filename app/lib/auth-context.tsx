@@ -59,8 +59,8 @@ function buildInfo(data: any): UserInfo {
  * Flow:
  *  1. Fetch existing profile row.
  *  2a. Profile complete (role + company_id) → return immediately.
- *  2b. No profile at all → upsert bare row; trg_bootstrap_company creates
- *      the company for brand-new users. Re-fetch; if complete → return.
+ *  2b. No profile at all → call ensure_my_profile() RPC; tf_bootstrap_company
+ *      fires inside it and assigns company + role. Re-fetch; if complete → return.
  *  3. Profile exists but company_id is NULL (invited user whose trigger
  *     failed, or partial signup) → call accept_my_invitation().
  *  4. Final re-fetch and return whatever we have.
@@ -80,18 +80,20 @@ async function loadUserInfo(userId: string): Promise<UserInfo> {
   if (data?.role && data?.company_id) return buildInfo(data)
 
   if (!data?.role) {
-    // No profile row at all. Upsert a bare one; the trg_bootstrap_company
-    // trigger fires BEFORE INSERT and may set company_id + role = 'admin'.
-    await withTimeout(
-      supabase
-        .from('user_profiles')
-        .upsert(
-          { user_id: userId, role: 'manager' },
-          { onConflict: 'user_id', ignoreDuplicates: true },
-        ),
+    // No profile row at all. Create one via ensure_my_profile() RPC.
+    // Direct browser INSERT on user_profiles will be revoked in Phase C
+    // after this app change is deployed and verified.
+    // ensure_my_profile() is SECURITY DEFINER; tf_bootstrap_company fires
+    // inside it and assigns company + role via invitation or new-company creation.
+    const rpcResult = await withTimeout(
+      supabase.rpc('ensure_my_profile'),
       PER_CALL_MS,
       null,
     )
+    if (rpcResult?.error) {
+      console.error('[auth] ensure_my_profile failed:', rpcResult.error.message)
+      return buildInfo(null)
+    }
 
     data = await timedFetch()
     if (data?.role && data?.company_id) return buildInfo(data)
