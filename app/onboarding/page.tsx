@@ -4,18 +4,20 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Building2, AlertCircle, Loader2, ShieldCheck } from 'lucide-react'
 import { LogoIcon } from '../components/Logo'
+import { useT } from '../lib/i18n'
 
-function friendlyError(raw: string): string {
+function friendlyError(raw: string, t: (k: string) => string): string {
   if (raw.includes('already belongs to a company'))
-    return 'Your account is already linked to a workspace. Redirecting…'
+    return t('onboarding.err_already_linked')
   if (raw.includes('Company name cannot be empty'))
-    return 'Please enter a name for your workspace.'
+    return t('onboarding.err_name_empty')
   if (raw.includes('Not authenticated'))
-    return 'Your session has expired. Please sign in again.'
-  return raw
+    return t('onboarding.err_session_expired')
+  return t('onboarding.err_generic')
 }
 
 export default function OnboardingPage() {
+  const { t } = useT()
   const [name,    setName]    = useState('')
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState<string | null>(null)
@@ -24,7 +26,7 @@ export default function OnboardingPage() {
     e.preventDefault()
     if (loading) return
     const trimmed = name.trim()
-    if (!trimmed) { setError('Please enter a workspace name.'); return }
+    if (!trimmed) { setError(t('onboarding.err_name_required')); return }
 
     setLoading(true)
     setError(null)
@@ -37,7 +39,7 @@ export default function OnboardingPage() {
         window.location.href = '/'
         return
       }
-      setError(friendlyError(rpcErr.message))
+      setError(friendlyError(rpcErr.message, t))
       setLoading(false)
       return
     }
@@ -65,9 +67,9 @@ export default function OnboardingPage() {
           <div className="mb-5">
             <LogoIcon size="lg" />
           </div>
-          <h1 className="text-2xl font-bold text-[#D3D1CE] tracking-tight">Name your workspace</h1>
+          <h1 className="text-2xl font-bold text-[#D3D1CE] tracking-tight">{t('onboarding.title')}</h1>
           <p className="mt-1.5 text-sm text-[#6C6D74]">
-            One last step — give your company a name to get started.
+            {t('onboarding.subtitle')}
           </p>
         </div>
 
@@ -86,7 +88,7 @@ export default function OnboardingPage() {
               <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">
                 <span className="flex items-center gap-1.5">
                   <Building2 size={13} className="text-[#4a8fb9]" />
-                  Company / Factory name
+                  {t('onboarding.company_label')}
                 </span>
               </label>
               <input
@@ -96,11 +98,11 @@ export default function OnboardingPage() {
                 autoComplete="organization"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Al-Faisaliah Foods Co."
+                placeholder={t('onboarding.company_placeholder')}
                 className={inputClass}
               />
               <p className="mt-1.5 text-xs text-[#6C6D74]">
-                This is your private workspace name. You can change it later.
+                {t('onboarding.company_hint')}
               </p>
             </div>
 
@@ -119,7 +121,7 @@ export default function OnboardingPage() {
               "
             >
               {loading && <Loader2 size={15} className="animate-spin" />}
-              {loading ? 'Setting up workspace…' : 'Create workspace'}
+              {loading ? t('onboarding.creating') : t('onboarding.create')}
             </button>
           </form>
         </div>
@@ -127,7 +129,7 @@ export default function OnboardingPage() {
         {/* Security note */}
         <div className="mt-6 flex items-center justify-center gap-1.5 text-xs text-[#6C6D74]/70">
           <ShieldCheck size={12} />
-          <span>Your data is isolated — other companies cannot access it</span>
+          <span>{t('onboarding.isolation_note')}</span>
         </div>
       </div>
     </div>

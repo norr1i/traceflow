@@ -8,8 +8,9 @@ import { ROLE_META } from '../lib/roles'
 import type { Role } from '../lib/roles'
 import { Eye, EyeOff, AlertCircle, Loader2, Building2, User, CheckCircle2 } from 'lucide-react'
 import { LogoIcon } from '../components/Logo'
+import { useT } from '../lib/i18n'
 
-function getPasswordStrength(pw: string): { bars: number; label: string; color: string } {
+function getPasswordStrength(pw: string, t: (k: string) => string): { bars: number; label: string; color: string } {
   let score = 0
   if (pw.length >= 8)           score++
   if (pw.length >= 12)          score++
@@ -17,22 +18,22 @@ function getPasswordStrength(pw: string): { bars: number; label: string; color: 
   if (/[0-9]/.test(pw))         score++
   if (/[^A-Za-z0-9]/.test(pw))  score++
   const bars = score <= 1 ? 1 : score === 2 ? 2 : score === 3 ? 3 : 4
-  if (bars === 1) return { bars, label: 'Weak',   color: 'bg-[#8a3535]' }
-  if (bars === 2) return { bars, label: 'Fair',   color: 'bg-[#8a6530]' }
-  if (bars === 3) return { bars, label: 'Good',   color: 'bg-[#3a6f8f]' }
-  return                 { bars, label: 'Strong', color: 'bg-[#2d7a5a]' }
+  if (bars === 1) return { bars, label: t('signup.strength_weak'),   color: 'bg-[#8a3535]' }
+  if (bars === 2) return { bars, label: t('signup.strength_fair'),   color: 'bg-[#8a6530]' }
+  if (bars === 3) return { bars, label: t('signup.strength_good'),   color: 'bg-[#3a6f8f]' }
+  return                 { bars, label: t('signup.strength_strong'), color: 'bg-[#2d7a5a]' }
 }
 
-function friendlySignupError(raw: string): string {
+function friendlySignupError(raw: string, t: (k: string) => string): string {
   if (raw.includes('User already registered') || raw.includes('already been registered'))
-    return 'An account with this email already exists. Try signing in instead.'
+    return t('signup.err_exists_generic')
   if (raw.includes('Unable to validate email') || raw.includes('invalid format'))
-    return 'Please enter a valid email address.'
+    return t('signup.err_invalid_email')
   if (raw.includes('Password should be at least'))
-    return 'Password must be at least 8 characters long.'
+    return t('signup.err_password_min')
   if (raw.includes('rate limit') || raw.includes('over_email_send_rate_limit'))
-    return 'Too many sign-up attempts. Please wait a few minutes and try again.'
-  return raw
+    return t('signup.err_rate_limit')
+  return t('signup.err_generic')
 }
 
 type InviteInfo = {
@@ -51,6 +52,7 @@ const inputClass = `
 function SignupContent() {
   const router       = useRouter()
   const searchParams = useSearchParams()
+  const { t }        = useT()
 
   const [companyName, setCompanyName] = useState('')
   const [fullName,    setFullName]    = useState('')
@@ -67,7 +69,7 @@ function SignupContent() {
   const [inviteLoading, setInviteLoading] = useState(false)
   const [inviteChecked, setInviteChecked] = useState(false)
 
-  const strength        = password ? getPasswordStrength(password) : null
+  const strength        = password ? getPasswordStrength(password, t) : null
   const confirmMismatch = !!confirm && confirm !== password
   const isInvited       = !!invite
 
@@ -100,12 +102,12 @@ function SignupContent() {
     e.preventDefault()
     if (loading) return
     if (!isInvited && !companyName.trim()) {
-      setError('Please enter your company or factory name.')
+      setError(t('signup.err_company_required'))
       return
     }
-    if (!fullName.trim()) { setError('Please enter your full name.'); return }
-    if (password !== confirm) { setError('Passwords do not match.'); return }
-    if (password.length < 8)  { setError('Password must be at least 8 characters.'); return }
+    if (!fullName.trim()) { setError(t('signup.err_name_required')); return }
+    if (password !== confirm) { setError(t('signup.mismatch')); return }
+    if (password.length < 8)  { setError(t('signup.err_password_short')); return }
 
     setLoading(true)
     setError(null)
@@ -125,7 +127,7 @@ function SignupContent() {
     })
 
     if (signUpErr) {
-      setError(friendlySignupError(signUpErr.message))
+      setError(friendlySignupError(signUpErr.message, t))
       setLoading(false)
       return
     }
@@ -135,8 +137,8 @@ function SignupContent() {
       setAlreadyExists(true)
       setError(
         isInvited
-          ? `This email already has a TraceFlow account. Sign in to automatically join ${invite!.company_name}.`
-          : 'An account with this email already exists. Sign in instead.'
+          ? t('signup.err_exists_invited', { company: invite!.company_name })
+          : t('signup.err_exists_signin')
       )
       setLoading(false)
       return
@@ -176,16 +178,16 @@ function SignupContent() {
           {isInvited ? (
             <>
               <h1 className="text-2xl font-bold text-[#D3D1CE] tracking-tight text-center">
-                Join {invite.company_name}
+                {t('signup.title_join', { company: invite.company_name })}
               </h1>
               <p className="mt-1.5 text-sm text-[#6C6D74] text-center">
-                You&apos;ve been invited to TraceFlow
+                {t('signup.subtitle_join')}
               </p>
             </>
           ) : (
             <>
-              <h1 className="text-2xl font-bold text-[#D3D1CE] tracking-tight">Set up your workspace</h1>
-              <p className="mt-1.5 text-sm text-[#6C6D74]">Create your company account on TraceFlow</p>
+              <h1 className="text-2xl font-bold text-[#D3D1CE] tracking-tight">{t('signup.title_setup')}</h1>
+              <p className="mt-1.5 text-sm text-[#6C6D74]">{t('signup.subtitle_setup')}</p>
             </>
           )}
         </div>
@@ -205,7 +207,7 @@ function SignupContent() {
                     href={`/login?email=${encodeURIComponent(email.trim())}`}
                     className="ml-6 font-semibold underline underline-offset-2 hover:text-[#d98080] transition-colors"
                   >
-                    Go to sign in →
+                    {t('signup.go_to_sign_in')}
                   </Link>
                 )}
               </div>
@@ -216,12 +218,12 @@ function SignupContent() {
               <div className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/8 px-4 py-3.5">
                 <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-400" />
                 <div>
-                  <p className="text-sm font-semibold text-emerald-300">Invitation found</p>
+                  <p className="text-sm font-semibold text-emerald-300">{t('signup.invite_found')}</p>
                   <p className="mt-0.5 text-xs text-emerald-400/80">
-                    You&apos;ll join <span className="font-medium">{invite.company_name}</span> as{' '}
+                    {t('signup.invite_join_before')} <span className="font-medium">{invite.company_name}</span> {t('signup.invite_join_after')}{' '}
                     {roleMeta ? (
                       <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${roleMeta.color}`}>
-                        {roleMeta.label}
+                        {t('role.' + invite.role)}
                       </span>
                     ) : (
                       <span className="font-medium">{invite.role}</span>
@@ -236,17 +238,17 @@ function SignupContent() {
               <div className="space-y-1.5">
                 <div className="flex items-center gap-1.5 mb-3">
                   <Building2 size={13} className="text-[#4a8fb9]" />
-                  <span className="text-xs font-semibold text-[#4a8fb9] uppercase tracking-wider">Workspace</span>
+                  <span className="text-xs font-semibold text-[#4a8fb9] uppercase tracking-wider">{t('signup.section_workspace')}</span>
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">Company / Factory name</label>
+                  <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">{t('signup.company_label')}</label>
                   <input
                     type="text"
                     required={!isInvited}
                     autoComplete="organization"
                     value={companyName}
                     onChange={(e) => setCompanyName(e.target.value)}
-                    placeholder="e.g. Al-Faisaliah Foods Co."
+                    placeholder={t('signup.company_placeholder')}
                     className={inputClass}
                   />
                 </div>
@@ -258,25 +260,25 @@ function SignupContent() {
               {!isInvited && (
                 <div className="flex items-center gap-1.5 mb-3">
                   <User size={13} className="text-[#4a8fb9]" />
-                  <span className="text-xs font-semibold text-[#4a8fb9] uppercase tracking-wider">Your account</span>
+                  <span className="text-xs font-semibold text-[#4a8fb9] uppercase tracking-wider">{t('signup.section_account')}</span>
                 </div>
               )}
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">Full name</label>
+                <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">{t('signup.full_name_label')}</label>
                 <input
                   type="text"
                   required
                   autoComplete="name"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  placeholder="e.g. Mohammed Al-Rashid"
+                  placeholder={t('signup.full_name_placeholder')}
                   className={inputClass}
                 />
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">Work email</label>
+                <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">{t('signup.email_label')}</label>
                 <input
                   type="email"
                   required
@@ -290,16 +292,16 @@ function SignupContent() {
                 />
                 {inviteLoading && (
                   <p className="mt-1 flex items-center gap-1 text-xs text-[#6C6D74]">
-                    <Loader2 size={10} className="animate-spin" /> Checking invitation…
+                    <Loader2 size={10} className="animate-spin" /> {t('signup.checking_invitation')}
                   </p>
                 )}
                 {inviteChecked && !inviteLoading && !isInvited && email.includes('@') && (
-                  <p className="mt-1 text-xs text-[#6C6D74]">No invitation found — creating a new workspace.</p>
+                  <p className="mt-1 text-xs text-[#6C6D74]">{t('signup.no_invitation')}</p>
                 )}
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">Password</label>
+                <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">{t('signup.password_label')}</label>
                 <div className="relative">
                   <input
                     type={showPw ? 'text' : 'password'}
@@ -307,12 +309,13 @@ function SignupContent() {
                     autoComplete="new-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Min. 8 characters"
-                    className={inputClass}
+                    placeholder={t('signup.password_placeholder')}
+                    className={`${inputClass} pr-10`}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPw(!showPw)}
+                    aria-label={showPw ? t('common.hide_password') : t('common.show_password')}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6C6D74] hover:text-[#B3B7BA] transition-colors"
                   >
                     {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -332,27 +335,27 @@ function SignupContent() {
                       ))}
                     </div>
                     <p className="text-xs text-[#6C6D74]">
-                      Strength: <span className="font-medium text-[#B3B7BA]">{strength.label}</span>
+                      {t('signup.strength_label')}: <span className="font-medium text-[#B3B7BA]">{strength.label}</span>
                     </p>
                   </div>
                 )}
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">Confirm password</label>
+                <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">{t('signup.confirm_label')}</label>
                 <input
                   type={showPw ? 'text' : 'password'}
                   required
                   autoComplete="new-password"
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
-                  placeholder="Re-enter your password"
+                  placeholder={t('signup.confirm_placeholder')}
                   className={`${inputClass} ${
                     confirmMismatch ? 'border-[#8a3535]/40 focus:ring-[#8a3535]/20' : ''
                   }`}
                 />
                 {confirmMismatch && (
-                  <p className="mt-1 text-xs text-[#c47070]">Passwords do not match.</p>
+                  <p className="mt-1 text-xs text-[#c47070]">{t('signup.mismatch')}</p>
                 )}
               </div>
             </div>
@@ -373,23 +376,23 @@ function SignupContent() {
             >
               {loading && <Loader2 size={15} className="animate-spin" />}
               {loading
-                ? isInvited ? 'Joining workspace…' : 'Creating workspace…'
-                : isInvited ? 'Accept invitation' : 'Create workspace'
+                ? isInvited ? t('signup.joining') : t('signup.creating')
+                : isInvited ? t('signup.accept') : t('signup.create')
               }
             </button>
 
             {!isInvited && (
               <p className="text-center text-xs text-[#6C6D74] leading-relaxed">
-                Your workspace is isolated — no other company can see your data.
+                {t('signup.isolation_note')}
               </p>
             )}
           </form>
         </div>
 
         <p className="mt-6 text-center text-sm text-[#6C6D74]">
-          Already have an account?{' '}
+          {t('signup.have_account')}{' '}
           <Link href="/login" className="font-semibold text-[#4a8fb9] hover:text-[#6aafd9] transition-colors">
-            Sign in
+            {t('signup.sign_in')}
           </Link>
         </p>
       </div>
