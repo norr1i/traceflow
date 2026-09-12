@@ -73,19 +73,6 @@ function fmtDateTime(iso: string) {
   })
 }
 
-function deriveLine(sku: string): string {
-  const p = sku.slice(0, 3).toUpperCase()
-  const MAP: Record<string, string> = {
-    VSR: 'Valve Assembly Line 2',
-    VBC: 'Valve / Manifold Line',
-    VGV: 'Gate Valve Assembly',
-    HPC: 'Hydraulic Cylinder Bay',
-    ELV: 'Electrical Assembly Line A',
-    ELM: 'Electrical Assembly Line A',
-  }
-  return MAP[p] ?? 'General Manufacturing Line'
-}
-
 function scrollToSection(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
@@ -225,11 +212,11 @@ function ProductionInfoSection({
 }) {
   return (
     <Section icon={<Factory size={15} />} title="Production Information" id={sectionId}>
-      {product.completed_at && (
+      {product.completed_at ? (
         <Row label="Completed"      value={fmtDateTime(product.completed_at)} />
+      ) : (
+        <Empty text="Completion date not available for this batch." />
       )}
-      <Row label="Factory / Branch" value="Main Manufacturing Facility — Plant A" />
-      <Row label="Production Line"  value={deriveLine(product.sku)} />
     </Section>
   )
 }
