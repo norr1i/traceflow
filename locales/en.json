@@ -169,6 +169,12 @@
     "error_rate_limit": "Too many attempts. Please wait a few minutes before trying again.",
     "error_expired": "Your confirmation link has expired. Request a new one below."
   },
+  "auth": {
+    "profile_error_title": "Couldn't load your account",
+    "profile_error_body": "We couldn't confirm your workspace right now. This is usually temporary — please try again.",
+    "retry": "Try again",
+    "sign_out": "Sign out"
+  },
   "forgot": {
     "title": "Reset your password",
     "subtitle": "Enter your account email and we'll send you a reset link.",
