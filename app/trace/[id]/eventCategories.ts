@@ -536,54 +536,66 @@ export function fmtTraceDateTime(iso: string, lang: TraceLang): string {
   return `${date}${lang === 'ar' ? '، ' : ', '}${time}`
 }
 
-// ── System-generated vs. customer-authored timeline titles ────────────────────
-// `timeline[].title` may be a system-generated English heading OR genuine
-// customer free text. For a recognized (non-'system') category we render a
-// localized canonical heading (trace.event_title.<key>) in the UI. To avoid
-// discarding real customer text, we treat the raw title as CUSTOM (shown as a
-// secondary line) unless it matches a known system phrasing for that category —
-// in which case it is redundant with the localized heading and hidden.
-// Detection is a normalized-string match against known system phrasings; unknown
-// phrasings are preserved as customer data. No React hooks here — ids/keys only.
+// ── System-generated timeline titles ──────────────────────────────────────────
+// The public RPC (get_public_batch_trace) synthesizes EVERY timeline `title`
+// from `event_type` via a fixed CASE and NEVER copies customer metadata, notes,
+// descriptions, or customer-authored titles. So the public trace contains no
+// customer-authored titles: the localized heading is resolved purely from
+// `event_type`. This registry mirrors the RPC's CASE 1:1. No React hooks here —
+// ids/keys only; translation happens in React render via t().
+//
+// event_type is an arbitrary runtime string from the RPC — typed as such, not a
+// closed compile-time enum.
+const EVENT_TITLE_KEY: Record<string, string> = {
+  'production.order_created':    'production_order_opened',
+  'production.started':          'production_started',
+  'production.completed':        'production_completed',
 
-function normTitle(s: string): string {
-  return s.toLowerCase().replace(/[.،،]+$/g, '').replace(/\s+/g, ' ').trim()
+  'qc.pass':                     'qc_passed',
+  'qc_inspection.passed':        'qc_passed',
+  'qc.fail':                     'qc_failed',
+  'qc_inspection.failed':        'qc_failed',
+  'qc.hold':                     'qc_hold',
+  'qc_inspection.conditional':   'qc_conditional',
+  'qc_inspection.pending':       'qc_pending',
+
+  'raw_material.received':       'raw_material_received',
+  'raw_material.approved':       'raw_material_approved',
+  'raw_material.released':       'raw_material_released',
+
+  'packaging.started':           'packaging_started',
+  'packaging.completed':         'packaging_completed',
+
+  'storage.entry':               'storage_entry',
+  'storage.finished_goods':      'storage_finished_goods',
+  'storage.exit':                'storage_exit',
+
+  'distribution.shipped':        'distribution_shipped',
+  'distribution.received':       'distribution_received',
+  'distributor.received':        'distribution_received',
+
+  'market.listed':               'market_listed',
+  'market.registered':           'market_registered',
+  'market.registered.sfda':      'market_registered_sfda',
+  'market.surveillance':         'market_surveillance',
+  'market.surveillance.passed':  'market_surveillance_passed',
+  'market.surveillance.failed':  'market_surveillance_failed',
+  'market.compliance.confirmed': 'market_compliance_confirmed',
+
+  'recall.opened':               'recall_opened',
+  'recall.closed':               'recall_closed',
 }
 
-const SYSTEM_TITLE_ALIASES: Record<string, string[]> = {
-  production_created:      ['production created', 'production order created', 'production order opened', 'production order', 'order created'],
-  production_started:      ['production started', 'production run started', 'production begun'],
-  production_completed:    ['production completed', 'production run completed', 'production finished'],
-  raw_material:            ['raw material', 'raw material released', 'raw material added', 'material added', 'material released'],
-  qc_passed:               ['qc passed', 'quality inspection passed', 'quality control passed', 'quality check passed'],
-  qc_failed:               ['qc failed', 'quality inspection failed', 'quality control failed', 'quality check failed'],
-  qc_hold:                 ['qc hold', 'qc on hold', 'quality inspection on hold', 'quality hold'],
-  final_qc_passed:         ['final qc passed', 'final quality inspection passed', 'final quality check passed'],
-  final_qc_failed:         ['final qc failed', 'final quality inspection failed', 'final quality check failed'],
-  final_qc_hold:           ['final qc on hold', 'final qc hold', 'final quality inspection on hold'],
-  qc_checkpoint:           ['qc checkpoint', 'quality checkpoint'],
-  supplier_qualification:  ['supplier qualification', 'supplier qualified', 'supplier approved', 'supplier audited'],
-  incoming_qc_approved:    ['incoming inspection passed', 'incoming qc approved', 'incoming inspection approved', 'incoming qc passed'],
-  incoming_qc_conditional: ['incoming inspection conditional', 'incoming qc conditional', 'incoming inspection — conditional'],
-  incoming_qc_failed:      ['incoming inspection failed', 'incoming qc failed'],
-  distribution:            ['distribution', 'distributed', 'shipment created', 'shipped', 'distribution shipped'],
-  recall:                  ['recall issued', 'recall created', 'recall initiated', 'recall closed', 'recall'],
-  packaging:               ['packaging', 'packaging completed', 'packaging started'],
-  capa:                    ['capa', 'capa created', 'capa opened', 'capa closed', 'corrective action'],
-  storage_event:           ['warehouse storage', 'storage entry', 'storage release', 'stored', 'warehouse received'],
-  warehouse_event:         ['warehouse', 'finished goods stored', 'finished goods released', 'dispatch ready'],
-  distributor_event:       ['distributor', 'distributor received', 'distributor released', 'distributor delivered'],
-  market_event:            ['market tracking', 'market listed', 'market active', 'market sold', 'market registered'],
-}
-
-/** True when the raw timeline title is a known system phrasing for this category. */
-export function isCanonicalSystemTitle(categoryKey: string, rawTitle: string): boolean {
-  const aliases = SYSTEM_TITLE_ALIASES[categoryKey]
-  if (!aliases) return false
-  return aliases.includes(normTitle(rawTitle))
-}
-
-/** Recognized (non-'system') categories have a localized canonical heading. */
-export function hasCanonicalTitle(categoryKey: string): boolean {
-  return categoryKey !== 'system' && categoryKey in SYSTEM_TITLE_ALIASES
+/**
+ * Resolve a localized-title KEY (used as trace.event_title.<key>) from an
+ * event_type. Exact mappings take precedence over the generic QC-family
+ * fallback, which mirrors the RPC's `ELSE 'Quality inspection'` for any other
+ * `qc.` / `qc_inspection.` type. Unknown/future types return null so the caller
+ * preserves the RPC's raw title verbatim (never a trace.* key path).
+ */
+export function eventTitleKey(eventType: string): string | null {
+  const exact = EVENT_TITLE_KEY[eventType]
+  if (exact) return exact
+  if (eventType.startsWith('qc.') || eventType.startsWith('qc_inspection.')) return 'qc_generic'
+  return null
 }

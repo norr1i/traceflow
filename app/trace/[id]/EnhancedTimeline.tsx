@@ -7,7 +7,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import {
-  classifyEvent, fmtTraceDateTime, hasCanonicalTitle, isCanonicalSystemTitle,
+  classifyEvent, fmtTraceDateTime, eventTitleKey,
   type EventCategory, type StageGroup,
 } from './eventCategories'
 import { useT } from '../../lib/i18n'
@@ -650,14 +650,17 @@ function EventCard({
   const { Icon, iconBg, iconColor, badgeClass, borderAccent } = category
   const categoryLabel = t('trace.event.' + category.key)
 
-  // Recognized system events render a localized canonical heading. The raw
-  // timeline title is preserved verbatim as a secondary line ONLY when it is
-  // genuine customer text (i.e. not a known system phrasing). Unknown/unmapped
-  // events fall back to the raw title as the heading. Never shows a trace.* key.
-  const recognized = hasCanonicalTitle(category.key)
-  const heading    = recognized ? t('trace.event_title.' + category.key) : event.title
-  const rawTitle   = event.title.trim()
-  const showCustom = recognized && rawTitle !== '' && !isCanonicalSystemTitle(category.key, rawTitle)
+  // The public RPC synthesizes every timeline title from event_type (never from
+  // customer text), so we resolve exactly ONE localized heading by event_type.
+  // Unknown/future event_types fall back to the RPC's raw title verbatim; a
+  // missing locale key also falls back to the raw title (never a trace.* path).
+  const titleKey = eventTitleKey(event.event_type)
+  let heading = event.title
+  if (titleKey) {
+    const key = 'trace.event_title.' + titleKey
+    const localized = t(key)
+    heading = localized === key ? event.title : localized
+  }
 
   return (
     <div className="flex gap-3 group">
@@ -691,13 +694,6 @@ function EventCard({
             {categoryLabel}
           </span>
         </div>
-
-        {/* Customer-authored title preserved verbatim as a secondary description */}
-        {showCustom && (
-          <p dir="auto" className="mt-0.5 text-xs text-gray-600 dark:text-gray-300">
-            {rawTitle}
-          </p>
-        )}
 
         {/* Timestamp */}
         <p className="mt-2 text-[10px] font-medium text-gray-500 dark:text-gray-400 tabular-nums">
