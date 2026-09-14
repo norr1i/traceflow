@@ -138,7 +138,7 @@ export type EventCategory = {
   label:        string
   stageGroup:   StageGroup
   dotBg:        string   // bg-* — connector line and dot
-  borderAccent: string   // border-l-* — left accent on event card
+  borderAccent: string   // border-s-* — left accent on event card
   iconBg:       string   // background of icon circle
   iconColor:    string   // icon foreground
   badgeClass:   string   // pill badge
@@ -153,7 +153,7 @@ const C = {
     label:        'Production Created',
     stageGroup:   'production' as StageGroup,
     dotBg:        'bg-blue-400',
-    borderAccent: 'border-l-blue-400',
+    borderAccent: 'border-s-blue-400',
     iconBg:       'bg-blue-50 dark:bg-blue-900/30',
     iconColor:    'text-blue-500 dark:text-blue-400',
     badgeClass:   'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
@@ -164,7 +164,7 @@ const C = {
     label:        'Production Started',
     stageGroup:   'production' as StageGroup,
     dotBg:        'bg-blue-500',
-    borderAccent: 'border-l-blue-500',
+    borderAccent: 'border-s-blue-500',
     iconBg:       'bg-blue-50 dark:bg-blue-900/30',
     iconColor:    'text-blue-600 dark:text-blue-400',
     badgeClass:   'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
@@ -175,7 +175,7 @@ const C = {
     label:        'Production Completed',
     stageGroup:   'production' as StageGroup,
     dotBg:        'bg-emerald-500',
-    borderAccent: 'border-l-emerald-500',
+    borderAccent: 'border-s-emerald-500',
     iconBg:       'bg-emerald-50 dark:bg-emerald-900/30',
     iconColor:    'text-emerald-600 dark:text-emerald-400',
     badgeClass:   'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
@@ -186,7 +186,7 @@ const C = {
     label:        'Raw Material',
     stageGroup:   'materials' as StageGroup,
     dotBg:        'bg-orange-400',
-    borderAccent: 'border-l-orange-400',
+    borderAccent: 'border-s-orange-400',
     iconBg:       'bg-orange-50 dark:bg-orange-900/30',
     iconColor:    'text-orange-500 dark:text-orange-400',
     badgeClass:   'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
@@ -197,7 +197,7 @@ const C = {
     label:        'QC Passed',
     stageGroup:   'final_qc' as StageGroup,
     dotBg:        'bg-emerald-500',
-    borderAccent: 'border-l-emerald-500',
+    borderAccent: 'border-s-emerald-500',
     iconBg:       'bg-emerald-50 dark:bg-emerald-900/30',
     iconColor:    'text-emerald-600 dark:text-emerald-400',
     badgeClass:   'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
@@ -208,7 +208,7 @@ const C = {
     label:        'QC Failed',
     stageGroup:   'final_qc' as StageGroup,
     dotBg:        'bg-red-500',
-    borderAccent: 'border-l-red-500',
+    borderAccent: 'border-s-red-500',
     iconBg:       'bg-red-50 dark:bg-red-900/30',
     iconColor:    'text-red-600 dark:text-red-400',
     badgeClass:   'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
@@ -219,7 +219,7 @@ const C = {
     label:        'QC Hold',
     stageGroup:   'final_qc' as StageGroup,
     dotBg:        'bg-amber-400',
-    borderAccent: 'border-l-amber-400',
+    borderAccent: 'border-s-amber-400',
     iconBg:       'bg-amber-50 dark:bg-amber-900/30',
     iconColor:    'text-amber-500 dark:text-amber-400',
     badgeClass:   'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
@@ -230,7 +230,7 @@ const C = {
     label:        'Final QC Passed',
     stageGroup:   'final_qc' as StageGroup,
     dotBg:        'bg-emerald-500',
-    borderAccent: 'border-l-emerald-500',
+    borderAccent: 'border-s-emerald-500',
     iconBg:       'bg-emerald-50 dark:bg-emerald-900/30',
     iconColor:    'text-emerald-600 dark:text-emerald-400',
     badgeClass:   'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
@@ -241,7 +241,7 @@ const C = {
     label:        'Final QC Failed',
     stageGroup:   'final_qc' as StageGroup,
     dotBg:        'bg-red-500',
-    borderAccent: 'border-l-red-500',
+    borderAccent: 'border-s-red-500',
     iconBg:       'bg-red-50 dark:bg-red-900/30',
     iconColor:    'text-red-600 dark:text-red-400',
     badgeClass:   'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
@@ -252,7 +252,7 @@ const C = {
     label:        'Final QC On Hold',
     stageGroup:   'final_qc' as StageGroup,
     dotBg:        'bg-amber-400',
-    borderAccent: 'border-l-amber-400',
+    borderAccent: 'border-s-amber-400',
     iconBg:       'bg-amber-50 dark:bg-amber-900/30',
     iconColor:    'text-amber-500 dark:text-amber-400',
     badgeClass:   'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
@@ -263,7 +263,7 @@ const C = {
     label:        'QC Checkpoint',
     stageGroup:   'quality' as StageGroup,
     dotBg:        'bg-amber-400',
-    borderAccent: 'border-l-amber-400',
+    borderAccent: 'border-s-amber-400',
     iconBg:       'bg-amber-50 dark:bg-amber-900/30',
     iconColor:    'text-amber-500 dark:text-amber-400',
     badgeClass:   'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
@@ -274,7 +274,7 @@ const C = {
     label:        'Supplier Qualification',
     stageGroup:   'supplier' as StageGroup,
     dotBg:        'bg-indigo-400',
-    borderAccent: 'border-l-indigo-400',
+    borderAccent: 'border-s-indigo-400',
     iconBg:       'bg-indigo-50 dark:bg-indigo-900/30',
     iconColor:    'text-indigo-500 dark:text-indigo-400',
     badgeClass:   'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
@@ -285,7 +285,7 @@ const C = {
     label:        'Incoming Inspection Passed',
     stageGroup:   'incoming_qc' as StageGroup,
     dotBg:        'bg-yellow-500',
-    borderAccent: 'border-l-yellow-500',
+    borderAccent: 'border-s-yellow-500',
     iconBg:       'bg-yellow-50 dark:bg-yellow-900/30',
     iconColor:    'text-yellow-600 dark:text-yellow-400',
     badgeClass:   'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
@@ -296,7 +296,7 @@ const C = {
     label:        'Incoming Inspection — Conditional',
     stageGroup:   'incoming_qc' as StageGroup,
     dotBg:        'bg-amber-400',
-    borderAccent: 'border-l-amber-400',
+    borderAccent: 'border-s-amber-400',
     iconBg:       'bg-amber-50 dark:bg-amber-900/30',
     iconColor:    'text-amber-500 dark:text-amber-400',
     badgeClass:   'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
@@ -307,7 +307,7 @@ const C = {
     label:        'Incoming Inspection Failed',
     stageGroup:   'incoming_qc' as StageGroup,
     dotBg:        'bg-red-500',
-    borderAccent: 'border-l-red-500',
+    borderAccent: 'border-s-red-500',
     iconBg:       'bg-red-50 dark:bg-red-900/30',
     iconColor:    'text-red-600 dark:text-red-400',
     badgeClass:   'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
@@ -318,7 +318,7 @@ const C = {
     label:        'Distribution',
     stageGroup:   'distribution' as StageGroup,
     dotBg:        'bg-teal-500',
-    borderAccent: 'border-l-teal-500',
+    borderAccent: 'border-s-teal-500',
     iconBg:       'bg-teal-50 dark:bg-teal-900/30',
     iconColor:    'text-teal-600 dark:text-teal-400',
     badgeClass:   'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',
@@ -329,7 +329,7 @@ const C = {
     label:        'Recall Issued',
     stageGroup:   'compliance' as StageGroup,
     dotBg:        'bg-red-600',
-    borderAccent: 'border-l-red-600',
+    borderAccent: 'border-s-red-600',
     iconBg:       'bg-red-50 dark:bg-red-900/40',
     iconColor:    'text-red-700 dark:text-red-400',
     badgeClass:   'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 ring-1 ring-inset ring-red-400',
@@ -340,7 +340,7 @@ const C = {
     label:        'Packaging',
     stageGroup:   'packaging' as StageGroup,
     dotBg:        'bg-cyan-400',
-    borderAccent: 'border-l-cyan-400',
+    borderAccent: 'border-s-cyan-400',
     iconBg:       'bg-cyan-50 dark:bg-cyan-900/30',
     iconColor:    'text-cyan-500 dark:text-cyan-400',
     badgeClass:   'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400',
@@ -351,7 +351,7 @@ const C = {
     label:        'CAPA',
     stageGroup:   'compliance' as StageGroup,
     dotBg:        'bg-purple-500',
-    borderAccent: 'border-l-purple-500',
+    borderAccent: 'border-s-purple-500',
     iconBg:       'bg-purple-50 dark:bg-purple-900/30',
     iconColor:    'text-purple-600 dark:text-purple-400',
     badgeClass:   'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
@@ -362,7 +362,7 @@ const C = {
     label:        'Warehouse Storage',
     stageGroup:   'storage' as StageGroup,
     dotBg:        'bg-stone-500',
-    borderAccent: 'border-l-stone-500',
+    borderAccent: 'border-s-stone-500',
     iconBg:       'bg-stone-50 dark:bg-stone-800/40',
     iconColor:    'text-stone-500 dark:text-stone-400',
     badgeClass:   'bg-stone-100 text-stone-700 dark:bg-stone-700/40 dark:text-stone-400',
@@ -373,7 +373,7 @@ const C = {
     label:        'Warehouse',
     stageGroup:   'warehouse' as StageGroup,
     dotBg:        'bg-sky-500',
-    borderAccent: 'border-l-sky-500',
+    borderAccent: 'border-s-sky-500',
     iconBg:       'bg-sky-50 dark:bg-sky-900/30',
     iconColor:    'text-sky-600 dark:text-sky-400',
     badgeClass:   'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',
@@ -384,7 +384,7 @@ const C = {
     label:        'Distributor',
     stageGroup:   'distributor' as StageGroup,
     dotBg:        'bg-violet-500',
-    borderAccent: 'border-l-violet-500',
+    borderAccent: 'border-s-violet-500',
     iconBg:       'bg-violet-50 dark:bg-violet-900/30',
     iconColor:    'text-violet-600 dark:text-violet-400',
     badgeClass:   'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400',
@@ -395,7 +395,7 @@ const C = {
     label:        'Market Tracking',
     stageGroup:   'market' as StageGroup,
     dotBg:        'bg-rose-500',
-    borderAccent: 'border-l-rose-500',
+    borderAccent: 'border-s-rose-500',
     iconBg:       'bg-rose-50 dark:bg-rose-900/30',
     iconColor:    'text-rose-600 dark:text-rose-400',
     badgeClass:   'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400',
@@ -406,7 +406,7 @@ const C = {
     label:        'System Event',
     stageGroup:   'other' as StageGroup,
     dotBg:        'bg-gray-400',
-    borderAccent: 'border-l-gray-400',
+    borderAccent: 'border-s-gray-400',
     iconBg:       'bg-gray-50 dark:bg-gray-700/40',
     iconColor:    'text-gray-500 dark:text-gray-400',
     badgeClass:   'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
@@ -505,4 +505,85 @@ export function classifyEvent(eventType: string): EventCategory {
 
 export function isScanEvent(sourceTable: string): boolean {
   return sourceTable === 'scan_events'
+}
+
+// ── Shared trace date/time formatting ─────────────────────────────────────────
+// Single implementation used by page.tsx, JourneyMetrics.tsx and EnhancedTimeline.
+// Arabic uses an EXPLICIT Gregorian calendar with Latin numerals (project
+// convention) so the device locale can never pick a different calendar. Date and
+// time are formatted separately and joined with one language-appropriate
+// separator to avoid the browser-ICU double-comma artifact. Invalid dates return
+// '' so callers can render a neutral unavailable state (never "Invalid Date").
+
+type TraceLang = 'en' | 'ar'
+
+export function traceDateLocale(lang: TraceLang): string {
+  return lang === 'ar' ? 'ar-u-ca-gregory-nu-latn' : 'en-US'
+}
+
+export function fmtTraceDate(iso: string, lang: TraceLang): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleDateString(traceDateLocale(lang), { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+export function fmtTraceDateTime(iso: string, lang: TraceLang): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const loc  = traceDateLocale(lang)
+  const date = d.toLocaleDateString(loc, { year: 'numeric', month: 'short', day: 'numeric' })
+  const time = d.toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' })
+  return `${date}${lang === 'ar' ? '، ' : ', '}${time}`
+}
+
+// ── System-generated vs. customer-authored timeline titles ────────────────────
+// `timeline[].title` may be a system-generated English heading OR genuine
+// customer free text. For a recognized (non-'system') category we render a
+// localized canonical heading (trace.event_title.<key>) in the UI. To avoid
+// discarding real customer text, we treat the raw title as CUSTOM (shown as a
+// secondary line) unless it matches a known system phrasing for that category —
+// in which case it is redundant with the localized heading and hidden.
+// Detection is a normalized-string match against known system phrasings; unknown
+// phrasings are preserved as customer data. No React hooks here — ids/keys only.
+
+function normTitle(s: string): string {
+  return s.toLowerCase().replace(/[.،،]+$/g, '').replace(/\s+/g, ' ').trim()
+}
+
+const SYSTEM_TITLE_ALIASES: Record<string, string[]> = {
+  production_created:      ['production created', 'production order created', 'production order opened', 'production order', 'order created'],
+  production_started:      ['production started', 'production run started', 'production begun'],
+  production_completed:    ['production completed', 'production run completed', 'production finished'],
+  raw_material:            ['raw material', 'raw material released', 'raw material added', 'material added', 'material released'],
+  qc_passed:               ['qc passed', 'quality inspection passed', 'quality control passed', 'quality check passed'],
+  qc_failed:               ['qc failed', 'quality inspection failed', 'quality control failed', 'quality check failed'],
+  qc_hold:                 ['qc hold', 'qc on hold', 'quality inspection on hold', 'quality hold'],
+  final_qc_passed:         ['final qc passed', 'final quality inspection passed', 'final quality check passed'],
+  final_qc_failed:         ['final qc failed', 'final quality inspection failed', 'final quality check failed'],
+  final_qc_hold:           ['final qc on hold', 'final qc hold', 'final quality inspection on hold'],
+  qc_checkpoint:           ['qc checkpoint', 'quality checkpoint'],
+  supplier_qualification:  ['supplier qualification', 'supplier qualified', 'supplier approved', 'supplier audited'],
+  incoming_qc_approved:    ['incoming inspection passed', 'incoming qc approved', 'incoming inspection approved', 'incoming qc passed'],
+  incoming_qc_conditional: ['incoming inspection conditional', 'incoming qc conditional', 'incoming inspection — conditional'],
+  incoming_qc_failed:      ['incoming inspection failed', 'incoming qc failed'],
+  distribution:            ['distribution', 'distributed', 'shipment created', 'shipped', 'distribution shipped'],
+  recall:                  ['recall issued', 'recall created', 'recall initiated', 'recall closed', 'recall'],
+  packaging:               ['packaging', 'packaging completed', 'packaging started'],
+  capa:                    ['capa', 'capa created', 'capa opened', 'capa closed', 'corrective action'],
+  storage_event:           ['warehouse storage', 'storage entry', 'storage release', 'stored', 'warehouse received'],
+  warehouse_event:         ['warehouse', 'finished goods stored', 'finished goods released', 'dispatch ready'],
+  distributor_event:       ['distributor', 'distributor received', 'distributor released', 'distributor delivered'],
+  market_event:            ['market tracking', 'market listed', 'market active', 'market sold', 'market registered'],
+}
+
+/** True when the raw timeline title is a known system phrasing for this category. */
+export function isCanonicalSystemTitle(categoryKey: string, rawTitle: string): boolean {
+  const aliases = SYSTEM_TITLE_ALIASES[categoryKey]
+  if (!aliases) return false
+  return aliases.includes(normTitle(rawTitle))
+}
+
+/** Recognized (non-'system') categories have a localized canonical heading. */
+export function hasCanonicalTitle(categoryKey: string): boolean {
+  return categoryKey !== 'system' && categoryKey in SYSTEM_TITLE_ALIASES
 }
