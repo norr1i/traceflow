@@ -23,11 +23,14 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      {/* Blocking script prevents dark-mode flash on load */}
+      {/* Blocking script prevents dark-mode flash on load. Single source of truth
+          is `tf-theme`; the legacy marketing key `tf-marketing-theme` is migrated
+          once (only when `tf-theme` is unset) and then removed so the two keys can
+          never disagree. First-visit default is light (no system-preference). */}
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{const t=localStorage.getItem('tf-theme')||(window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');document.documentElement.classList.toggle('dark',t==='dark')}catch(e){}try{const l=localStorage.getItem('tf-lang')||'en';document.documentElement.lang=l;document.documentElement.dir=l==='ar'?'rtl':'ltr'}catch(e){}`,
+            __html: `try{var t=localStorage.getItem('tf-theme');if(t!=='light'&&t!=='dark'){var m=localStorage.getItem('tf-marketing-theme');if(m==='light'||m==='dark'){t=m;localStorage.setItem('tf-theme',m);}else{t='light';}}localStorage.removeItem('tf-marketing-theme');document.documentElement.classList.toggle('dark',t==='dark')}catch(e){}try{const l=localStorage.getItem('tf-lang')||'en';document.documentElement.lang=l;document.documentElement.dir=l==='ar'?'rtl':'ltr'}catch(e){}`,
           }}
         />
       </head>

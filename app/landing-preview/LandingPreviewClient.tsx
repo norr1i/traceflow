@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Sun, Moon, Menu, X, Languages } from 'lucide-react'
 import { useT } from '../lib/i18n'
 import { LogoIcon } from '../components/Logo'
-import { LANDING_THEME_CSS, LP_THEME_KEY, getInitialLpTheme, type LpTheme } from './theme'
+import { LANDING_THEME_CSS, LP_THEME_BOOTSTRAP, LP_THEME_KEY, getInitialLpTheme, type LpTheme } from './theme'
 import {
   Hero, CapabilityStrip, ProblemOutcome, FlowShowcase, CoreCapabilities,
   PublicTraceShowcase, RecallReadiness, Roles, TrustSecurity, FinalCta,
@@ -31,13 +31,13 @@ function Header({ theme, toggleTheme, toggleLang }: { theme: LpTheme; toggleThem
   const [stuck, setStuck] = useState(false)
   const [open, setOpen] = useState(false)
 
-  // Toggle the stuck surface based on the overlay's scroll position.
+  // Toggle the stuck surface based on the document scroll position (normal page
+  // flow — the window scrolls, not an overlay container). Threshold unchanged.
   useEffect(() => {
-    const root = document.getElementById('lp-root')
-    if (!root) return
-    const onScroll = () => setStuck(root.scrollTop > 8)
-    root.addEventListener('scroll', onScroll, { passive: true })
-    return () => root.removeEventListener('scroll', onScroll)
+    const onScroll = () => setStuck(window.scrollY > 8)
+    onScroll() // sync initial state (e.g. a hash deep-link that lands already scrolled)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
   // Escape closes the mobile menu.
@@ -192,11 +192,26 @@ function Footer() {
 
 export default function LandingPreviewClient() {
   const { setLang, lang } = useT()
-  const [theme, setTheme] = useState<LpTheme>(getInitialLpTheme)
+  // Stable initial state = 'light' on BOTH the server and the client's first
+  // (hydration) render, so theme-dependent descendant markup (Sun/Moon icon,
+  // aria-label, title, menu label) is hydration-identical. The saved preference
+  // is applied in the post-mount effect below; the inline LP_THEME_BOOTSTRAP has
+  // already set data-tf-theme on .lp-root pre-paint, so colours never flash while
+  // React state is momentarily 'light'.
+  const [theme, setTheme] = useState<LpTheme>('light')
   const mounted = useRef(false)
 
-  // Persist the preview theme choice (landing-scoped key). Does not touch the
-  // global `tf-theme` / `html.dark` used by the dashboard.
+  // Sync the saved / first-visit theme ONCE after hydration (not during render),
+  // so React's first client render matches the server snapshot and there is no
+  // descendant hydration mismatch. A no-op when the resolved value is 'light'.
+  useEffect(() => {
+    setTheme(getInitialLpTheme())
+  }, [])
+
+  // Persist the resolved theme to the single site key `tf-theme` (LP_THEME_KEY).
+  // Sole writer of the key, so the toggle does not also write it (no duplicate).
+  // The `mounted` guard skips the first run, so the stable hydration snapshot
+  // 'light' is never written over a saved 'dark' before the sync effect resolves.
   useEffect(() => {
     if (!mounted.current) { mounted.current = true; return }
     try { localStorage.setItem(LP_THEME_KEY, theme) } catch { /* ignore */ }
@@ -215,13 +230,24 @@ export default function LandingPreviewClient() {
     return () => cancelAnimationFrame(raf)
   }, [])
 
-  const toggleTheme = useCallback(() => setTheme(v => (v === 'dark' ? 'light' : 'dark')), [])
+  // Flip the marketing theme AND the global `html.dark` together (immediate), so a
+  // choice on / carries into auth/dashboard via client navigation with no reload.
+  // `tf-theme` itself is written by the persistence effect above (single writer).
+  const toggleTheme = useCallback(() => {
+    const next: LpTheme = theme === 'dark' ? 'light' : 'dark'
+    setTheme(next)
+    document.documentElement.classList.toggle('dark', next === 'dark')
+  }, [theme])
   const toggleLang = useCallback(() => setLang(lang === 'ar' ? 'en' : 'ar'), [setLang, lang])
 
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: LANDING_THEME_CSS }} />
       <div id="lp-root" className="lp-root" data-tf-theme={theme} suppressHydrationWarning>
+        {/* Pre-hydration theme bootstrap — sets data-tf-theme on this .lp-root before
+            its visible content paints on SSR load, preventing a saved-dark flash.
+            Inert on client re-render (theme state is already resolved). */}
+        <script dangerouslySetInnerHTML={{ __html: LP_THEME_BOOTSTRAP }} />
         <span id="top" aria-hidden="true" />
         <Header theme={theme} toggleTheme={toggleTheme} toggleLang={toggleLang} />
         <main>

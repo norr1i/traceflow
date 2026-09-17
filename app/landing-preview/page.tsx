@@ -1,19 +1,9 @@
-import type { Metadata } from 'next'
-import LandingPreviewClient from './LandingPreviewClient'
+import { permanentRedirect } from 'next/navigation'
 
-// Isolated marketing concept. Explicitly excluded from indexing so an accidental
-// preview deployment is never treated as the production marketing homepage.
-export const metadata: Metadata = {
-  title: 'TraceFlow — Landing Preview',
-  description: 'Internal marketing concept preview for TraceFlow. Not for indexing.',
-  robots: {
-    index: false,
-    follow: false,
-    nocache: true,
-    googleBot: { index: false, follow: false },
-  },
-}
-
+// The approved marketing landing now lives at the public root `/`. This former
+// preview route permanently redirects there to avoid duplicate indexed content.
+// The shared implementation files in this folder (LandingPreviewClient, sections,
+// visuals, theme) are still imported by the root page — only this entry redirects.
 export default function LandingPreviewPage() {
-  return <LandingPreviewClient />
+  permanentRedirect('/')
 }

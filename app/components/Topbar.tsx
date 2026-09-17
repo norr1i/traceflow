@@ -11,7 +11,7 @@ import NotificationPanel from './NotificationPanel'
 import GlobalSearch from './GlobalSearch'
 
 const PAGE_TITLE_KEYS: Record<string, string> = {
-  '/':                  'page_title./',
+  '/dashboard':         'page_title./',
   '/products':          'page_title./products',
   '/raw-materials':     'page_title./raw-materials',
   '/production':        'page_title./production',

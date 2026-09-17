@@ -47,11 +47,11 @@ function LoginContent() {
       return
     }
 
-    router.replace('/')
+    router.replace('/dashboard')
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center px-4 overflow-hidden bg-[#090F15]">
+    <div className="relative flex min-h-screen items-center justify-center px-4 overflow-hidden bg-slate-50 dark:bg-[#090F15]">
       <div className="pointer-events-none absolute inset-0" style={{
         background: 'radial-gradient(ellipse 1600px 1000px at 20% 10%, rgba(74,127,165,0.05) 0%, transparent 65%)',
       }} />
@@ -61,15 +61,15 @@ function LoginContent() {
           <div className="mb-5">
             <LogoIcon size="lg" />
           </div>
-          <h1 className="text-2xl font-bold text-[#D3D1CE] tracking-tight">{t('login.title')}</h1>
-          <p className="mt-1.5 text-sm text-[#6C6D74]">{t('login.subtitle')}</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-[#D3D1CE] tracking-tight">{t('login.title')}</h1>
+          <p className="mt-1.5 text-sm text-slate-500 dark:text-[#6C6D74]">{t('login.subtitle')}</p>
         </div>
 
-        <div className="rounded-2xl border border-[#B3B7BA]/[0.09] bg-gradient-to-b from-[#262E36]/85 to-[#1a2230]/80 backdrop-blur-xl p-8 shadow-[0_24px_60px_rgba(0,0,0,0.50)]">
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-xl backdrop-blur-xl p-8 dark:border-[#B3B7BA]/[0.09] dark:bg-gradient-to-b dark:from-[#262E36]/85 dark:to-[#1a2230]/80 dark:shadow-[0_24px_60px_rgba(0,0,0,0.50)]">
           <form onSubmit={handleSubmit} className="space-y-5">
 
             {error && (
-              <div className="rounded-xl border border-[#8a3535]/30 bg-[#8a3535]/10 px-4 py-3 text-sm text-[#c47070]">
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-[#8a3535]/30 dark:bg-[#8a3535]/10 dark:text-[#c47070]">
                 <div className="flex items-start gap-2.5">
                   <AlertCircle size={16} className="mt-0.5 shrink-0" />
                   <span>{error}</span>
@@ -77,7 +77,7 @@ function LoginContent() {
                 {needsVerification && (
                   <Link
                     href={`/verify-email?email=${encodeURIComponent(email)}`}
-                    className="mt-2 block font-medium underline underline-offset-2 hover:text-[#d98080]"
+                    className="mt-2 block font-medium underline underline-offset-2 hover:text-red-800 dark:hover:text-[#d98080]"
                   >
                     {t('login.resend_email')}
                   </Link>
@@ -86,7 +86,7 @@ function LoginContent() {
             )}
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">{t('login.email')}</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-[#B3B7BA]">{t('login.email')}</label>
               <input
                 type="email"
                 required
@@ -95,8 +95,8 @@ function LoginContent() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@company.com"
                 className="
-                  w-full rounded-xl border border-[#B3B7BA]/[0.12] bg-[#262E36]/50
-                  px-4 py-2.5 text-sm text-[#D3D1CE] placeholder-[#6C6D74]
+                  w-full rounded-xl border border-slate-300 bg-white dark:border-[#B3B7BA]/[0.12] dark:bg-[#262E36]/50
+                  px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 dark:text-[#D3D1CE] dark:placeholder-[#6C6D74]
                   focus:border-[#4a7fa5]/50 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]/20
                   transition-colors
                 "
@@ -105,10 +105,10 @@ function LoginContent() {
 
             <div>
               <div className="mb-1.5 flex items-center justify-between gap-2">
-                <label className="block text-sm font-medium text-[#B3B7BA]">{t('login.password')}</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-[#B3B7BA]">{t('login.password')}</label>
                 <Link
                   href="/forgot-password"
-                  className="text-xs font-medium text-[#4a8fb9] hover:text-[#6aafd9] transition-colors"
+                  className="text-xs font-medium text-blue-600 hover:text-blue-500 dark:text-[#4a8fb9] dark:hover:text-[#6aafd9] transition-colors"
                 >
                   {t('login.forgot_password')}
                 </Link>
@@ -122,8 +122,8 @@ function LoginContent() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   className="
-                    w-full rounded-xl border border-[#B3B7BA]/[0.12] bg-[#262E36]/50
-                    px-4 py-2.5 pr-10 text-sm text-[#D3D1CE] placeholder-[#6C6D74]
+                    w-full rounded-xl border border-slate-300 bg-white dark:border-[#B3B7BA]/[0.12] dark:bg-[#262E36]/50
+                    px-4 py-2.5 pr-10 text-sm text-slate-900 placeholder-slate-400 dark:text-[#D3D1CE] dark:placeholder-[#6C6D74]
                     focus:border-[#4a7fa5]/50 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]/20
                     transition-colors
                   "
@@ -132,7 +132,7 @@ function LoginContent() {
                   type="button"
                   onClick={() => setShowPw(!showPw)}
                   aria-label={showPw ? t('common.hide_password') : t('common.show_password')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6C6D74] hover:text-[#B3B7BA] transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:text-[#6C6D74] dark:hover:text-[#B3B7BA] transition-colors"
                 >
                   {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -159,9 +159,9 @@ function LoginContent() {
           </form>
         </div>
 
-        <p className="mt-6 text-center text-sm text-[#6C6D74]">
+        <p className="mt-6 text-center text-sm text-slate-500 dark:text-[#6C6D74]">
           {t('login.no_account')}{' '}
-          <Link href="/signup" className="font-semibold text-[#4a8fb9] hover:text-[#6aafd9] transition-colors">
+          <Link href="/signup" className="font-semibold text-blue-600 hover:text-blue-500 dark:text-[#4a8fb9] dark:hover:text-[#6aafd9] transition-colors">
             {t('login.create_one')}
           </Link>
         </p>
@@ -172,8 +172,8 @@ function LoginContent() {
 
 function LoginFallback() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#090F15]">
-      <Loader2 size={24} className="animate-spin text-[#4a8fb9]" />
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-[#090F15]">
+      <Loader2 size={24} className="animate-spin text-blue-600 dark:text-[#4a8fb9]" />
     </div>
   )
 }

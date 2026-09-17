@@ -94,15 +94,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // recovering user to home before they can set a new password.
   const isRecoveryPage  = pathname === '/forgot-password' || pathname === '/reset-password'
 
+  // Public marketing homepage — EXACT `/` only (never prefix-matched). Open to
+  // everyone (logged out AND logged in); it is never redirected and never wrapped
+  // in the dashboard shell. The authenticated dashboard now lives at /dashboard.
+  const isPublicHome = pathname === '/'
+
   // Pages that require no auth at all (anon-accessible)
-  const isAnonPage = isAuthPage || isVerifyPage || isTracePage || isRecoveryPage
+  const isAnonPage = isAuthPage || isVerifyPage || isTracePage || isRecoveryPage || isPublicHome
 
   useEffect(() => {
     if (loading) return
 
     // ── Auth-only pages: redirect away if already signed in ──────────────────
     if (isAuthPage && session) {
-      router.replace(role ? homeFor(role) : '/')
+      router.replace(role ? homeFor(role) : '/dashboard')
       return
     }
 
@@ -118,7 +123,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
     // ── Onboarding: leave only once a company is CONFIRMED present ────────────
     if (isOnboardingPage && session && companyStatus === 'present') {
-      router.replace(role ? homeFor(role) : '/')
+      router.replace(role ? homeFor(role) : '/dashboard')
       return
     }
 

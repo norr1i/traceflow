@@ -1,19 +1,19 @@
-// ── Landing-preview theme (isolated from the global dashboard theme) ──────────
-// The dashboard theme is global (`tf-theme` → `.dark` on <html>). To avoid the
-// marketing toggle changing the authenticated dashboard, this preview runs its
-// OWN theme: a `data-tf-theme` attribute on the .lp-root overlay drives a set of
-// scoped `--lp-*` CSS variables. It never touches `html.dark`, and the landing
-// components use ONLY these variables (never Tailwind `dark:` utilities), so the
-// two themes are fully independent. Persisted under a landing-specific key.
+// ── Marketing theme (unified with the global site preference) ─────────────────
+// The whole site now shares ONE preference: `tf-theme` → `.dark` on <html>. The
+// marketing page renders its palette from a scoped `data-tf-theme` attribute on
+// .lp-root (driving the `--lp-*` variables), and it keeps that attribute in lock
+// step with `html.dark` — both derived from the same `tf-theme` key — so a theme
+// choice carries seamlessly between marketing, auth, and the dashboard. First
+// visit is light. Legacy `tf-marketing-theme` migration lives ONLY in the root
+// layout bootstrap; this module reads/writes `tf-theme` exclusively.
 
 export type LpTheme = 'light' | 'dark'
 
-export const LP_THEME_KEY = 'tf-marketing-theme'
+export const LP_THEME_KEY = 'tf-theme'
 
 /**
- * Resolve the initial theme. The marketing site is intentionally LIGHT-first for
- * a first-time visitor (comfortable for long B2B reading). A saved preview choice
- * always wins; system preference does NOT override the light-first default.
+ * Resolve the initial theme from the single site preference `tf-theme`. Light-
+ * first when unset/invalid; no operating-system preference.
  */
 export function getInitialLpTheme(): LpTheme {
   if (typeof window === 'undefined') return 'light'
@@ -23,6 +23,19 @@ export function getInitialLpTheme(): LpTheme {
   } catch { /* ignore */ }
   return 'light'
 }
+
+// Static pre-hydration bootstrap. Rendered as the FIRST child inside .lp-root, so
+// when the browser parses this inline <script> during the initial SSR HTML load it
+// sets data-tf-theme on its parent (.lp-root) BEFORE the visible descendants paint,
+// AND keeps html.dark in sync (defensive same-route resolution). Reads only the
+// `tf-theme` key, accepts only 'light' | 'dark' (default 'light'), no system
+// preference, no `tf-marketing-theme`, and interpolates no dynamic data.
+export const LP_THEME_BOOTSTRAP =
+  "try{var t=localStorage.getItem('tf-theme');" +
+  "if(t!=='dark'&&t!=='light'){t='light';}" +
+  "var e=document.currentScript&&document.currentScript.parentElement;" +
+  "if(e){e.setAttribute('data-tf-theme',t);}" +
+  "document.documentElement.classList.toggle('dark',t==='dark');}catch(_){}"
 
 // Scoped stylesheet. Every selector is under `.lp-root`, so it cannot affect any
 // other page. Two independently-designed themes share one `--lp-*` contract.
@@ -64,17 +77,18 @@ export const LANDING_THEME_CSS = `
   --lp-shadow-md: 0 2px 8px rgba(11,22,40,0.05), 0 12px 28px rgba(11,22,40,0.06);
   --lp-shadow-lg: 0 8px 26px rgba(11,22,40,0.08), 0 26px 60px rgba(11,22,40,0.07);
 
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  isolation: isolate;
-  overflow-x: hidden;
-  overflow-y: auto;
+  /* Normal document flow — the marketing page IS the whole route (no overlay,
+     no fixed positioning, no own scroll container). The document/window scrolls
+     and the sticky header sticks to the viewport. */
   background: var(--lp-bg);
   color: var(--lp-text);
-  scroll-behavior: smooth;
   -webkit-font-smoothing: antialiased;
 }
+
+/* Smooth in-page anchor scrolling on the document scroll root, scoped so it only
+   applies while the marketing page (.lp-root) is mounted — the dashboard route is
+   never affected. Disabled under prefers-reduced-motion below. */
+html:has(.lp-root) { scroll-behavior: smooth; }
 
 /* Section anchor — a zero-height target placed at the heading level (not on the
    padded outer wrapper) so a hash jump lands the heading ~24px below the 64px
@@ -176,7 +190,7 @@ export const LANDING_THEME_CSS = `
 .lp-fade-up { animation: lp-fade-up .5s cubic-bezier(0.22,1,0.36,1) both; }
 
 @media (prefers-reduced-motion: reduce) {
-  .lp-root { scroll-behavior: auto; }
+  html:has(.lp-root) { scroll-behavior: auto; }
   .lp-fade-up { animation: none; }
   .lp-root * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
 }

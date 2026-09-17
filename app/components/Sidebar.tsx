@@ -24,7 +24,7 @@ const NAV_GROUPS: { labelKey: string; items: NavItem[] }[] = [
   {
     labelKey: 'nav_group.overview',
     items: [
-      { labelKey: 'nav.dashboard', href: '/', icon: LayoutDashboard, permission: 'view:dashboard' },
+      { labelKey: 'nav.dashboard', href: '/dashboard', icon: LayoutDashboard, permission: 'view:dashboard' },
     ],
   },
   {

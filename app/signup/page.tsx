@@ -43,8 +43,8 @@ type InviteInfo = {
 }
 
 const inputClass = `
-  w-full rounded-xl border border-[#B3B7BA]/[0.12] bg-[#262E36]/50
-  px-4 py-2.5 text-sm text-[#D3D1CE] placeholder-[#6C6D74]
+  w-full rounded-xl border border-slate-300 bg-white dark:border-[#B3B7BA]/[0.12] dark:bg-[#262E36]/50
+  px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 dark:text-[#D3D1CE] dark:placeholder-[#6C6D74]
   focus:border-[#4a7fa5]/50 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]/20
   transition-colors
 `
@@ -150,7 +150,7 @@ function SignupContent() {
       if (isInvited) {
         await supabase.rpc('accept_my_invitation')
       }
-      router.replace('/')
+      router.replace('/dashboard')
       return
     }
 
@@ -164,7 +164,7 @@ function SignupContent() {
   const roleMeta = invite ? (ROLE_META[invite.role as Role] ?? null) : null
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center px-4 py-10 overflow-hidden bg-[#090F15]">
+    <div className="relative flex min-h-screen items-center justify-center px-4 py-10 overflow-hidden bg-slate-50 dark:bg-[#090F15]">
       <div className="pointer-events-none absolute inset-0" style={{
         background: 'radial-gradient(ellipse 1600px 1000px at 20% 10%, rgba(74,127,165,0.05) 0%, transparent 65%)',
       }} />
@@ -177,27 +177,27 @@ function SignupContent() {
           </div>
           {isInvited ? (
             <>
-              <h1 className="text-2xl font-bold text-[#D3D1CE] tracking-tight text-center">
+              <h1 className="text-2xl font-bold text-slate-900 dark:text-[#D3D1CE] tracking-tight text-center">
                 {t('signup.title_join', { company: invite.company_name })}
               </h1>
-              <p className="mt-1.5 text-sm text-[#6C6D74] text-center">
+              <p className="mt-1.5 text-sm text-slate-500 dark:text-[#6C6D74] text-center">
                 {t('signup.subtitle_join')}
               </p>
             </>
           ) : (
             <>
-              <h1 className="text-2xl font-bold text-[#D3D1CE] tracking-tight">{t('signup.title_setup')}</h1>
-              <p className="mt-1.5 text-sm text-[#6C6D74]">{t('signup.subtitle_setup')}</p>
+              <h1 className="text-2xl font-bold text-slate-900 dark:text-[#D3D1CE] tracking-tight">{t('signup.title_setup')}</h1>
+              <p className="mt-1.5 text-sm text-slate-500 dark:text-[#6C6D74]">{t('signup.subtitle_setup')}</p>
             </>
           )}
         </div>
 
         {/* Card */}
-        <div className="rounded-2xl border border-[#B3B7BA]/[0.09] bg-gradient-to-b from-[#262E36]/85 to-[#1a2230]/80 backdrop-blur-xl p-8 shadow-[0_24px_60px_rgba(0,0,0,0.50)]">
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-xl backdrop-blur-xl p-8 dark:border-[#B3B7BA]/[0.09] dark:bg-gradient-to-b dark:from-[#262E36]/85 dark:to-[#1a2230]/80 dark:shadow-[0_24px_60px_rgba(0,0,0,0.50)]">
           <form onSubmit={handleSubmit} className="space-y-5">
 
             {error && (
-              <div className="flex flex-col gap-2 rounded-xl border border-[#8a3535]/30 bg-[#8a3535]/10 px-4 py-3 text-sm text-[#c47070]">
+              <div className="flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-[#8a3535]/30 dark:bg-[#8a3535]/10 dark:text-[#c47070]">
                 <div className="flex items-start gap-2.5">
                   <AlertCircle size={16} className="mt-0.5 shrink-0" />
                   {error}
@@ -205,7 +205,7 @@ function SignupContent() {
                 {alreadyExists && (
                   <Link
                     href={`/login?email=${encodeURIComponent(email.trim())}`}
-                    className="ml-6 font-semibold underline underline-offset-2 hover:text-[#d98080] transition-colors"
+                    className="ml-6 font-semibold underline underline-offset-2 hover:text-red-800 dark:hover:text-[#d98080] transition-colors"
                   >
                     {t('signup.go_to_sign_in')}
                   </Link>
@@ -237,11 +237,11 @@ function SignupContent() {
             {!isInvited && (
               <div className="space-y-1.5">
                 <div className="flex items-center gap-1.5 mb-3">
-                  <Building2 size={13} className="text-[#4a8fb9]" />
-                  <span className="text-xs font-semibold text-[#4a8fb9] uppercase tracking-wider">{t('signup.section_workspace')}</span>
+                  <Building2 size={13} className="text-blue-600 dark:text-[#4a8fb9]" />
+                  <span className="text-xs font-semibold text-blue-600 dark:text-[#4a8fb9] uppercase tracking-wider">{t('signup.section_workspace')}</span>
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">{t('signup.company_label')}</label>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-[#B3B7BA]">{t('signup.company_label')}</label>
                   <input
                     type="text"
                     required={!isInvited}
@@ -259,13 +259,13 @@ function SignupContent() {
             <div className="space-y-1.5">
               {!isInvited && (
                 <div className="flex items-center gap-1.5 mb-3">
-                  <User size={13} className="text-[#4a8fb9]" />
-                  <span className="text-xs font-semibold text-[#4a8fb9] uppercase tracking-wider">{t('signup.section_account')}</span>
+                  <User size={13} className="text-blue-600 dark:text-[#4a8fb9]" />
+                  <span className="text-xs font-semibold text-blue-600 dark:text-[#4a8fb9] uppercase tracking-wider">{t('signup.section_account')}</span>
                 </div>
               )}
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">{t('signup.full_name_label')}</label>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-[#B3B7BA]">{t('signup.full_name_label')}</label>
                 <input
                   type="text"
                   required
@@ -278,7 +278,7 @@ function SignupContent() {
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">{t('signup.email_label')}</label>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-[#B3B7BA]">{t('signup.email_label')}</label>
                 <input
                   type="email"
                   required
@@ -291,17 +291,17 @@ function SignupContent() {
                   readOnly={isInvited}
                 />
                 {inviteLoading && (
-                  <p className="mt-1 flex items-center gap-1 text-xs text-[#6C6D74]">
+                  <p className="mt-1 flex items-center gap-1 text-xs text-slate-500 dark:text-[#6C6D74]">
                     <Loader2 size={10} className="animate-spin" /> {t('signup.checking_invitation')}
                   </p>
                 )}
                 {inviteChecked && !inviteLoading && !isInvited && email.includes('@') && (
-                  <p className="mt-1 text-xs text-[#6C6D74]">{t('signup.no_invitation')}</p>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-[#6C6D74]">{t('signup.no_invitation')}</p>
                 )}
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">{t('signup.password_label')}</label>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-[#B3B7BA]">{t('signup.password_label')}</label>
                 <div className="relative">
                   <input
                     type={showPw ? 'text' : 'password'}
@@ -316,7 +316,7 @@ function SignupContent() {
                     type="button"
                     onClick={() => setShowPw(!showPw)}
                     aria-label={showPw ? t('common.hide_password') : t('common.show_password')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6C6D74] hover:text-[#B3B7BA] transition-colors"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:text-[#6C6D74] dark:hover:text-[#B3B7BA] transition-colors"
                   >
                     {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
@@ -329,20 +329,20 @@ function SignupContent() {
                         <div
                           key={i}
                           className={`h-1 flex-1 rounded-full transition-colors duration-300 ${
-                            i <= strength.bars ? strength.color : 'bg-[#B3B7BA]/10'
+                            i <= strength.bars ? strength.color : 'bg-slate-200 dark:bg-[#B3B7BA]/10'
                           }`}
                         />
                       ))}
                     </div>
-                    <p className="text-xs text-[#6C6D74]">
-                      {t('signup.strength_label')}: <span className="font-medium text-[#B3B7BA]">{strength.label}</span>
+                    <p className="text-xs text-slate-500 dark:text-[#6C6D74]">
+                      {t('signup.strength_label')}: <span className="font-medium text-slate-700 dark:text-[#B3B7BA]">{strength.label}</span>
                     </p>
                   </div>
                 )}
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">{t('signup.confirm_label')}</label>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-[#B3B7BA]">{t('signup.confirm_label')}</label>
                 <input
                   type={showPw ? 'text' : 'password'}
                   required
@@ -351,11 +351,11 @@ function SignupContent() {
                   onChange={(e) => setConfirm(e.target.value)}
                   placeholder={t('signup.confirm_placeholder')}
                   className={`${inputClass} ${
-                    confirmMismatch ? 'border-[#8a3535]/40 focus:ring-[#8a3535]/20' : ''
+                    confirmMismatch ? 'border-red-400 dark:border-[#8a3535]/40 focus:ring-[#8a3535]/20' : ''
                   }`}
                 />
                 {confirmMismatch && (
-                  <p className="mt-1 text-xs text-[#c47070]">{t('signup.mismatch')}</p>
+                  <p className="mt-1 text-xs text-red-700 dark:text-[#c47070]">{t('signup.mismatch')}</p>
                 )}
               </div>
             </div>
@@ -382,16 +382,16 @@ function SignupContent() {
             </button>
 
             {!isInvited && (
-              <p className="text-center text-xs text-[#6C6D74] leading-relaxed">
+              <p className="text-center text-xs text-slate-500 dark:text-[#6C6D74] leading-relaxed">
                 {t('signup.isolation_note')}
               </p>
             )}
           </form>
         </div>
 
-        <p className="mt-6 text-center text-sm text-[#6C6D74]">
+        <p className="mt-6 text-center text-sm text-slate-500 dark:text-[#6C6D74]">
           {t('signup.have_account')}{' '}
-          <Link href="/login" className="font-semibold text-[#4a8fb9] hover:text-[#6aafd9] transition-colors">
+          <Link href="/login" className="font-semibold text-blue-600 hover:text-blue-500 dark:text-[#4a8fb9] dark:hover:text-[#6aafd9] transition-colors">
             {t('signup.sign_in')}
           </Link>
         </p>
@@ -402,8 +402,8 @@ function SignupContent() {
 
 function SignupFallback() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#090F15]">
-      <Loader2 size={24} className="animate-spin text-[#4a8fb9]" />
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-[#090F15]">
+      <Loader2 size={24} className="animate-spin text-blue-600 dark:text-[#4a8fb9]" />
     </div>
   )
 }

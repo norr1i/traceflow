@@ -255,8 +255,8 @@ export default function ResetPasswordPage() {
     return (
       <Shell>
         <div className="flex flex-col items-center gap-4 py-6 text-center">
-          <Loader2 size={26} className="animate-spin text-[#4a8fb9]" />
-          <p className="text-sm text-[#6C6D74]">{t('reset.verifying')}</p>
+          <Loader2 size={26} className="animate-spin text-blue-600 dark:text-[#4a8fb9]" />
+          <p className="text-sm text-slate-500 dark:text-[#6C6D74]">{t('reset.verifying')}</p>
         </div>
       </Shell>
     )
@@ -268,15 +268,15 @@ export default function ResetPasswordPage() {
       <Shell>
         <div className="text-center">
           <div className="flex justify-center mb-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#8a3535]/30 bg-[#8a3535]/12">
-              <AlertCircle size={26} className="text-[#c47070]" />
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-red-200 bg-red-50 dark:border-[#8a3535]/30 dark:bg-[#8a3535]/12">
+              <AlertCircle size={26} className="text-red-600 dark:text-[#c47070]" />
             </div>
           </div>
-          <h2 className="text-xl font-bold text-[#D3D1CE]">{t('reset.invalid_title')}</h2>
-          <p className="mt-2 text-sm text-[#6C6D74]">{t('reset.invalid_body')}</p>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-[#D3D1CE]">{t('reset.invalid_title')}</h2>
+          <p className="mt-2 text-sm text-slate-500 dark:text-[#6C6D74]">{t('reset.invalid_body')}</p>
           <Link
             href="/forgot-password"
-            className="mt-5 flex w-full items-center justify-center rounded-xl border border-[#4a7fa5]/25 bg-[#3a6f8f]/10 px-4 py-2.5 text-sm font-semibold text-[#4a8fb9] hover:bg-[#3a6f8f]/20 hover:text-[#6aafd9] transition-colors"
+            className="mt-5 flex w-full items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-100 hover:text-blue-800 dark:border-[#4a7fa5]/25 dark:bg-[#3a6f8f]/10 dark:text-[#4a8fb9] dark:hover:bg-[#3a6f8f]/20 dark:hover:text-[#6aafd9] transition-colors"
           >
             {t('reset.request_new')}
           </Link>
@@ -291,25 +291,25 @@ export default function ResetPasswordPage() {
       <Shell>
         <div className="text-center">
           <div className="flex justify-center mb-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#2d7a5a]/30 bg-[#2d7a5a]/12">
-              <ShieldCheck size={26} className="text-[#6abf9a]" />
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 dark:border-[#2d7a5a]/30 dark:bg-[#2d7a5a]/12">
+              <ShieldCheck size={26} className="text-emerald-600 dark:text-[#6abf9a]" />
             </div>
           </div>
-          <h2 className="text-xl font-bold text-[#D3D1CE]">{t('reset.success_title')}</h2>
-          <p className="mt-2 text-sm text-[#6C6D74]">{t('reset.success_body')}</p>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-[#D3D1CE]">{t('reset.success_title')}</h2>
+          <p className="mt-2 text-sm text-slate-500 dark:text-[#6C6D74]">{t('reset.success_body')}</p>
           {signedOut ? (
-            <p className="mt-1 text-sm text-[#6C6D74]">{t('reset.success_redirecting')}</p>
+            <p className="mt-1 text-sm text-slate-500 dark:text-[#6C6D74]">{t('reset.success_redirecting')}</p>
           ) : (
-            <div className="mt-3 flex items-start gap-2 rounded-xl border border-[#8a6530]/30 bg-[#8a6530]/10 px-3.5 py-3 text-start">
-              <AlertCircle size={14} className="mt-0.5 shrink-0 text-[#c49a5a]" />
-              <p className="text-xs text-[#c49a5a] leading-relaxed">{t('reset.signout_failed_note')}</p>
+            <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-start dark:border-[#8a6530]/30 dark:bg-[#8a6530]/10">
+              <AlertCircle size={14} className="mt-0.5 shrink-0 text-amber-600 dark:text-[#c49a5a]" />
+              <p className="text-xs text-amber-700 leading-relaxed dark:text-[#c49a5a]">{t('reset.signout_failed_note')}</p>
             </div>
           )}
 
           {signedOut ? (
             <Link
               href="/login"
-              className="mt-5 flex w-full items-center justify-center rounded-xl border border-[#4a7fa5]/25 bg-[#3a6f8f]/10 px-4 py-2.5 text-sm font-semibold text-[#4a8fb9] hover:bg-[#3a6f8f]/20 hover:text-[#6aafd9] transition-colors"
+              className="mt-5 flex w-full items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-100 hover:text-blue-800 dark:border-[#4a7fa5]/25 dark:bg-[#3a6f8f]/10 dark:text-[#4a8fb9] dark:hover:bg-[#3a6f8f]/20 dark:hover:text-[#6aafd9] transition-colors"
             >
               {t('reset.go_to_login')}
             </Link>
@@ -317,7 +317,7 @@ export default function ResetPasswordPage() {
             <button
               onClick={handleFinish}
               disabled={finishing}
-              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-[#4a7fa5]/25 bg-[#3a6f8f]/10 px-4 py-2.5 text-sm font-semibold text-[#4a8fb9] hover:bg-[#3a6f8f]/20 hover:text-[#6aafd9] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-100 hover:text-blue-800 dark:border-[#4a7fa5]/25 dark:bg-[#3a6f8f]/10 dark:text-[#4a8fb9] dark:hover:bg-[#3a6f8f]/20 dark:hover:text-[#6aafd9] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {finishing && <Loader2 size={14} className="animate-spin" />}
               {t('reset.go_to_login')}
@@ -334,7 +334,7 @@ export default function ResetPasswordPage() {
       <form onSubmit={handleSubmit} className="space-y-5">
 
         {error && (
-          <div className="rounded-xl border border-[#8a3535]/30 bg-[#8a3535]/10 px-4 py-3 text-sm text-[#c47070]">
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-[#8a3535]/30 dark:bg-[#8a3535]/10 dark:text-[#c47070]">
             <div className="flex items-start gap-2.5">
               <AlertCircle size={16} className="mt-0.5 shrink-0" />
               <span>{error}</span>
@@ -343,7 +343,7 @@ export default function ResetPasswordPage() {
         )}
 
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">{t('reset.password')}</label>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-[#B3B7BA]">{t('reset.password')}</label>
           <div className="relative">
             <input
               type={showPw ? 'text' : 'password'}
@@ -353,8 +353,8 @@ export default function ResetPasswordPage() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder={t('reset.password_placeholder')}
               className="
-                w-full rounded-xl border border-[#B3B7BA]/[0.12] bg-[#262E36]/50
-                px-4 py-2.5 pe-10 text-sm text-[#D3D1CE] placeholder-[#6C6D74]
+                w-full rounded-xl border border-slate-300 bg-white dark:border-[#B3B7BA]/[0.12] dark:bg-[#262E36]/50
+                px-4 py-2.5 pe-10 text-sm text-slate-900 placeholder-slate-400 dark:text-[#D3D1CE] dark:placeholder-[#6C6D74]
                 focus:border-[#4a7fa5]/50 focus:outline-none focus:ring-2 focus:ring-[#4a7fa5]/20
                 transition-colors
               "
@@ -363,7 +363,7 @@ export default function ResetPasswordPage() {
               type="button"
               onClick={() => setShowPw(!showPw)}
               aria-label={showPw ? t('common.hide_password') : t('common.show_password')}
-              className="absolute end-3 top-1/2 -translate-y-1/2 text-[#6C6D74] hover:text-[#B3B7BA] transition-colors"
+              className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:text-[#6C6D74] dark:hover:text-[#B3B7BA] transition-colors"
             >
               {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
@@ -376,20 +376,20 @@ export default function ResetPasswordPage() {
                   <div
                     key={i}
                     className={`h-1 flex-1 rounded-full transition-colors duration-300 ${
-                      i <= strength.bars ? strength.color : 'bg-[#B3B7BA]/10'
+                      i <= strength.bars ? strength.color : 'bg-slate-200 dark:bg-[#B3B7BA]/10'
                     }`}
                   />
                 ))}
               </div>
-              <p className="text-xs text-[#6C6D74]">
-                {t('reset.strength')}: <span className="font-medium text-[#B3B7BA]">{strength.label}</span>
+              <p className="text-xs text-slate-500 dark:text-[#6C6D74]">
+                {t('reset.strength')}: <span className="font-medium text-slate-700 dark:text-[#B3B7BA]">{strength.label}</span>
               </p>
             </div>
           )}
         </div>
 
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-[#B3B7BA]">{t('reset.confirm')}</label>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-[#B3B7BA]">{t('reset.confirm')}</label>
           <input
             type={showPw ? 'text' : 'password'}
             required
@@ -398,17 +398,17 @@ export default function ResetPasswordPage() {
             onChange={(e) => setConfirm(e.target.value)}
             placeholder={t('reset.confirm_placeholder')}
             className={`
-              w-full rounded-xl border bg-[#262E36]/50
-              px-4 py-2.5 text-sm text-[#D3D1CE] placeholder-[#6C6D74]
+              w-full rounded-xl border bg-white dark:bg-[#262E36]/50
+              px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 dark:text-[#D3D1CE] dark:placeholder-[#6C6D74]
               focus:outline-none focus:ring-2
               transition-colors
               ${confirmMismatch
-                ? 'border-[#8a3535]/40 focus:border-[#8a3535]/50 focus:ring-[#8a3535]/20'
-                : 'border-[#B3B7BA]/[0.12] focus:border-[#4a7fa5]/50 focus:ring-[#4a7fa5]/20'}
+                ? 'border-red-400 dark:border-[#8a3535]/40 focus:border-[#8a3535]/50 focus:ring-[#8a3535]/20'
+                : 'border-slate-300 dark:border-[#B3B7BA]/[0.12] focus:border-[#4a7fa5]/50 focus:ring-[#4a7fa5]/20'}
             `}
           />
           {confirmMismatch && (
-            <p className="mt-1 text-xs text-[#c47070]">{t('reset.error_mismatch')}</p>
+            <p className="mt-1 text-xs text-red-700 dark:text-[#c47070]">{t('reset.error_mismatch')}</p>
           )}
         </div>
 
@@ -437,7 +437,7 @@ export default function ResetPasswordPage() {
 // Shared card frame so every phase keeps the same login/signup visual language.
 function Shell({ children, title, subtitle }: { children: React.ReactNode; title?: string; subtitle?: string }) {
   return (
-    <div className="relative flex min-h-screen items-center justify-center px-4 overflow-hidden bg-[#090F15]">
+    <div className="relative flex min-h-screen items-center justify-center px-4 overflow-hidden bg-slate-50 dark:bg-[#090F15]">
       <div className="pointer-events-none absolute inset-0" style={{
         background: 'radial-gradient(ellipse 1600px 1000px at 20% 10%, rgba(74,127,165,0.05) 0%, transparent 65%)',
       }} />
@@ -449,16 +449,16 @@ function Shell({ children, title, subtitle }: { children: React.ReactNode; title
           </div>
           {title && (
             <>
-              <h1 className="text-2xl font-bold text-[#D3D1CE] tracking-tight text-center flex items-center gap-2">
-                <KeyRound size={20} className="text-[#4a8fb9]" />
+              <h1 className="text-2xl font-bold text-slate-900 dark:text-[#D3D1CE] tracking-tight text-center flex items-center gap-2">
+                <KeyRound size={20} className="text-blue-600 dark:text-[#4a8fb9]" />
                 {title}
               </h1>
-              {subtitle && <p className="mt-1.5 text-sm text-[#6C6D74] text-center">{subtitle}</p>}
+              {subtitle && <p className="mt-1.5 text-sm text-slate-500 dark:text-[#6C6D74] text-center">{subtitle}</p>}
             </>
           )}
         </div>
 
-        <div className="rounded-2xl border border-[#B3B7BA]/[0.09] bg-gradient-to-b from-[#262E36]/85 to-[#1a2230]/80 backdrop-blur-xl p-8 shadow-[0_24px_60px_rgba(0,0,0,0.50)]">
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-xl backdrop-blur-xl p-8 dark:border-[#B3B7BA]/[0.09] dark:bg-gradient-to-b dark:from-[#262E36]/85 dark:to-[#1a2230]/80 dark:shadow-[0_24px_60px_rgba(0,0,0,0.50)]">
           {children}
         </div>
       </div>

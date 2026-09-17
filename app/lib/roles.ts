@@ -7,13 +7,14 @@ export type Role =
   | 'qc_inspector'
   | 'sales'
 
-// Pages each restricted role may visit (exact match or prefix)
+// Pages each restricted role may visit (exact match or prefix). The dashboard
+// home moved from `/` (now the public marketing page) to `/dashboard`.
 const ROLE_PATHS: Partial<Record<Role, string[]>> = {
-  inspector:   ['/', '/production', '/quality-control', '/sfda', '/capa', '/recall', '/product-journey'],
-  operations:  ['/', '/production', '/recall', '/capa', '/product-journey'],
-  warehouse:   ['/', '/raw-materials'],
-  qc_inspector:['/', '/production', '/quality-control', '/sfda', '/capa', '/recall', '/product-journey'],
-  sales:       ['/', '/sales', '/products'],
+  inspector:   ['/dashboard', '/production', '/quality-control', '/sfda', '/capa', '/recall', '/product-journey'],
+  operations:  ['/dashboard', '/production', '/recall', '/capa', '/product-journey'],
+  warehouse:   ['/dashboard', '/raw-materials'],
+  qc_inspector:['/dashboard', '/production', '/quality-control', '/sfda', '/capa', '/recall', '/product-journey'],
+  sales:       ['/dashboard', '/sales', '/products'],
 }
 
 export function canVisit(role: Role | null, pathname: string): boolean {
@@ -27,15 +28,15 @@ export function canVisit(role: Role | null, pathname: string): boolean {
 
 export function homeFor(role: Role): string {
   const homes: Record<Role, string> = {
-    admin:       '/',
-    manager:     '/',
-    inspector:   '/',
-    operations:  '/',
-    warehouse:   '/',
-    qc_inspector:'/',
-    sales:       '/',
+    admin:       '/dashboard',
+    manager:     '/dashboard',
+    inspector:   '/dashboard',
+    operations:  '/dashboard',
+    warehouse:   '/dashboard',
+    qc_inspector:'/dashboard',
+    sales:       '/dashboard',
   }
-  return homes[role] ?? '/'
+  return homes[role] ?? '/dashboard'
 }
 
 export const ROLE_META: Record<Role, { label: string; color: string }> = {
