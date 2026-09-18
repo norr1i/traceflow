@@ -70,3 +70,13 @@ export function fmtDate(iso: string, lang: Lang, opts?: Intl.DateTimeFormatOptio
   const locale = lang === 'ar' ? 'ar-SA-u-nu-latn' : 'en-US'
   return new Date(iso).toLocaleDateString(locale, opts)
 }
+
+// Locale-aware short weekday/day label for chart axes.
+// Parses "YYYY-MM-DD" with the local-time constructor (not UTC) so the weekday
+// never shifts across time zones — identical date math to the previous
+// data-layer formatter; only the locale follows the active language.
+export function fmtDayLabel(dateStr: string, lang: Lang): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const locale = lang === 'ar' ? 'ar-SA-u-nu-latn' : 'en-US'
+  return new Date(y, m - 1, d).toLocaleDateString(locale, { weekday: 'short', day: 'numeric' })
+}

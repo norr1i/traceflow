@@ -276,7 +276,7 @@ function RankBar({
 export default function DashboardPage() {
   const role = useRole()
   const { companyId } = useAuth()
-  const { t, lang } = useT()
+  const { t, lang, dir } = useT()
 
   const showProduction = canView(role, 'dashboard.production')
   const showQuality    = canView(role, 'dashboard.quality')
@@ -388,20 +388,20 @@ export default function DashboardPage() {
           icon={passRate !== null && passRate >= 80 ? CheckCircle2 : passRate !== null && passRate < 60 ? XCircle : ShieldCheck}
         />,
         <StatCard key="recalls"
-          title="Active Recalls"
+          title={t('dashboard.active_recalls')}
           value={fmtNum(recallStats?.active ?? 0, lang)}
           subtitle={(recallStats?.critical_open ?? 0) > 0
-            ? `${fmtNum(recallStats!.critical_open, lang)} critical`
-            : 'No critical open'}
+            ? t('dashboard.n_critical', { n: fmtNum(recallStats!.critical_open, lang) })
+            : t('dashboard.no_critical_open')}
           accent={(recallStats?.active ?? 0) > 0 ? 'red' : 'green'}
           icon={AlertTriangle}
         />,
         <StatCard key="opencapas"
-          title="Open CAPAs"
+          title={t('dashboard.open_capas')}
           value={fmtNum(capaStats?.open ?? 0, lang)}
           subtitle={(capaStats?.overdue ?? 0) > 0
-            ? `${fmtNum(capaStats!.overdue, lang)} overdue`
-            : 'No overdue'}
+            ? t('dashboard.n_overdue', { n: fmtNum(capaStats!.overdue, lang) })
+            : t('dashboard.no_overdue')}
           accent={(capaStats?.overdue ?? 0) > 0 ? 'red' : 'blue'}
           icon={FileWarning}
         />,
@@ -584,8 +584,9 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
-            <span className="shrink-0 self-center text-[11px] font-semibold text-red-600 dark:text-red-400 group-hover:underline whitespace-nowrap">
-              View Recalls →
+            <span className="shrink-0 self-center inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 dark:text-red-400 group-hover:underline whitespace-nowrap">
+              {t('dashboard.view_recalls')}
+              <ChevronRight size={13} className={dir === 'rtl' ? '-scale-x-100' : ''} aria-hidden />
             </span>
           </div>
         </Link>
@@ -631,11 +632,11 @@ export default function DashboardPage() {
             accent={weeklyInspections > 0 ? 'orange' : 'yellow'} icon={FlaskConical}
           />
           <StatCard
-            title="Resolution Rate"
+            title={t('dashboard.resolution_rate')}
             value={(recallStats?.total ?? 0) > 0
               ? fmtNum((recallStats!.resolution_rate) / 100, lang, { style: 'percent', maximumFractionDigits: 0 })
               : '—'}
-            subtitle={`${fmtNum(recallStats?.total ?? 0, lang)} recall${(recallStats?.total ?? 0) !== 1 ? 's' : ''} total`}
+            subtitle={t((recallStats?.total ?? 0) !== 1 ? 'dashboard.recalls_total_plural' : 'dashboard.recalls_total', { n: fmtNum(recallStats?.total ?? 0, lang) })}
             accent={(recallStats?.resolution_rate ?? 0) >= 80 ? 'green' : (recallStats?.total ?? 0) > 0 ? 'yellow' : 'blue'}
             icon={ShieldCheck}
           />
@@ -647,48 +648,48 @@ export default function DashboardPage() {
         <section className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
           {showCapa && capaStats && (<>
             <StatCard
-              title="Open CAPAs"
+              title={t('dashboard.open_capas')}
               value={fmtNum(capaStats.open, lang)}
-              subtitle={capaStats.overdue > 0 ? `${fmtNum(capaStats.overdue, lang)} overdue` : 'No overdue'}
+              subtitle={capaStats.overdue > 0 ? t('dashboard.n_overdue', { n: fmtNum(capaStats.overdue, lang) }) : t('dashboard.no_overdue')}
               accent={capaStats.overdue > 0 ? 'red' : 'blue'}
               icon={FileWarning}
             />
             <StatCard
-              title="In Progress"
+              title={t('status.in_progress')}
               value={fmtNum(capaStats.investigation + capaStats.corrective_action + capaStats.verification, lang)}
-              subtitle="Investigation · Correction · Verify"
+              subtitle={t('dashboard.capa_stages')}
               accent="orange"
               icon={Activity}
             />
             <StatCard
-              title="Overdue CAPAs"
+              title={t('dashboard.overdue_capas')}
               value={fmtNum(capaStats.overdue, lang)}
-              subtitle={capaStats.overdue > 0 ? 'Requires immediate action' : 'All on track'}
+              subtitle={capaStats.overdue > 0 ? t('dashboard.requires_action') : t('dashboard.all_on_track')}
               accent={capaStats.overdue > 0 ? 'red' : 'green'}
               icon={capaStats.overdue > 0 ? AlertCircle : CheckCircle2}
             />
           </>)}
           {showRecall && recallStats && (<>
             <StatCard
-              title="Active Recalls"
+              title={t('dashboard.active_recalls')}
               value={fmtNum(recallStats.active, lang)}
-              subtitle={recallStats.critical_open > 0 ? `${fmtNum(recallStats.critical_open, lang)} critical` : 'No critical open'}
+              subtitle={recallStats.critical_open > 0 ? t('dashboard.n_critical', { n: fmtNum(recallStats.critical_open, lang) }) : t('dashboard.no_critical_open')}
               accent={recallStats.active > 0 ? 'red' : 'green'}
               icon={AlertTriangle}
             />
             <StatCard
-              title="In Progress"
+              title={t('status.in_progress')}
               value={fmtNum(recallStats.in_progress, lang)}
-              subtitle={`${fmtNum(recallStats.closed, lang)} closed total`}
+              subtitle={t('dashboard.closed_total', { n: fmtNum(recallStats.closed, lang) })}
               accent="orange"
               icon={Clock}
             />
             <StatCard
-              title="Resolution Rate"
+              title={t('dashboard.resolution_rate')}
               value={recallStats.total > 0
                 ? fmtNum(recallStats.resolution_rate / 100, lang, { style: 'percent', maximumFractionDigits: 0 })
                 : '—'}
-              subtitle={`${fmtNum(recallStats.total, lang)} recall${recallStats.total !== 1 ? 's' : ''} total`}
+              subtitle={t(recallStats.total !== 1 ? 'dashboard.recalls_total_plural' : 'dashboard.recalls_total', { n: fmtNum(recallStats.total, lang) })}
               accent={recallStats.resolution_rate >= 80 ? 'green' : recallStats.total > 0 ? 'yellow' : 'blue'}
               icon={ShieldCheck}
             />
@@ -740,7 +741,7 @@ export default function DashboardPage() {
 
       {/* ── Recent QC + Most scanned ──────────────────────────────────────── */}
       {(showQuality || showTracing) && (
-        <CollapsibleSection label="Recent Inspections &amp; Scan Data">
+        <CollapsibleSection label={t('dashboard.group_recent_qc_scan')}>
           <section className={`grid gap-4 ${showQuality && showTracing ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
           {showQuality && (
             <SectionCard title={t('dashboard.section.recent_qc')} subtitle={t('dashboard.section.recent_qc_sub')}>
@@ -789,7 +790,7 @@ export default function DashboardPage() {
 
       {/* ── Failed QC + Recent scans ──────────────────────────────────────── */}
       {(showProduction || showTracing) && (
-        <CollapsibleSection label="Failed Batches &amp; Recent Scan Events">
+        <CollapsibleSection label={t('dashboard.group_failed_scans')}>
           <section className={`grid gap-4 ${showProduction && showTracing ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
           {showProduction && (
             <SectionCard title={t('dashboard.section.failed_qc')} subtitle={t('dashboard.section.failed_qc_sub')}>
@@ -1036,7 +1037,7 @@ export default function DashboardPage() {
 
       {/* ── Activity feed + Last-updated meta ─────────────────────────────── */}
       {feedEntries.length > 0 && (
-        <CollapsibleSection label="Activity Log &amp; System Status">
+        <CollapsibleSection label={t('dashboard.group_activity')}>
           <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <SectionCard title={t('dashboard.section.activity')} subtitle={t('dashboard.section.activity_sub')}>

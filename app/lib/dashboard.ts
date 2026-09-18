@@ -1,12 +1,5 @@
 import { supabase } from './supabase'
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function shortDayLabel(dateStr: string): string {
-  const [y, m, d] = dateStr.split('-').map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' })
-}
-
 // ── Row types (kept for downstream consumers) ────────────────────────────────
 
 export type BatchRow = {
@@ -137,15 +130,12 @@ export async function getDashboardStats(companyId: string) {
   const totalQc  = qcCounts.pass + qcCounts.fail + qcCounts.hold
   const passRate = totalQc > 0 ? Math.round((qcCounts.pass / totalQc) * 100) : null
 
-  // Add human-readable day labels to trend arrays
-  const qcTrend = (rpc.qc_trend ?? []).map(r => ({
-    ...r,
-    label: shortDayLabel(r.date),
-  }))
+  // Trend arrays keep the raw ISO date only; chart components format locale-aware
+  // day labels at render time (presentation layer), so this stays language-agnostic.
+  const qcTrend = rpc.qc_trend ?? []
 
   const scanTrend = (rpc.scan_trend ?? []).map(r => ({
     date:          r.date,
-    label:         shortDayLabel(r.date),
     scans:         r.scans,
     uniqueBatches: r.unique_batches,
   }))

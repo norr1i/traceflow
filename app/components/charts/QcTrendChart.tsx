@@ -5,11 +5,10 @@ import {
   Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
 import { FlaskConical } from 'lucide-react'
-import { useT } from '../../lib/i18n'
+import { useT, fmtDayLabel } from '../../lib/i18n'
 
 export type QcTrendPoint = {
   date:  string
-  label: string
   pass:  number
   fail:  number
   hold:  number
@@ -26,8 +25,10 @@ const TOOLTIP_STYLE = {
 }
 
 export default function QcTrendChart({ data }: { data: QcTrendPoint[] }) {
-  const { t } = useT()
+  const { t, lang } = useT()
   const hasData = data.some(d => d.pass + d.fail + d.hold > 0)
+  // Locale-aware axis labels derived from the raw date at render time.
+  const chartData = data.map(d => ({ ...d, label: fmtDayLabel(d.date, lang) }))
 
   if (!hasData) {
     return (
@@ -40,7 +41,7 @@ export default function QcTrendChart({ data }: { data: QcTrendPoint[] }) {
 
   return (
     <ResponsiveContainer width="100%" height={208}>
-      <AreaChart data={data} margin={{ top: 4, right: 4, left: -22, bottom: 0 }}>
+      <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -22, bottom: 0 }}>
         <defs>
           <linearGradient id="tfQcPass" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%"   stopColor="#10b981" stopOpacity={0.10} />

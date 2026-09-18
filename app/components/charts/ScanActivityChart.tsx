@@ -5,11 +5,10 @@ import {
   Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { QrCode } from 'lucide-react'
-import { useT } from '../../lib/i18n'
+import { useT, fmtDayLabel } from '../../lib/i18n'
 
 export type ScanTrendPoint = {
   date:          string
-  label:         string
   scans:         number
   uniqueBatches: number
 }
@@ -25,8 +24,10 @@ const TOOLTIP_STYLE = {
 }
 
 export default function ScanActivityChart({ data }: { data: ScanTrendPoint[] }) {
-  const { t } = useT()
+  const { t, lang } = useT()
   const hasData = data.some(d => d.scans > 0)
+  // Locale-aware axis labels derived from the raw date at render time.
+  const chartData = data.map(d => ({ ...d, label: fmtDayLabel(d.date, lang) }))
 
   if (!hasData) {
     return (
@@ -39,7 +40,7 @@ export default function ScanActivityChart({ data }: { data: ScanTrendPoint[] }) 
 
   return (
     <ResponsiveContainer width="100%" height={208}>
-      <BarChart data={data} margin={{ top: 4, right: 4, left: -22, bottom: 0 }} barSize={18}>
+      <BarChart data={chartData} margin={{ top: 4, right: 4, left: -22, bottom: 0 }} barSize={18}>
         <defs>
           <linearGradient id="tfScanBar" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%"   stopColor="#4a8fb9" stopOpacity={0.55} />
