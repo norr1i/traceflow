@@ -1131,7 +1131,7 @@
     "rpt_gmp_desc": "Full GMP compliance audit with evidence references"
   },
   "marketing": {
-    "preview_badge": "Preview concept",
+    "preview_badge": "Manufacturing traceability platform",
     "nav": {
       "platform": "Platform",
       "how": "How It Works",
@@ -1312,8 +1312,8 @@
       "link_capabilities": "Capabilities",
       "link_security": "Security",
       "link_signin": "Sign In",
-      "preview_note": "Preview concept — not the production homepage.",
-      "rights": "TraceFlow. Preview concept."
+      "preview_note": "Trace raw materials, production, quality, distribution, and recalls in one operational record.",
+      "rights": "TraceFlow. All rights reserved."
     }
   }
 }
