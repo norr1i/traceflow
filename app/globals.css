@@ -26,22 +26,22 @@
 }
 
 .dark {
-  --bg:         #070A10;
-  --surface:    #0D1219;
-  --elevated:   #131D2A;
+  --bg:         #0A1322;
+  --surface:    #13233D;
+  --elevated:   #1D3050;
   --border:     rgba(255,255,255,0.08);
   --border-sub: rgba(255,255,255,0.04);
   --text:       #E8EDF5;
-  --muted:      #5A6478;
-  --subtle:     #3D4758;
+  --muted:      #96A6BA;
+  --subtle:     #7C8EA4;
   --accent:     #3a6f8f;
   --accent-fg:  #60a5d4;
 
   /* Surface layer scale — distinct 8-step jumps between each level */
-  --s0: #070A10;
-  --s1: #0D1219;
-  --s2: #131D2A;
-  --s3: #1C2A3C;
+  --s0: #0A1322;
+  --s1: #13233D;
+  --s2: #1D3050;
+  --s3: #273D5E;
 }
 
 body {
