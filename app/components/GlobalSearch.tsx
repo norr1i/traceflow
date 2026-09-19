@@ -255,20 +255,20 @@ export default function GlobalSearch({ open, onClose }: Props) {
 
       {/* Command palette */}
       <div className="fixed inset-x-4 top-[11vh] z-50 mx-auto max-w-xl">
-        <div className="flex flex-col overflow-hidden rounded-2xl border border-gray-200/70 dark:border-white/[0.08] bg-white dark:bg-[#0C1018] shadow-2xl shadow-black/[0.22] dark:shadow-black/75">
+        <div className="flex flex-col overflow-hidden rounded-2xl border border-gray-200/70 dark:border-white/[0.08] bg-white dark:bg-[var(--elevated)] shadow-2xl shadow-black/[0.22] dark:shadow-black/75">
 
           {/* ── Input row ── */}
           <div className="flex items-center gap-3 px-4 py-3.5">
             {loading
               ? <span className="h-[15px] w-[15px] shrink-0 animate-spin rounded-full border-[1.5px] border-gray-300 dark:border-white/[0.14] border-t-[#4a8fb9]" />
-              : <Search size={15} strokeWidth={1.75} className="shrink-0 text-gray-400 dark:text-[#4A5568]" />
+              : <Search size={15} strokeWidth={1.75} className="shrink-0 text-gray-400 dark:text-[var(--muted)]" />
             }
             <input
               ref={inputRef}
               value={query}
               onChange={e => handleChange(e.target.value)}
               placeholder={t('search.placeholder')}
-              className="flex-1 bg-transparent text-[14px] text-gray-900 dark:text-[#E2E8F0] placeholder-gray-400 dark:placeholder-[#3D4758] outline-none"
+              className="flex-1 bg-transparent text-[14px] text-gray-900 dark:text-[#E2E8F0] placeholder-gray-400 dark:placeholder-[var(--muted)] outline-none"
               autoComplete="off"
               spellCheck={false}
             />
@@ -281,7 +281,7 @@ export default function GlobalSearch({ open, onClose }: Props) {
                   <X size={11} />
                 </button>
               )}
-              <kbd className="rounded border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-medium text-gray-400 dark:text-[#3D4758] leading-none">
+              <kbd className="rounded border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-medium text-gray-400 dark:text-[var(--muted)] leading-none">
                 esc
               </kbd>
             </div>
@@ -297,7 +297,7 @@ export default function GlobalSearch({ open, onClose }: Props) {
             {showEmpty && (
               <div className="flex flex-col items-center gap-1.5 py-12 text-center">
                 <p className="text-[13px] font-medium text-gray-600 dark:text-[#8B9BAA]">{t('search.no_results')}</p>
-                <p className="text-[12px] text-gray-400 dark:text-[#4A5568]">{t('search.no_results_sub')}</p>
+                <p className="text-[12px] text-gray-400 dark:text-[var(--muted)]">{t('search.no_results_sub')}</p>
               </div>
             )}
 
@@ -312,7 +312,7 @@ export default function GlobalSearch({ open, onClose }: Props) {
                     <div key={cat} className="mb-1.5">
                       {/* Category header */}
                       <div className="flex items-center gap-2.5 px-4 py-1">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.10em] text-gray-400 dark:text-[#3D4758] whitespace-nowrap">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.10em] text-gray-400 dark:text-[var(--muted)] whitespace-nowrap">
                           {t(`search.categories.${cat}`)}
                         </p>
                         <div className="h-px flex-1 bg-gray-100 dark:bg-white/[0.04]" />
@@ -349,7 +349,7 @@ export default function GlobalSearch({ open, onClose }: Props) {
                                 <Highlight text={r.title} query={query} />
                               </p>
                               {r.subtitle && (
-                                <p className="text-[11px] text-gray-400 dark:text-[#4A5568] truncate leading-[1.3] mt-[1px]">
+                                <p className="text-[11px] text-gray-400 dark:text-[var(--muted)] truncate leading-[1.3] mt-[1px]">
                                   <Highlight text={r.subtitle} query={query} />
                                 </p>
                               )}
@@ -373,13 +373,13 @@ export default function GlobalSearch({ open, onClose }: Props) {
 
           {/* ── Footer ── */}
           <div className="flex items-center justify-between border-t border-gray-100 dark:border-white/[0.05] px-4 py-2">
-            <p className="text-[10.5px] text-gray-400 dark:text-[#3D4758]">
+            <p className="text-[10.5px] text-gray-400 dark:text-[var(--muted)]">
               {showResults
                 ? `${totalResults} ${t('search.results')}`
                 : t('search.hint')
               }
             </p>
-            <div className="flex items-center gap-2 text-[10.5px] text-gray-300 dark:text-[#2D3748]">
+            <div className="flex items-center gap-2 text-[10.5px] text-gray-300 dark:text-[var(--muted)]">
               <span>↑↓</span>
               <span className="text-gray-200 dark:text-[#232B38]">·</span>
               <span>↵</span>

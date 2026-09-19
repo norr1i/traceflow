@@ -291,7 +291,7 @@ export default function NotificationPanel() {
       {/* Dropdown panel */}
       {open && (
         <div
-          className="absolute right-0 top-full z-50 mt-2 flex flex-col rounded-xl border border-gray-200/70 dark:border-white/[0.07] bg-white/95 dark:bg-[#0D1117]/98 backdrop-blur-md shadow-2xl shadow-black/[0.12] dark:shadow-black/60"
+          className="absolute end-0 top-full z-50 mt-2 flex flex-col rounded-xl border border-gray-200/70 dark:border-white/[0.07] bg-white/95 dark:bg-[#1D3050]/98 backdrop-blur-md shadow-2xl shadow-black/[0.12] dark:shadow-black/60"
           style={{ width: 'min(376px, 100vw - 24px)' }}
         >
 
@@ -329,7 +329,7 @@ export default function NotificationPanel() {
                 className={`py-2 mr-5 text-[11.5px] font-medium transition-colors border-b-2 -mb-px ${
                   filter === f
                     ? 'border-[#4a8fb9] text-[#4a8fb9]'
-                    : 'border-transparent text-gray-400 dark:text-[#525563] hover:text-gray-600 dark:hover:text-[#8B9BAA]'
+                    : 'border-transparent text-gray-400 dark:text-[var(--muted)] hover:text-gray-600 dark:hover:text-[var(--text)]'
                 }`}
               >
                 {f === 'all' ? t('notifications.all') : t('notifications.unread')}
@@ -353,7 +353,7 @@ export default function NotificationPanel() {
                   <p className="text-[12.5px] font-medium text-gray-600 dark:text-[#8B9BAA]">
                     {filter === 'unread' ? t('notifications.all_caught_up') : t('notifications.no_notifications')}
                   </p>
-                  <p className="mt-0.5 text-[11px] text-gray-400 dark:text-[#525563]">
+                  <p className="mt-0.5 text-[11px] text-gray-400 dark:text-[var(--muted)]">
                     {filter === 'unread' ? t('notifications.no_unread') : t('notifications.activity_appears')}
                   </p>
                 </div>
@@ -367,8 +367,8 @@ export default function NotificationPanel() {
               groups.map((group) => (
                 <div key={group.label}>
                   {/* Date group header */}
-                  <div className="sticky top-0 z-10 bg-gray-50/90 dark:bg-[#0B0F17]/90 backdrop-blur-sm border-b border-gray-100/80 dark:border-white/[0.03] px-4 py-1">
-                    <p className="text-[9.5px] font-semibold uppercase tracking-[0.08em] text-gray-400 dark:text-[#3D4451]">
+                  <div className="sticky top-0 z-10 bg-gray-50/90 dark:bg-[#13233D]/90 backdrop-blur-sm border-b border-gray-100/80 dark:border-white/[0.03] px-4 py-1">
+                    <p className="text-[9.5px] font-semibold uppercase tracking-[0.08em] text-gray-400 dark:text-[var(--muted)]">
                       {group.label}
                     </p>
                   </div>
@@ -422,7 +422,7 @@ export default function NotificationPanel() {
                             </p>
 
                             {/* Meta row */}
-                            <div className="mt-1 flex items-center gap-1 text-[10px] text-gray-400 dark:text-[#3D4451]">
+                            <div className="mt-1 flex items-center gap-1 text-[10px] text-gray-400 dark:text-[var(--muted)]">
                               {notif.actor && (
                                 <>
                                   <span className="truncate max-w-[110px] font-medium">{notif.actor.split('@')[0]}</span>
@@ -451,12 +451,12 @@ export default function NotificationPanel() {
 
           {/* Footer */}
           <div className="border-t border-gray-100 dark:border-white/[0.05] px-4 py-2 flex items-center justify-between">
-            <p className="text-[10.5px] text-gray-400 dark:text-[#3D4451]">
+            <p className="text-[10.5px] text-gray-400 dark:text-[var(--muted)]">
               {notifications.length} {notifications.length !== 1 ? t('notifications.events_live') : t('notifications.event_live')}
             </p>
             <button
               onClick={() => fetchNotifications()}
-              className="flex items-center gap-1 text-[10.5px] text-gray-400 dark:text-[#3D4451] hover:text-gray-600 dark:hover:text-[#6B7280] transition-colors"
+              className="flex items-center gap-1 text-[10.5px] text-gray-400 dark:text-[var(--muted)] hover:text-gray-600 dark:hover:text-[var(--text)] transition-colors"
             >
               <RefreshCw size={9} /> {t('notifications.refresh')}
             </button>

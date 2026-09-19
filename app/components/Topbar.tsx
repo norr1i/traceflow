@@ -93,13 +93,13 @@ export default function Topbar({
         {/* Search trigger */}
         <button
           onClick={() => setSearchOpen(true)}
-          className="hidden md:flex items-center gap-2 rounded-lg border border-gray-200 dark:border-white/[0.07] bg-gray-100 dark:bg-white/[0.03] px-3 py-1.5 w-44 hover:border-gray-300 dark:hover:border-white/[0.10] hover:bg-gray-50 dark:hover:bg-white/[0.05] transition-all duration-150 cursor-text"
+          className="hidden md:flex items-center gap-2 rounded-lg border border-gray-200 dark:border-white/[0.10] bg-gray-100 dark:bg-white/[0.04] h-10 px-3 md:w-56 lg:w-64 xl:w-80 hover:border-gray-300 dark:hover:border-white/[0.14] hover:bg-gray-50 dark:hover:bg-white/[0.06] transition-all duration-150 cursor-text"
         >
-          <Search size={13} className="shrink-0 text-gray-400 dark:text-[#525563]" />
-          <span className="flex-1 text-start text-[12px] text-gray-400 dark:text-[#525563]">
+          <Search size={13} className="shrink-0 text-gray-400 dark:text-[var(--muted)]" />
+          <span className="flex-1 text-start text-[12px] text-gray-400 dark:text-[var(--muted)]">
             {t('topbar.search_placeholder')}
           </span>
-          <kbd className="hidden lg:block shrink-0 rounded border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.03] px-1 py-0.5 text-[9px] font-medium text-gray-400 dark:text-[#525563]">
+          <kbd className="hidden lg:block shrink-0 rounded border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.03] px-1 py-0.5 text-[9px] font-medium text-gray-400 dark:text-[var(--muted)]">
             ⌘K
           </kbd>
         </button>
@@ -148,7 +148,7 @@ export default function Topbar({
           {userMenuOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setUserMenuOpen(false)} />
-              <div className="absolute end-0 top-full z-20 mt-1.5 w-52 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-[#161B22] shadow-xl shadow-black/10 dark:shadow-black/50 py-1.5 overflow-hidden">
+              <div className="absolute end-0 top-full z-20 mt-1.5 w-52 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-[var(--elevated)] shadow-xl shadow-black/10 dark:shadow-black/50 py-1.5 overflow-hidden">
 
                 {/* User info */}
                 <div className="px-3 py-2.5 border-b border-gray-100 dark:border-white/[0.06] mb-1">
