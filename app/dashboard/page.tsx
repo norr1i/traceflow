@@ -397,8 +397,8 @@ export default function DashboardPage() {
           icon={AlertTriangle}
         />,
         <StatCard key="opencapas"
-          title={t('dashboard.open_capas')}
-          value={fmtNum(capaStats?.open ?? 0, lang)}
+          title={t('dashboard.active_capas')}
+          value={fmtNum(capaStats?.active ?? 0, lang)}
           subtitle={(capaStats?.overdue ?? 0) > 0
             ? t('dashboard.n_overdue', { n: fmtNum(capaStats!.overdue, lang) })
             : t('dashboard.no_overdue')}

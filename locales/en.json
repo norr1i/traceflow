@@ -985,6 +985,7 @@
     "active_recalls": "Active Recalls",
     "open_capas": "Open CAPAs",
     "overdue_capas": "Overdue CAPAs",
+    "active_capas": "Active CAPAs",
     "resolution_rate": "Resolution Rate",
     "n_critical": "{{n}} critical",
     "no_critical_open": "No critical open",
